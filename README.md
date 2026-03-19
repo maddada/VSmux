@@ -18,7 +18,7 @@ https://x.com/i/status/2034602427442503890
 
 ---
 
-## A Sloplanation by Codex:
+## A Sloplanation by GPT 5.4:
 
 VS-AGENT-MUX turns VS Code into a fast multi-session terminal workspace. It keeps up to nine shell sessions organized in a logical `3x3` grid, lets you show `1`, `2`, `3`, `4`, `6`, or `9` sessions at a time, and gives you quick layout switching between horizontal, vertical, and grid views.
 
