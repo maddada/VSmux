@@ -1,9 +1,9 @@
 {
-  "name": "VS-AGENT-MUX",
-  "displayName": "VS-AGENT-MUX",
+  "name": "VSmux",
+  "displayName": "VSmux",
   "version": "0.0.1",
   "private": true,
-  "description": "VS-AGENT-MUX - A VS Code extension",
+  "description": "VSmux - A VS Code extension",
   "categories": [
     "Other"
   ],
@@ -11,7 +11,7 @@
   "author": "maddada",
   "repository": {
     "type": "git",
-    "url": "https://github.com/maddada/VS-AGENT-MUX.git"
+    "url": "https://github.com/maddada/VSmux.git"
   },
   "publisher": "maddada",
   "files": [
@@ -59,164 +59,164 @@
   "contributes": {
     "commands": [
       {
-        "command": "VS-AGENT-MUX.openWorkspace",
+        "command": "VSmux.openWorkspace",
         "title": "Open Workspace",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.openSettings",
+        "command": "VSmux.openSettings",
         "title": "Open Settings",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.createSession",
+        "command": "VSmux.createSession",
         "title": "New Session",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.revealSession",
+        "command": "VSmux.revealSession",
         "title": "Reveal Session",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.restartSession",
+        "command": "VSmux.restartSession",
         "title": "Restart Session",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.renameActiveSession",
+        "command": "VSmux.renameActiveSession",
         "title": "Rename Active Session",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup1",
+        "command": "VSmux.focusGroup1",
         "title": "Focus Group 1",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup2",
+        "command": "VSmux.focusGroup2",
         "title": "Focus Group 2",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup3",
+        "command": "VSmux.focusGroup3",
         "title": "Focus Group 3",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup4",
+        "command": "VSmux.focusGroup4",
         "title": "Focus Group 4",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusUp",
+        "command": "VSmux.focusUp",
         "title": "Focus Up",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusRight",
+        "command": "VSmux.focusRight",
         "title": "Focus Right",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusDown",
+        "command": "VSmux.focusDown",
         "title": "Focus Down",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusLeft",
+        "command": "VSmux.focusLeft",
         "title": "Focus Left",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "title": "Focus Session Slot",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showOne",
+        "command": "VSmux.showOne",
         "title": "Show 1 Terminal",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showTwo",
+        "command": "VSmux.showTwo",
         "title": "Show 2 Terminals",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showThree",
+        "command": "VSmux.showThree",
         "title": "Show 3 Terminals",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showFour",
+        "command": "VSmux.showFour",
         "title": "Show 4 Terminals",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showSix",
+        "command": "VSmux.showSix",
         "title": "Show 6 Terminals",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.showNine",
+        "command": "VSmux.showNine",
         "title": "Show 9 Terminals",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.toggleFullscreenSession",
+        "command": "VSmux.toggleFullscreenSession",
         "title": "Toggle Fullscreen Session",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.setHorizontalView",
+        "command": "VSmux.setHorizontalView",
         "title": "Set Horizontal View",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.setVerticalView",
+        "command": "VSmux.setVerticalView",
         "title": "Set Vertical View",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.setGridView",
+        "command": "VSmux.setGridView",
         "title": "Set Grid View",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       },
       {
-        "command": "VS-AGENT-MUX.resetWorkspace",
+        "command": "VSmux.resetWorkspace",
         "title": "Reset Workspace",
-        "category": "VS-AGENT-MUX"
+        "category": "VSmux"
       }
     ],
     "viewsContainers": {
       "secondarySidebar": [
         {
-          "id": "VS-AGENT-MUXSessions",
-          "title": "VS-AGENT-MUX",
-          "icon": "media/VS-AGENT-MUX.svg"
+          "id": "VSmuxSessions",
+          "title": "VSmux",
+          "icon": "media/VSmux.svg"
         }
       ]
     },
     "views": {
-      "VS-AGENT-MUXSessions": [
+      "VSmuxSessions": [
         {
           "type": "webview",
-          "id": "VS-AGENT-MUX.sessions",
+          "id": "VSmux.sessions",
           "name": "Sessions"
         }
       ]
     },
     "configuration": {
-      "title": "VS-AGENT-MUX",
+      "title": "VSmux",
       "properties": {
-        "VS-AGENT-MUX.backgroundSessionTimeoutMinutes": {
+        "VSmux.backgroundSessionTimeoutMinutes": {
           "type": "number",
           "minimum": 0,
           "default": 5,
-          "description": "How long detached background sessions stay alive after the last VS-AGENT-MUX window disconnects. Set to 0 to keep sessions alive until they exit or are explicitly closed."
+          "description": "How long detached background sessions stay alive after the last VSmux window disconnects. Set to 0 to keep sessions alive until they exit or are explicitly closed."
         },
-        "VS-AGENT-MUX.sidebarTheme": {
+        "VSmux.sidebarTheme": {
           "type": "string",
           "default": "auto",
           "enum": [
@@ -258,29 +258,29 @@
             "A light pink-tinted palette with a rose accent.",
             "A light orange-tinted palette with an amber accent."
           ],
-          "description": "Theme preset used by the VS-AGENT-MUX sidebar app. Auto follows the active VS Code light or dark theme."
+          "description": "Theme preset used by the VSmux sidebar app. Auto follows the active VS Code light or dark theme."
         },
-        "VS-AGENT-MUX.debuggingMode": {
+        "VSmux.debuggingMode": {
           "type": "boolean",
           "default": false,
           "description": "Show debugging UI such as the active terminal backend indicator in the status bar."
         },
-        "VS-AGENT-MUX.zmxBinaryPathOverride": {
+        "VSmux.zmxBinaryPathOverride": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to a custom zmx binary. When set, VS-AGENT-MUX uses this binary instead of downloading the pinned upstream zmx release."
+          "description": "Absolute path to a custom zmx binary. When set, VSmux uses this binary instead of downloading the pinned upstream zmx release."
         },
-        "VS-AGENT-MUX.showCloseButtonOnSessionCards": {
+        "VSmux.showCloseButtonOnSessionCards": {
           "type": "boolean",
           "default": false,
           "description": "Show close button on session cards. You can always cmd + click or middle click on a card to close it."
         },
-        "VS-AGENT-MUX.showHotkeysOnSessionCards": {
+        "VSmux.showHotkeysOnSessionCards": {
           "type": "boolean",
           "default": false,
           "description": "Show hotkey labels on session cards all the time instead of only revealing them when you hover a card."
         },
-        "VS-AGENT-MUX.completionSound": {
+        "VSmux.completionSound": {
           "type": "string",
           "default": "ping",
           "enum": [
@@ -307,9 +307,9 @@
             "Superset Doo-Wap",
             "Superset Quick"
           ],
-          "description": "Sound played when an agent finishes and the per-project bell is enabled in the VS-AGENT-MUX sidebar."
+          "description": "Sound played when an agent finishes and the per-project bell is enabled in the VSmux sidebar."
         },
-        "VS-AGENT-MUX.sendRenameCommandOnSidebarRename": {
+        "VSmux.sendRenameCommandOnSidebarRename": {
           "type": "boolean",
           "default": true,
           "description": "When renaming a session from the sidebar, also stage `/rename <new name>` in that terminal and focus it without pressing Enter."
@@ -318,130 +318,130 @@
     },
     "keybindings": [
       {
-        "command": "VS-AGENT-MUX.focusGroup1",
+        "command": "VSmux.focusGroup1",
         "key": "ctrl+alt+shift+1",
         "mac": "ctrl+alt+shift+1",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup2",
+        "command": "VSmux.focusGroup2",
         "key": "ctrl+alt+shift+2",
         "mac": "ctrl+alt+shift+2",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup3",
+        "command": "VSmux.focusGroup3",
         "key": "ctrl+alt+shift+3",
         "mac": "ctrl+alt+shift+3",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.focusGroup4",
+        "command": "VSmux.focusGroup4",
         "key": "ctrl+alt+shift+4",
         "mac": "ctrl+alt+shift+4",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.showSix",
+        "command": "VSmux.showSix",
         "key": "ctrl+alt+shift+6",
         "mac": "cmd+alt+shift+6",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.showNine",
+        "command": "VSmux.showNine",
         "key": "ctrl+alt+shift+9",
         "mac": "cmd+alt+shift+9",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 1,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+1",
         "mac": "cmd+alt+1",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 2,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+2",
         "mac": "cmd+alt+2",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 3,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+3",
         "mac": "cmd+alt+3",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 4,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+4",
         "mac": "cmd+alt+4",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 5,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+5",
         "mac": "cmd+alt+5",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 6,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+6",
         "mac": "cmd+alt+6",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 7,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+7",
         "mac": "cmd+alt+7",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 8,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+8",
         "mac": "cmd+alt+8",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "args": 9,
-        "command": "VS-AGENT-MUX.focusSessionSlot",
+        "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+9",
         "mac": "cmd+alt+9",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.setHorizontalView",
+        "command": "VSmux.setHorizontalView",
         "key": "ctrl+alt+h",
         "mac": "cmd+alt+h",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.setVerticalView",
+        "command": "VSmux.setVerticalView",
         "key": "ctrl+alt+v",
         "mac": "cmd+alt+v",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.setGridView",
+        "command": "VSmux.setGridView",
         "key": "ctrl+alt+g",
         "mac": "cmd+alt+g",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.renameActiveSession",
+        "command": "VSmux.renameActiveSession",
         "key": "ctrl+alt+r",
         "mac": "cmd+alt+r",
         "when": "!inputFocus || terminalFocus"
       },
       {
-        "command": "VS-AGENT-MUX.toggleFullscreenSession",
+        "command": "VSmux.toggleFullscreenSession",
         "key": "ctrl+alt+f",
         "mac": "cmd+alt+f",
         "when": "terminalFocus"
@@ -462,7 +462,7 @@
   },
   "activationEvents": [
     "onStartupFinished",
-    "onView:VS-AGENT-MUX.sessions"
+    "onView:VSmux.sessions"
   ],
   "engines": {
     "vscode": "^1.110.0"

@@ -47,15 +47,15 @@ import {
 } from "./terminal-workspace-helpers";
 import { ZmxTerminalWorkspaceBackend } from "./zmx-terminal-workspace-backend";
 
-const SETTINGS_SECTION = "VS-AGENT-MUX";
+const SETTINGS_SECTION = "VSmux";
 const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
 const SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING = "sendRenameCommandOnSidebarRename";
 const SIDEBAR_THEME_SETTING = "sidebarTheme";
 const SHOW_CLOSE_BUTTON_ON_SESSION_CARDS_SETTING = "showCloseButtonOnSessionCards";
 const SHOW_HOTKEYS_ON_SESSION_CARDS_SETTING = "showHotkeysOnSessionCards";
 const COMPLETION_SOUND_SETTING = "completionSound";
-const COMPLETION_BELL_ENABLED_KEY = "VS-AGENT-MUX.completionBellEnabled";
-export const SESSIONS_VIEW_ID = "VS-AGENT-MUX.sessions";
+const COMPLETION_BELL_ENABLED_KEY = "VSmux.completionBellEnabled";
+export const SESSIONS_VIEW_ID = "VSmux.sessions";
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const WORKING_ACTIVITY_STALE_TIMEOUT_MS = 10_000;
 
@@ -204,7 +204,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async openWorkspace(): Promise<void> {
-    await vscode.commands.executeCommand("workbench.view.extension.VS-AGENT-MUXSessions");
+    await vscode.commands.executeCommand("workbench.view.extension.VSmuxSessions");
 
     if (this.getAllSessionRecords().length === 0) {
       await this.createSession();
@@ -226,7 +226,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   public async resetWorkspace(): Promise<void> {
     const confirmation = await vscode.window.showWarningMessage(
-      "Reset VS-AGENT-MUX sessions?",
+      "Reset VSmux sessions?",
       {
         detail:
           "This clears the saved session grid for the current workspace and kills all detached shells owned by it.",
@@ -370,10 +370,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async openSettings(): Promise<void> {
-    await vscode.commands.executeCommand(
-      "workbench.action.openSettings",
-      "@ext:maddada.VS-AGENT-MUX",
-    );
+    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:maddada.VSmux");
   }
 
   public async toggleCompletionBell(): Promise<void> {
@@ -579,7 +576,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const approval = await vscode.window.showWarningMessage(
-      "VS-AGENT-MUX is about to start a shell in an untrusted workspace.",
+      "VSmux is about to start a shell in an untrusted workspace.",
       {
         detail:
           "Shell sessions can run commands against files in this workspace. Trust the workspace or explicitly allow shell access to continue.",
@@ -941,7 +938,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       })),
       {
         placeHolder: title,
-        title: `VS-AGENT-MUX: ${title}`,
+        title: `VSmux: ${title}`,
       },
     );
 

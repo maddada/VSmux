@@ -24,8 +24,8 @@ implementation/docs aligned with the validated runtime behavior.
   `button`, `tooltip`, `separator`, `card`, `badge`, `dropdown-menu`,
   `context-menu`, `dialog`, `tabs`, `scroll-area`, `skeleton`, and `empty`
 - added shadcn `input` to support inline session renaming in tile headers
-- replaced the sample VS-AGENT-MUX extension with an
-  `VS-AGENT-MUX.openCanvasPanel` command and a reusable `WebviewPanel` host
+- replaced the sample VSmux extension with an
+  `VSmux.openCanvasPanel` command and a reusable `WebviewPanel` host
 - implemented a React canvas shell with toolbar, tile creation, tile focus,
   drag/resize, background pan, zoom controls, empty/loading states, and tile
   menus/context menus
@@ -46,7 +46,7 @@ implementation/docs aligned with the validated runtime behavior.
   and added tile-to-tile snapping during drag and resize
 - added an `Auto align` toolbar action that snaps tiles into a cleaner layout
   while preserving the user's approximate row placement and size choices
-- added a VS Code setting, `VS-AGENT-MUX.uiScale`, that controls the scale of
+- added a VS Code setting, `VSmux.uiScale`, that controls the scale of
   the canvas UI chrome, and reduced the default tile size
 - fixed `Auto align` so it infers rows from each tile's current `y` placement,
   snaps positions and dimensions to a grid, and only normalizes sizes when they
@@ -64,7 +64,7 @@ implementation/docs aligned with the validated runtime behavior.
 - updated `Auto align` so every tile in the same aligned row gets the same final
   height, instead of only using the tallest tile for row spacing
 - replaced the old workspace-details dialog with a settings dialog that edits
-  `VS-AGENT-MUX.uiScale` directly and lowered the default UI zoom to 0.60
+  `VSmux.uiScale` directly and lowered the default UI zoom to 0.60
 - simplified the settings dialog by removing the stepper controls, extra reset
   action, and explanatory copy so it only exposes the saved UI zoom field
 - added a versioned shared terminal-host protocol for daemon IPC and
@@ -80,7 +80,7 @@ implementation/docs aligned with the validated runtime behavior.
   the extension host
 - changed panel hydration so it now includes terminal session state alongside
   the persisted canvas snapshot and UI settings
-- added an `VS-AGENT-MUX.terminalFontFamily` setting and defaulted terminal
+- added an `VSmux.terminalFontFamily` setting and defaulted terminal
   rendering to a Meslo Nerd Font stack
 - added a real restart path for exited or failed tiles that recreates the
   daemon-backed session with the same tile ID
@@ -90,7 +90,7 @@ implementation/docs aligned with the validated runtime behavior.
   read-only tile state from persisted history instead of silently respawning
   shells
 - added untrusted-workspace shell gating so new terminal spawns and restarts
-  require an explicit one-time approval before VS-AGENT-MUX launches shells in
+  require an explicit one-time approval before VSmux launches shells in
   an untrusted workspace
 - added the contributed bottom-panel host plus single-active-host handoff
   commands for moving the canvas between the editor panel and bottom panel
@@ -148,7 +148,7 @@ implementation/docs aligned with the validated runtime behavior.
   that row so neighboring terminals line up cleanly along both top and bottom
 - source UI chrome scale from a contributed VS Code setting and push it through
   the extension-to-webview hydrate payload so changes apply without rebuilding
-- let the webview settings dialog update `VS-AGENT-MUX.uiScale` directly so the
+- let the webview settings dialog update `VSmux.uiScale` directly so the
   canvas chrome can be tuned in-app while still persisting to VS Code settings
 - keep the settings dialog minimal: numeric input plus save action, with a bit
   more breathing room under the sidebar settings trigger row

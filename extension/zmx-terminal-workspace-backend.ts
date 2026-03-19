@@ -385,8 +385,8 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     }
 
     if (sessionId) {
-      environment.VS_AGENT_MUX_SESSION_ID = sessionId;
-      environment.VS_AGENT_MUX_SESSION_STATE_FILE = this.getSessionAgentStateFilePath(sessionId);
+      environment.VSMUX_SESSION_ID = sessionId;
+      environment.VSMUX_SESSION_STATE_FILE = this.getSessionAgentStateFilePath(sessionId);
     }
 
     return environment;
@@ -457,7 +457,13 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
         ? await this.readSessionHistoryState(sessionName, agentState)
         : undefined;
       const nextTitle = historyState?.title ?? agentState.title?.trim();
-      this.updateLastTerminalActivity(sessionId, historyState, nextTitle, previousTitle, refreshStartedAt);
+      this.updateLastTerminalActivity(
+        sessionId,
+        historyState,
+        nextTitle,
+        previousTitle,
+        refreshStartedAt,
+      );
       const nextStatus: TerminalSessionStatus = runningSessionNames.has(sessionName)
         ? "running"
         : previousSession?.status === "running"

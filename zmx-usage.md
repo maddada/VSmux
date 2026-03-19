@@ -1,11 +1,11 @@
 # ZMX Usage Notes
 
-This file explains how VS-AGENT-MUX uses `zmx` on macOS/Linux, and how to
+This file explains how VSmux uses `zmx` on macOS/Linux, and how to
 inspect or attach to those sessions from a normal terminal outside VS Code.
 
-## What VS-AGENT-MUX Is Doing
+## What VSmux Is Doing
 
-On macOS/Linux, VS-AGENT-MUX uses `zmx` as the persistent terminal session
+On macOS/Linux, VSmux uses `zmx` as the persistent terminal session
 backend.
 
 That means:
@@ -46,7 +46,7 @@ XDG_RUNTIME_DIR="<runtime-dir>" "<path-to-zmx>" list --short
 ```
 
 If you want to filter to sessions for just the current repo, use the workspace
-prefix that VS-AGENT-MUX generated for that workspace:
+prefix that VSmux generated for that workspace:
 
 ```bash
 XDG_RUNTIME_DIR="<runtime-dir>" "<path-to-zmx>" list --short | rg '^vam-<workspace-id>-'
@@ -61,12 +61,12 @@ zmx l
 ```
 
 from a normal terminal and it shows no sessions, that usually does not mean
-there are no VS-AGENT-MUX sessions.
+there are no VSmux sessions.
 
 It usually means your current `zmx` process is looking at the wrong runtime
 directory.
 
-VS-AGENT-MUX may not use zmx's default socket location. If the extension forces
+VSmux may not use zmx's default socket location. If the extension forces
 a custom runtime dir, you need to pass the same `XDG_RUNTIME_DIR` when running
 `zmx` manually.
 

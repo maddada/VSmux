@@ -2,7 +2,7 @@ import type { CompletionSoundSetting } from "../shared/completion-sound";
 
 declare global {
   interface Window {
-    __VS_AGENT_MUX_SOUND_URLS__?: Partial<Record<CompletionSoundSetting, string>>;
+    __VSMUX_SOUND_URLS__?: Partial<Record<CompletionSoundSetting, string>>;
   }
 }
 
@@ -30,7 +30,7 @@ function getAudio(sound: CompletionSoundSetting): HTMLAudioElement | undefined {
     return existingAudio;
   }
 
-  const url = window.__VS_AGENT_MUX_SOUND_URLS__?.[sound];
+  const url = window.__VSMUX_SOUND_URLS__?.[sound];
   if (!url) {
     return undefined;
   }

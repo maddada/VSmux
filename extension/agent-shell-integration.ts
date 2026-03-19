@@ -23,10 +23,10 @@ export type AgentShellIntegration = {
 };
 
 const AGENT_CONTROL_COMMAND = "9001";
-const AGENT_CONTROL_NAMESPACE = "VS-AGENT-MUX";
+const AGENT_CONTROL_NAMESPACE = "VSmux";
 const AGENT_SHELL_DIR_NAME = "agent-shell-integration";
 const NOTIFY_SCRIPT_NAME = "notify.sh";
-const OPENCODE_PLUGIN_FILE_NAME = "VS-AGENT-MUX-notify.js";
+const OPENCODE_PLUGIN_FILE_NAME = "VSmux-notify.js";
 const CODEX_START_LOG_PATTERNS = [
   [`"type":"event_msg"`, `"payload":{"type":"task_started"`],
 ] as const;
@@ -299,10 +299,10 @@ esac
 
   AGENT_NAME=$(printf '%s' "$INPUT" | grep -oE '"agent"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 if [ -z "$AGENT_NAME" ]; then
-  AGENT_NAME="\${VS_AGENT_MUX_AGENT:-unknown}"
+  AGENT_NAME="\${VSMUX_AGENT:-unknown}"
 fi
 
-STATE_FILE="\${VS_AGENT_MUX_SESSION_STATE_FILE:-}"
+STATE_FILE="\${VSMUX_SESSION_STATE_FILE:-}"
 if [ -n "$STATE_FILE" ]; then
   STATE_DIR=$(dirname "$STATE_FILE")
   mkdir -p "$STATE_DIR" >/dev/null 2>&1 || true
@@ -349,12 +349,12 @@ rehash 2>/dev/null || true
 unalias codex 2>/dev/null || true
 unalias opencode 2>/dev/null || true
 
-if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
-  typeset -g __VS_AGENT_MUX_ZSH_HOOKS_INSTALLED=1
+if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
+  typeset -g __VSMUX_ZSH_HOOKS_INSTALLED=1
 
-  __vs_agent_mux_read_state_value() {
+  __vsmux_read_state_value() {
     emulate -L zsh
-    local state_file="\${VS_AGENT_MUX_SESSION_STATE_FILE:-}"
+    local state_file="\${VSMUX_SESSION_STATE_FILE:-}"
     local wanted_key="$1"
 
     [ -n "$state_file" ] || return 1
@@ -378,24 +378,24 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
     return 1
   }
 
-  __vs_agent_mux_emit_session_title() {
+  __vsmux_emit_session_title() {
     emulate -L zsh
     local title="$1"
     [ -n "$title" ] || return 0
     printf '\\033]0;%s\\007' "$title" > /dev/tty
   }
 
-  __vs_agent_mux_read_session_title() {
+  __vsmux_read_session_title() {
     emulate -L zsh
-    __vs_agent_mux_read_state_value title
+    __vsmux_read_state_value title
   }
 
-  __vs_agent_mux_write_session_title() {
+  __vsmux_write_session_title() {
     emulate -L zsh
-    local state_file="\${VS_AGENT_MUX_SESSION_STATE_FILE:-}"
+    local state_file="\${VSMUX_SESSION_STATE_FILE:-}"
     local title="$1"
     local session_status="idle"
-    local session_agent="\${VS_AGENT_MUX_AGENT:-}"
+    local session_agent="\${VSMUX_AGENT:-}"
 
     [ -n "$state_file" ] || return 0
 
@@ -422,13 +422,13 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
     } >| "$tmp_file" && mv -f -- "$tmp_file" "$state_file"
   }
 
-  vs_agent_mux_set_title() {
+  vsmux_set_title() {
     emulate -L zsh
-    __vs_agent_mux_write_session_title "$*"
-    __vs_agent_mux_emit_session_title "$*"
+    __vsmux_write_session_title "$*"
+    __vsmux_emit_session_title "$*"
   }
 
-  alias vam-title='vs_agent_mux_set_title'
+  alias vam-title='vsmux_set_title'
 fi
 
 codex() {
@@ -448,7 +448,7 @@ function getCodexWrapperContent(binDir: string, notifyPath: string): string {
   const codexTaskCompletePattern = createShellCasePattern(CODEX_STOP_LOG_PATTERNS[0]);
 
   return `#!/bin/bash
-# VS-AGENT-MUX codex wrapper
+# VSmux codex wrapper
 
 find_real_binary() {
   local name="$1"
@@ -469,98 +469,98 @@ find_real_binary() {
 
 REAL_BIN="$(find_real_binary "codex")"
 if [ -z "$REAL_BIN" ]; then
-  echo "VS-AGENT-MUX: codex not found in PATH." >&2
+  echo "VSmux: codex not found in PATH." >&2
   exit 127
 fi
 
-export VS_AGENT_MUX_AGENT="codex"
+export VSMUX_AGENT="codex"
 export CODEX_TUI_RECORD_SESSION=1
 
 if [ -z "$CODEX_TUI_SESSION_LOG_PATH" ]; then
-  _vs_agent_mux_ts="$(date +%s 2>/dev/null || echo "$$")"
-  export CODEX_TUI_SESSION_LOG_PATH="\${TMPDIR:-/tmp}/VS-AGENT-MUX-codex-$$_\${_vs_agent_mux_ts}.jsonl"
+  _vsmux_ts="$(date +%s 2>/dev/null || echo "$$")"
+  export CODEX_TUI_SESSION_LOG_PATH="\${TMPDIR:-/tmp}/VSmux-codex-$$_\${_vsmux_ts}.jsonl"
 fi
 
-_vs_agent_mux_write_title() {
-  _vs_agent_mux_state_file="\${VS_AGENT_MUX_SESSION_STATE_FILE:-}"
-  _vs_agent_mux_title="$1"
-  _vs_agent_mux_status="idle"
-  _vs_agent_mux_agent="\${VS_AGENT_MUX_AGENT:-}"
+_vsmux_write_title() {
+  _vsmux_state_file="\${VSMUX_SESSION_STATE_FILE:-}"
+  _vsmux_title="$1"
+  _vsmux_status="idle"
+  _vsmux_agent="\${VSMUX_AGENT:-}"
 
-  [ -n "$_vs_agent_mux_state_file" ] || return 0
+  [ -n "$_vsmux_state_file" ] || return 0
 
-  if [ -r "$_vs_agent_mux_state_file" ]; then
-    while IFS='=' read -r _vs_agent_mux_key _vs_agent_mux_value; do
-      case "$_vs_agent_mux_key" in
-        status) _vs_agent_mux_status="$_vs_agent_mux_value" ;;
-        agent) _vs_agent_mux_agent="$_vs_agent_mux_value" ;;
+  if [ -r "$_vsmux_state_file" ]; then
+    while IFS='=' read -r _vsmux_key _vsmux_value; do
+      case "$_vsmux_key" in
+        status) _vsmux_status="$_vsmux_value" ;;
+        agent) _vsmux_agent="$_vsmux_value" ;;
       esac
-    done < "$_vs_agent_mux_state_file"
+    done < "$_vsmux_state_file"
   fi
 
-  _vs_agent_mux_tmp_file="$_vs_agent_mux_state_file.tmp.$$"
-  printf 'status=%s\nagent=%s\ntitle=%s\n' "$_vs_agent_mux_status" "$_vs_agent_mux_agent" "$_vs_agent_mux_title" >"$_vs_agent_mux_tmp_file"
-  mv "$_vs_agent_mux_tmp_file" "$_vs_agent_mux_state_file" >/dev/null 2>&1 || true
+  _vsmux_tmp_file="$_vsmux_state_file.tmp.$$"
+  printf 'status=%s\nagent=%s\ntitle=%s\n' "$_vsmux_status" "$_vsmux_agent" "$_vsmux_title" >"$_vsmux_tmp_file"
+  mv "$_vsmux_tmp_file" "$_vsmux_state_file" >/dev/null 2>&1 || true
 }
 
-_vs_agent_mux_write_title "OpenAI Codex"
+_vsmux_write_title "OpenAI Codex"
 
 if [ -f ${quotedNotifyPath} ]; then
   (
-    _vs_agent_mux_log="$CODEX_TUI_SESSION_LOG_PATH"
-    _vs_agent_mux_notify=${quotedNotifyPath}
-    _vs_agent_mux_last_turn_id=""
-    _vs_agent_mux_last_completed_turn_id=""
+    _vsmux_log="$CODEX_TUI_SESSION_LOG_PATH"
+    _vsmux_notify=${quotedNotifyPath}
+    _vsmux_last_turn_id=""
+    _vsmux_last_completed_turn_id=""
 
-    _vs_agent_mux_emit_event() {
-      _vs_agent_mux_event="$1"
-      _vs_agent_mux_payload=$(printf '{"hook_event_name":"%s","agent":"codex"}' "$_vs_agent_mux_event")
-      sh "$_vs_agent_mux_notify" "$_vs_agent_mux_payload" || true
+    _vsmux_emit_event() {
+      _vsmux_event="$1"
+      _vsmux_payload=$(printf '{"hook_event_name":"%s","agent":"codex"}' "$_vsmux_event")
+      sh "$_vsmux_notify" "$_vsmux_payload" || true
     }
 
-    _vs_agent_mux_i=0
-    while [ ! -f "$_vs_agent_mux_log" ] && [ "$_vs_agent_mux_i" -lt 200 ]; do
-      _vs_agent_mux_i=$((_vs_agent_mux_i + 1))
+    _vsmux_i=0
+    while [ ! -f "$_vsmux_log" ] && [ "$_vsmux_i" -lt 200 ]; do
+      _vsmux_i=$((_vsmux_i + 1))
       sleep 0.05
     done
 
-    if [ ! -f "$_vs_agent_mux_log" ]; then
+    if [ ! -f "$_vsmux_log" ]; then
       exit 0
     fi
 
-    tail -n +1 -F "$_vs_agent_mux_log" 2>/dev/null | while IFS= read -r _vs_agent_mux_line; do
-      case "$_vs_agent_mux_line" in
+    tail -n +1 -F "$_vsmux_log" 2>/dev/null | while IFS= read -r _vsmux_line; do
+      case "$_vsmux_line" in
         ${codexTaskStartedPattern})
-          _vs_agent_mux_turn_id=$(printf '%s\\n' "$_vs_agent_mux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
-          [ -n "$_vs_agent_mux_turn_id" ] || _vs_agent_mux_turn_id="task_started"
-          if [ "$_vs_agent_mux_turn_id" != "$_vs_agent_mux_last_turn_id" ]; then
-            _vs_agent_mux_last_turn_id="$_vs_agent_mux_turn_id"
-            _vs_agent_mux_emit_event "Start"
+          _vsmux_turn_id=$(printf '%s\\n' "$_vsmux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
+          [ -n "$_vsmux_turn_id" ] || _vsmux_turn_id="task_started"
+          if [ "$_vsmux_turn_id" != "$_vsmux_last_turn_id" ]; then
+            _vsmux_last_turn_id="$_vsmux_turn_id"
+            _vsmux_emit_event "Start"
           fi
           ;;
         ${codexTaskCompletePattern})
-          _vs_agent_mux_completed_turn_id=$(printf '%s\\n' "$_vs_agent_mux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
-          [ -n "$_vs_agent_mux_completed_turn_id" ] || _vs_agent_mux_completed_turn_id="task_complete"
-          if [ "$_vs_agent_mux_completed_turn_id" != "$_vs_agent_mux_last_completed_turn_id" ]; then
-            _vs_agent_mux_last_completed_turn_id="$_vs_agent_mux_completed_turn_id"
-            _vs_agent_mux_emit_event "Stop"
+          _vsmux_completed_turn_id=$(printf '%s\\n' "$_vsmux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
+          [ -n "$_vsmux_completed_turn_id" ] || _vsmux_completed_turn_id="task_complete"
+          if [ "$_vsmux_completed_turn_id" != "$_vsmux_last_completed_turn_id" ]; then
+            _vsmux_last_completed_turn_id="$_vsmux_completed_turn_id"
+            _vsmux_emit_event "Stop"
           fi
           ;;
       esac
     done
   ) &
-  VS_AGENT_MUX_CODEX_WATCHER_PID=$!
+  VSMUX_CODEX_WATCHER_PID=$!
 fi
 
 "$REAL_BIN" -c 'notify=${notifyConfigValue}' "$@"
-VS_AGENT_MUX_CODEX_STATUS=$?
+VSMUX_CODEX_STATUS=$?
 
-if [ -n "$VS_AGENT_MUX_CODEX_WATCHER_PID" ]; then
-  kill "$VS_AGENT_MUX_CODEX_WATCHER_PID" >/dev/null 2>&1 || true
-  wait "$VS_AGENT_MUX_CODEX_WATCHER_PID" 2>/dev/null || true
+if [ -n "$VSMUX_CODEX_WATCHER_PID" ]; then
+  kill "$VSMUX_CODEX_WATCHER_PID" >/dev/null 2>&1 || true
+  wait "$VSMUX_CODEX_WATCHER_PID" 2>/dev/null || true
 fi
 
-exit "$VS_AGENT_MUX_CODEX_STATUS"
+exit "$VSMUX_CODEX_STATUS"
 `;
 }
 
@@ -569,7 +569,7 @@ function getOpenCodeWrapperContent(binDir: string, opencodeConfigDir: string): s
   const quotedConfigDir = quoteShellLiteral(opencodeConfigDir);
 
   return `#!/bin/bash
-# VS-AGENT-MUX opencode wrapper
+# VSmux opencode wrapper
 
 find_real_binary() {
   local name="$1"
@@ -590,17 +590,17 @@ find_real_binary() {
 
 REAL_BIN="$(find_real_binary "opencode")"
 if [ -z "$REAL_BIN" ]; then
-  echo "VS-AGENT-MUX: opencode not found in PATH." >&2
+  echo "VSmux: opencode not found in PATH." >&2
   exit 127
 fi
 
-export VS_AGENT_MUX_AGENT="opencode"
+export VSMUX_AGENT="opencode"
 export OPENCODE_CONFIG_DIR=${quotedConfigDir}
 
-if [ -n "$VS_AGENT_MUX_SESSION_STATE_FILE" ]; then
-  _vs_agent_mux_tmp_file="$VS_AGENT_MUX_SESSION_STATE_FILE.tmp.$$"
-  printf 'status=idle\nagent=%s\ntitle=%s\n' "$VS_AGENT_MUX_AGENT" "OpenCode" >"$_vs_agent_mux_tmp_file"
-  mv "$_vs_agent_mux_tmp_file" "$VS_AGENT_MUX_SESSION_STATE_FILE" >/dev/null 2>&1 || true
+if [ -n "$VSMUX_SESSION_STATE_FILE" ]; then
+  _vsmux_tmp_file="$VSMUX_SESSION_STATE_FILE.tmp.$$"
+  printf 'status=idle\nagent=%s\ntitle=%s\n' "$VSMUX_AGENT" "OpenCode" >"$_vsmux_tmp_file"
+  mv "$_vsmux_tmp_file" "$VSMUX_SESSION_STATE_FILE" >/dev/null 2>&1 || true
 fi
 
 exec "$REAL_BIN" "$@"
@@ -609,13 +609,13 @@ exec "$REAL_BIN" "$@"
 
 function getOpenCodePluginContent(notifyPath: string): string {
   return `/**
- * VS-AGENT-MUX notification plugin for OpenCode.
+ * VSmux notification plugin for OpenCode.
  */
-export const VsAgentMuxNotifyPlugin = async ({ $, client }) => {
-  if (globalThis.__vsAgentMuxNotifyPluginV1) return {};
-  globalThis.__vsAgentMuxNotifyPluginV1 = true;
+export const VSmuxNotifyPlugin = async ({ $, client }) => {
+  if (globalThis.__vsmuxNotifyPluginV1) return {};
+  globalThis.__vsmuxNotifyPluginV1 = true;
 
-  if (!process?.env?.VS_AGENT_MUX_SESSION_ID) return {};
+  if (!process?.env?.VSMUX_SESSION_ID) return {};
 
   const notifyPath = ${JSON.stringify(notifyPath)};
   let currentState = "idle";

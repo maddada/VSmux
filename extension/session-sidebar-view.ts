@@ -5,7 +5,7 @@ import type {
   SidebarToExtensionMessage,
 } from "../shared/session-grid-contract";
 
-const EXTENSION_ID = "maddada.VS-AGENT-MUX";
+const EXTENSION_ID = "maddada.VSmux";
 
 type SessionSidebarViewOptions = {
   onMessage: (message: SidebarToExtensionMessage) => void | Promise<void>;
@@ -86,7 +86,7 @@ function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri | unde
     return `<!DOCTYPE html>
 <html lang="en">
   <body>
-    <p>Unable to resolve the VS-AGENT-MUX extension assets.</p>
+    <p>Unable to resolve the VSmux extension assets.</p>
   </body>
 </html>`;
   }
@@ -130,7 +130,7 @@ function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri | unde
   <body>
     <div id="root"></div>
     <script nonce="${nonce}">
-      window.__VS_AGENT_MUX_SOUND_URLS__ = ${soundUrlsJson};
+      window.__VSMUX_SOUND_URLS__ = ${soundUrlsJson};
     </script>
     <script nonce="${nonce}" src="${scriptUri}" type="module"></script>
   </body>
@@ -143,7 +143,7 @@ function getExtensionUri(): vscode.Uri | undefined {
     return directMatch.extensionUri;
   }
 
-  return vscode.extensions.all.find((extension) => extension.packageJSON.name === "VS-AGENT-MUX")
+  return vscode.extensions.all.find((extension) => extension.packageJSON.name === "VSmux")
     ?.extensionUri;
 }
 

@@ -312,7 +312,11 @@ async function openContextMenu(element: HTMLElement) {
 async function dragSessionToGroup(root: ParentNode, sessionId: string, groupId: string) {
   resetSidebarStoryMessages();
   await dragAndDrop(
-    await findRequiredElement(root, `[data-sidebar-session-id="${sessionId}"]`, `${sessionId} card`),
+    await findRequiredElement(
+      root,
+      `[data-sidebar-session-id="${sessionId}"]`,
+      `${sessionId} card`,
+    ),
     await findRequiredElement(root, `[data-sidebar-group-id="${groupId}"]`, `${groupId} section`),
   );
   await expectMessage({

@@ -30,7 +30,7 @@ export async function ensureZmxBinary(context: vscode.ExtensionContext): Promise
     {
       cancellable: false,
       location: vscode.ProgressLocation.Notification,
-      title: "VS-AGENT-MUX is installing the zmx session backend",
+      title: "VSmux is installing the zmx session backend",
     },
     async (progress) => {
       progress.report({ increment: 20, message: `Downloading zmx ${ZMX_VERSION}` });
@@ -38,7 +38,7 @@ export async function ensureZmxBinary(context: vscode.ExtensionContext): Promise
 
       const temporaryDirectory = path.join(
         tmpdir(),
-        `VS-AGENT-MUX-zmx-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        `VSmux-zmx-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       );
       const archivePath = path.join(temporaryDirectory, "zmx.tar.gz");
 
@@ -111,7 +111,7 @@ async function pathExists(targetPath: string): Promise<boolean> {
 
 function getConfiguredZmxBinaryPath(): string | undefined {
   const configuredPath = vscode.workspace
-    .getConfiguration("VS-AGENT-MUX")
+    .getConfiguration("VSmux")
     .get<string>("zmxBinaryPathOverride")
     ?.trim();
 

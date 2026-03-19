@@ -19,7 +19,7 @@ import {
   getViewColumn,
 } from "./terminal-workspace-helpers";
 
-const SETTINGS_SECTION = "VS-AGENT-MUX";
+const SETTINGS_SECTION = "VSmux";
 const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
 const MINUTE_IN_MS = 60_000;
 

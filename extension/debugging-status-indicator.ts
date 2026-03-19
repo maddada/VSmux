@@ -4,7 +4,7 @@ import type {
   NativeTerminalWorkspaceDebugState,
 } from "./native-terminal-workspace";
 
-const SETTINGS_SECTION = "VS-AGENT-MUX";
+const SETTINGS_SECTION = "VSmux";
 const DEBUGGING_MODE_SETTING = "debuggingMode";
 
 export class DebuggingStatusIndicator implements vscode.Disposable {
@@ -15,8 +15,8 @@ export class DebuggingStatusIndicator implements vscode.Disposable {
   );
 
   public constructor(private readonly workspace: NativeTerminalWorkspaceController) {
-    this.statusBarItem.name = "VS-AGENT-MUX Debugging";
-    this.statusBarItem.command = "VS-AGENT-MUX.openSettings";
+    this.statusBarItem.name = "VSmux Debugging";
+    this.statusBarItem.command = "VSmux.openSettings";
 
     this.disposables.push(
       this.statusBarItem,
@@ -52,11 +52,11 @@ export class DebuggingStatusIndicator implements vscode.Disposable {
 function createTooltip(debugState: NativeTerminalWorkspaceDebugState): vscode.MarkdownString {
   const tooltip = new vscode.MarkdownString(undefined, true);
   tooltip.isTrusted = true;
-  tooltip.appendMarkdown("**VS-AGENT-MUX Debugging Mode**\n\n");
+  tooltip.appendMarkdown("**VSmux Debugging Mode**\n\n");
   tooltip.appendMarkdown(`Backend: \`${debugState.backend}\`\n\n`);
   tooltip.appendMarkdown(`Platform: \`${debugState.platform}\`\n\n`);
   tooltip.appendMarkdown(`Terminal UI path: \`${debugState.terminalUiPath}\`\n\n`);
-  tooltip.appendMarkdown("Click to open VS-AGENT-MUX settings.");
+  tooltip.appendMarkdown("Click to open VSmux settings.");
   return tooltip;
 }
 
