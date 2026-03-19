@@ -4,16 +4,22 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  ensureAgentShellIntegration,
+  parseAgentControlChunk,
+  type AgentLifecycleEvent,
+  type AgentShellIntegration,
+} from "./agent-shell-integration";
+import {
   TERMINAL_HOST_PROTOCOL_VERSION,
   type TerminalHostCreateOrAttachRequest,
   type TerminalHostEvent,
   type TerminalHostRequest,
+  type TerminalAgentStatus,
   type TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
 import { Pty } from "./ruspty";
 
 const HISTORY_FILE_NAME = "history.log";
-const HOST_DETACH_GRACE_MS = 5 * 60 * 1000;
 const MAX_HISTORY_CHARS = 200_000;
 const METADATA_FILE_NAME = "metadata.json";
 const MIN_TERMINAL_COLS = 20;
@@ -28,6 +34,7 @@ type DaemonEnvironment = {
 type ManagedSession = {
   historyPath: string;
   metadataPath: string;
+  pendingControlSequence: string;
   process?: ManagedProcess;
   snapshot: TerminalSessionSnapshot;
 };
@@ -59,8 +66,11 @@ type SpawnAttempt =
     };
 
 class TerminalHostDaemon {
+  private agentShellIntegrationPromise: Promise<AgentShellIntegration> | undefined;
   private readonly clients = new Set<ClientConnection>();
-  private readonly sessionGraceTimers = new Map<string, NodeJS.Timeout>();
+  private idleShutdownTimeoutMs: number | null = null;
+  private idleShutdownTimer: NodeJS.Timeout | undefined;
+  private isStopping = false;
   private readonly sessions = new Map<string, ManagedSession>();
 
   public constructor(private readonly environment: DaemonEnvironment) {}
@@ -97,12 +107,12 @@ class TerminalHostDaemon {
 
       socket.on("close", () => {
         this.clients.delete(client);
-        this.scheduleGraceCleanupIfIdle();
+        this.scheduleIdleShutdownIfNeeded();
       });
 
       socket.on("error", () => {
         this.clients.delete(client);
-        this.scheduleGraceCleanupIfIdle();
+        this.scheduleIdleShutdownIfNeeded();
       });
     });
 
@@ -156,7 +166,7 @@ class TerminalHostDaemon {
       }
 
       client.authenticated = true;
-      this.cancelAllGraceTimers();
+      this.cancelIdleShutdown();
       this.sendToClient(client, { type: "authenticated" });
       return;
     }
@@ -167,12 +177,26 @@ class TerminalHostDaemon {
     }
 
     switch (message.type) {
+      case "configure":
+        this.idleShutdownTimeoutMs = normalizeIdleShutdownTimeoutMs(message.idleShutdownTimeoutMs);
+        this.scheduleIdleShutdownIfNeeded();
+        this.sendToClient(client, {
+          requestId: message.requestId,
+          ok: true,
+          type: "response",
+        });
+        return;
+
       case "createOrAttach":
         await this.handleCreateOrAttach(client, message);
         return;
 
       case "kill":
         await this.handleKill(message.sessionId);
+        return;
+
+      case "acknowledgeAttention":
+        await this.handleAcknowledgeAttention(message.sessionId);
         return;
 
       case "listSessions":
@@ -240,24 +264,28 @@ class TerminalHostDaemon {
     const cwd = await resolveCwd(request.cwd);
     await mkdir(sessionDirectory, { recursive: true });
     const shellCandidates = await resolveShellCandidates(request.shell);
-    const environment = createPtyEnvironment(cwd);
+    const shellIntegration = await this.ensureAgentShellIntegration();
+    const environment = createPtyEnvironment(cwd, request.sessionId, shellIntegration);
 
     const snapshot: TerminalSessionSnapshot = {
+      agentName: undefined,
+      agentStatus: "idle",
       cols: clampColumns(request.cols),
       cwd,
       history: "",
       restoreState: "live",
       rows: clampRows(request.rows),
+      sessionId: request.sessionId,
       shell: shellCandidates[0] ?? "/bin/sh",
       startedAt: new Date().toISOString(),
       status: "starting",
-      tileId: request.sessionId,
       workspaceId: request.workspaceId,
     };
 
     const session: ManagedSession = {
       historyPath,
       metadataPath,
+      pendingControlSequence: "",
       snapshot,
     };
 
@@ -280,13 +308,7 @@ class TerminalHostDaemon {
     this.broadcast({ session: await this.toSnapshot(session, false), type: "sessionState" });
 
     process.onData((data) => {
-      session.snapshot.history = appendHistoryChunk(session.snapshot.history ?? "", data);
-      void appendFile(historyPath, data);
-      this.broadcast({
-        data,
-        sessionId: request.sessionId,
-        type: "sessionOutput",
-      });
+      void this.handleProcessOutput(session, data);
     });
 
     process.onExit((exitCode) => {
@@ -302,11 +324,25 @@ class TerminalHostDaemon {
       return;
     }
 
+    if (session.snapshot.agentStatus === "working") {
+      session.snapshot.agentStatus = "idle";
+    }
     session.snapshot.endedAt = new Date().toISOString();
     session.snapshot.exitCode = exitCode;
     session.snapshot.status = "exited";
     session.process = undefined;
 
+    await this.persistMetadata(session);
+    this.broadcast({ session: await this.toSnapshot(session, false), type: "sessionState" });
+  }
+
+  private async handleAcknowledgeAttention(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.snapshot.agentStatus !== "attention") {
+      return;
+    }
+
+    session.snapshot.agentStatus = "idle";
     await this.persistMetadata(session);
     this.broadcast({ session: await this.toSnapshot(session, false), type: "sessionState" });
   }
@@ -317,10 +353,57 @@ class TerminalHostDaemon {
       return;
     }
 
-    this.clearGraceTimer(sessionId);
     session.process?.kill();
     this.sessions.delete(sessionId);
     await rm(path.dirname(session.historyPath), { force: true, recursive: true });
+  }
+
+  private cancelIdleShutdown(): void {
+    if (!this.idleShutdownTimer) {
+      return;
+    }
+
+    clearTimeout(this.idleShutdownTimer);
+    this.idleShutdownTimer = undefined;
+  }
+
+  private getAuthenticatedClientCount(): number {
+    let authenticatedClientCount = 0;
+
+    for (const client of this.clients) {
+      if (client.authenticated) {
+        authenticatedClientCount += 1;
+      }
+    }
+
+    return authenticatedClientCount;
+  }
+
+  private scheduleIdleShutdownIfNeeded(): void {
+    this.cancelIdleShutdown();
+
+    if (this.isStopping || this.getAuthenticatedClientCount() > 0 || !this.idleShutdownTimeoutMs) {
+      return;
+    }
+
+    this.idleShutdownTimer = setTimeout(() => {
+      void this.stopAfterIdleTimeout();
+    }, this.idleShutdownTimeoutMs);
+  }
+
+  private async stopAfterIdleTimeout(): Promise<void> {
+    if (this.isStopping || this.getAuthenticatedClientCount() > 0) {
+      return;
+    }
+
+    this.isStopping = true;
+    this.cancelIdleShutdown();
+
+    for (const sessionId of this.sessions.keys()) {
+      await this.handleKill(sessionId);
+    }
+
+    process.exit(0);
   }
 
   private handleResize(sessionId: string, cols: number, rows: number): void {
@@ -358,65 +441,58 @@ class TerminalHostDaemon {
     client.socket.write(`${JSON.stringify(event)}\n`);
   }
 
+  private async ensureAgentShellIntegration(): Promise<AgentShellIntegration> {
+    this.agentShellIntegrationPromise ??= ensureAgentShellIntegration(this.environment.stateDir);
+    return this.agentShellIntegrationPromise;
+  }
+
+  private async handleProcessOutput(session: ManagedSession, data: string): Promise<void> {
+    const parsedChunk = parseAgentControlChunk(`${session.pendingControlSequence}${data}`);
+    session.pendingControlSequence = parsedChunk.pending;
+
+    let stateChanged = false;
+    for (const event of parsedChunk.events) {
+      stateChanged = this.applyAgentLifecycleEvent(session, event) || stateChanged;
+    }
+
+    if (parsedChunk.output.length > 0) {
+      session.snapshot.history = appendHistoryChunk(
+        session.snapshot.history ?? "",
+        parsedChunk.output,
+      );
+      await appendFile(session.historyPath, parsedChunk.output);
+      this.broadcast({
+        data: parsedChunk.output,
+        sessionId: session.snapshot.sessionId,
+        type: "sessionOutput",
+      });
+    }
+
+    if (!stateChanged) {
+      return;
+    }
+
+    await this.persistMetadata(session);
+    this.broadcast({ session: await this.toSnapshot(session, false), type: "sessionState" });
+  }
+
+  private applyAgentLifecycleEvent(session: ManagedSession, event: AgentLifecycleEvent): boolean {
+    const previousAgentName = session.snapshot.agentName;
+    const previousAgentStatus = session.snapshot.agentStatus;
+    const nextAgentName = event.agentName ?? previousAgentName;
+    const nextAgentStatus = getNextAgentStatus(previousAgentStatus, event);
+
+    if (previousAgentName === nextAgentName && previousAgentStatus === nextAgentStatus) {
+      return false;
+    }
+
+    session.snapshot.agentName = nextAgentName;
+    session.snapshot.agentStatus = nextAgentStatus;
+    return true;
+  }
+
   private async persistMetadata(session: ManagedSession): Promise<void> {
     await writeFile(session.metadataPath, JSON.stringify(session.snapshot, null, 2));
-  }
-
-  private cancelAllGraceTimers(): void {
-    for (const sessionId of this.sessionGraceTimers.keys()) {
-      this.clearGraceTimer(sessionId);
-    }
-  }
-
-  private clearGraceTimer(sessionId: string): void {
-    const timer = this.sessionGraceTimers.get(sessionId);
-    if (!timer) {
-      return;
-    }
-
-    clearTimeout(timer);
-    this.sessionGraceTimers.delete(sessionId);
-  }
-
-  private hasAuthenticatedClients(): boolean {
-    for (const client of this.clients) {
-      if (client.authenticated) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  private scheduleGraceCleanupIfIdle(): void {
-    if (this.hasAuthenticatedClients()) {
-      return;
-    }
-
-    for (const sessionId of this.sessions.keys()) {
-      if (this.sessionGraceTimers.has(sessionId)) {
-        continue;
-      }
-
-      this.sessionGraceTimers.set(
-        sessionId,
-        setTimeout(() => {
-          this.sessionGraceTimers.delete(sessionId);
-          void this.expireSession(sessionId);
-        }, HOST_DETACH_GRACE_MS),
-      );
-    }
-  }
-
-  private async expireSession(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-
-    this.sessions.delete(sessionId);
-    session.process?.kill();
-    await rm(path.dirname(session.historyPath), { force: true, recursive: true });
   }
 
   private async toSnapshot(
@@ -455,6 +531,18 @@ function clampColumns(cols: number): number {
 
 function clampRows(rows: number): number {
   return Math.max(MIN_TERMINAL_ROWS, Math.floor(rows));
+}
+
+function normalizeIdleShutdownTimeoutMs(timeoutMs: number | null): number | null {
+  if (timeoutMs === null) {
+    return null;
+  }
+
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return null;
+  }
+
+  return Math.floor(timeoutMs);
 }
 
 async function resolveShellCandidates(preferredShell: string): Promise<string[]> {
@@ -533,7 +621,11 @@ function safeUserShell(): string | undefined {
   }
 }
 
-function createPtyEnvironment(cwd: string): Record<string, string> {
+function createPtyEnvironment(
+  cwd: string,
+  sessionId: string,
+  shellIntegration: AgentShellIntegration,
+): Record<string, string> {
   const environmentEntries = Object.entries(process.env).filter(
     (entry): entry is [string, string] => typeof entry[1] === "string",
   );
@@ -542,10 +634,12 @@ function createPtyEnvironment(cwd: string): Record<string, string> {
   environment.HOME ||= os.homedir();
   environment.LOGNAME ||= os.userInfo().username;
   environment.PATH ||= "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  environment.PATH = `${shellIntegration.binDir}${path.delimiter}${environment.PATH}`;
   environment.PWD = cwd;
   environment.SHELL ||= safeUserShell() ?? "/bin/sh";
   environment.TERM ||= "xterm-256color";
   environment.USER ||= os.userInfo().username;
+  environment.AGENT_CANVAS_SESSION_ID = sessionId;
 
   return environment;
 }
@@ -632,6 +726,21 @@ function createRusptyProcess(options: {
       terminal.write.write(data);
     },
   };
+}
+
+function getNextAgentStatus(
+  currentStatus: TerminalAgentStatus,
+  event: AgentLifecycleEvent,
+): TerminalAgentStatus {
+  if (event.eventType === "start") {
+    return "working";
+  }
+
+  if (currentStatus === "working" || currentStatus === "idle") {
+    return "attention";
+  }
+
+  return currentStatus;
 }
 
 function readDaemonEnvironment(): DaemonEnvironment {

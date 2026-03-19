@@ -15,14 +15,14 @@
   },
   "publisher": "maddada",
   "files": [
-    "dist/**",
     "media/**",
     "out/**"
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "vscode:prepublish": "vp build --config vite.webview.config.ts && tsc -p ./tsconfig.extension.json && ./scripts/copy-ruspty-native.zsh",
-    "compile": "tsc -p ./tsconfig.extension.json",
+    "vscode:prepublish": "vp run sidebar:build && tsc -p ./tsconfig.extension.json && ./scripts/copy-ruspty-native.zsh",
+    "sidebar:build": "vp build --config vite.sidebar.config.ts",
+    "compile": "vp run sidebar:build && tsc -p ./tsconfig.extension.json",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "lint": "vp lint",
     "fmt": "vp fmt",
@@ -33,29 +33,18 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
-    "@fontsource-variable/geist": "^5.2.8",
+    "@dnd-kit/react": "^0.3.2",
     "@replit/ruspty": "^3.6.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "ghostty-web": "file:./forks/ghostty-web",
-    "instruckt": "^0.4.29",
-    "lucide-react": "^0.577.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "shadcn": "^4.0.7",
-    "tailwind-merge": "^3.5.0",
-    "tw-animate-css": "^1.4.0"
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.1",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.110.0",
-    "@types/vscode-webview": "^1.57.5",
     "@vitejs/plugin-react": "^6.0.1",
     "@vscode/vsce": "^3.7.1",
-    "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest"
@@ -63,211 +52,209 @@
   "contributes": {
     "commands": [
       {
-        "command": "agentCanvasX.openCanvasPanel",
-        "title": "Open Canvas Panel",
+        "command": "agentCanvasX.openWorkspace",
+        "title": "Open Workspace",
         "category": "Agent Canvas X"
       },
       {
-        "command": "agentCanvasX.openCanvasBrowserDebug",
-        "title": "Open Canvas Browser Debug",
+        "command": "agentCanvasX.openSettings",
+        "title": "Open Settings",
         "category": "Agent Canvas X"
       },
       {
-        "command": "agentCanvasX.revealCanvasBottomPanel",
-        "title": "Reveal Canvas Bottom Panel",
+        "command": "agentCanvasX.createSession",
+        "title": "New Session",
         "category": "Agent Canvas X"
       },
       {
-        "command": "agentCanvasX.moveCanvasToPanel",
-        "title": "Move Canvas to Panel",
+        "command": "agentCanvasX.revealSession",
+        "title": "Reveal Session",
         "category": "Agent Canvas X"
       },
       {
-        "command": "agentCanvasX.moveCanvasToBottomPanel",
-        "title": "Move Canvas to Bottom Panel",
+        "command": "agentCanvasX.restartSession",
+        "title": "Restart Session",
         "category": "Agent Canvas X"
       },
       {
-        "command": "agentCanvasX.resetCanvasAndTerminals",
-        "title": "Reset Canvas and Terminals",
+        "command": "agentCanvasX.focusUp",
+        "title": "Focus Up",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.focusRight",
+        "title": "Focus Right",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.focusDown",
+        "title": "Focus Down",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.focusLeft",
+        "title": "Focus Left",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showOne",
+        "title": "Show 1 Terminal",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showTwo",
+        "title": "Show 2 Terminals",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showThree",
+        "title": "Show 3 Terminals",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showFour",
+        "title": "Show 4 Terminals",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showSix",
+        "title": "Show 6 Terminals",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.showNine",
+        "title": "Show 9 Terminals",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.setHorizontalView",
+        "title": "Set Horizontal View",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.setVerticalView",
+        "title": "Set Vertical View",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.setGridView",
+        "title": "Set Grid View",
+        "category": "Agent Canvas X"
+      },
+      {
+        "command": "agentCanvasX.resetWorkspace",
+        "title": "Reset Workspace",
         "category": "Agent Canvas X"
       }
     ],
     "viewsContainers": {
-      "panel": [
+      "secondarySidebar": [
         {
-          "id": "agentCanvasXPanel",
+          "id": "agentCanvasXSessions",
           "title": "Agent Canvas X",
           "icon": "media/agent-canvas-x.svg"
         }
       ]
     },
     "views": {
-      "agentCanvasXPanel": [
+      "agentCanvasXSessions": [
         {
           "type": "webview",
-          "id": "agentCanvasX.bottomPanel",
-          "name": "Canvas"
+          "id": "agentCanvasX.sessions",
+          "name": "Sessions"
         }
       ]
     },
     "configuration": {
       "title": "Agent Canvas X",
       "properties": {
-        "agentCanvasX.autoAlignWidthValue": {
+        "agentCanvasX.backgroundSessionTimeoutMinutes": {
           "type": "number",
-          "default": 90,
-          "minimum": 1,
-          "description": "Default tile width used by auto-align. Combine with the width unit to use either fixed pixels or viewport width."
+          "minimum": 0,
+          "default": 0,
+          "description": "How long detached background sessions stay alive after the last Agent Canvas X window disconnects. Set to 0 to keep sessions alive until they exit or are explicitly closed."
         },
-        "agentCanvasX.autoAlignWidthUnit": {
+        "agentCanvasX.sidebarTheme": {
           "type": "string",
-          "default": "vw",
+          "default": "dark-modern",
           "enum": [
-            "px",
-            "vw"
+            "dark-modern",
+            "dark-plus",
+            "light-plus",
+            "monokai",
+            "solarized-dark"
           ],
-          "description": "Unit used for the auto-align tile width."
-        },
-        "agentCanvasX.autoAlignHeightValue": {
-          "type": "number",
-          "default": 80,
-          "minimum": 1,
-          "description": "Default tile height used by auto-align. Combine with the height unit to use either fixed pixels or viewport height."
-        },
-        "agentCanvasX.autoAlignHeightUnit": {
-          "type": "string",
-          "default": "vh",
-          "enum": [
-            "px",
-            "vh"
+          "enumDescriptions": [
+            "A darker, softer palette inspired by VS Code Dark Modern.",
+            "The classic VS Code Dark+ look.",
+            "The classic VS Code Light+ look.",
+            "A high-contrast Monokai-inspired palette.",
+            "A Solarized Dark-inspired palette."
           ],
-          "description": "Unit used for the auto-align tile height."
-        },
-        "agentCanvasX.terminalNavigationWrap": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether Ctrl+Shift terminal navigation wraps around the opposite edge when there is no tile in the chosen direction."
-        },
-        "agentCanvasX.uiScale": {
-          "type": "number",
-          "default": 0.6,
-          "minimum": 0.25,
-          "maximum": 1.5,
-          "description": "Scales the canvas UI chrome such as the toolbar, inspector, dialogs, and empty states."
-        },
-        "agentCanvasX.themeMode": {
-          "type": "string",
-          "default": "light",
-          "enum": [
-            "light",
-            "dark"
-          ],
-          "description": "Controls the Agent Canvas X webview appearance mode."
-        },
-        "agentCanvasX.panMode": {
-          "type": "string",
-          "default": "free",
-          "enum": [
-            "free",
-            "sticky"
-          ],
-          "description": "Controls whether canvas panning stays fully free or biases toward centering the nearest tile."
-        },
-        "agentCanvasX.panSnapHysteresis": {
-          "type": "number",
-          "default": 80,
-          "minimum": 0,
-          "maximum": 400,
-          "description": "How much sticky mode resists switching to a different nearby tile while panning."
-        },
-        "agentCanvasX.panSnapStrength": {
-          "type": "number",
-          "default": 0.28,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "How strongly sticky pan mode pulls the nearest visible tile toward the viewport center."
-        },
-        "agentCanvasX.panSnapRadius": {
-          "type": "number",
-          "default": 520,
-          "minimum": 120,
-          "maximum": 1600,
-          "description": "How close a tile must be to the viewport center before sticky pan mode starts attracting it."
-        },
-        "agentCanvasX.panSnapSettleStrength": {
-          "type": "number",
-          "default": 0.65,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "How strongly sticky mode recenters the chosen tile after panning stops."
-        },
-        "agentCanvasX.panSnapSettleDelay": {
-          "type": "number",
-          "default": 220,
-          "minimum": 0,
-          "maximum": 1000,
-          "description": "How long sticky mode waits before applying its settle recenter after panning stops."
-        },
-        "agentCanvasX.terminalActiveMaxFps": {
-          "type": "number",
-          "default": 30,
-          "minimum": 0,
-          "maximum": 60,
-          "description": "Maximum render FPS for the focused terminal tile. Set to 0 to disable the cap."
-        },
-        "agentCanvasX.terminalActiveWriteBatchIntervalMs": {
-          "type": "number",
-          "default": 16,
-          "minimum": 0,
-          "maximum": 10000,
-          "description": "How long terminal output waits before flushing into the focused terminal tile. Set to 0 for immediate writes."
-        },
-        "agentCanvasX.terminalVisibleMaxFps": {
-          "type": "number",
-          "default": 12,
-          "minimum": 0,
-          "maximum": 60,
-          "description": "Maximum render FPS for visible terminal tiles that are not focused. Set to 0 to disable the cap."
-        },
-        "agentCanvasX.terminalVisibleWriteBatchIntervalMs": {
-          "type": "number",
-          "default": 100,
-          "minimum": 0,
-          "maximum": 10000,
-          "description": "How long terminal output waits before flushing into visible terminal tiles that are not focused. Set to 0 for immediate writes."
-        },
-        "agentCanvasX.terminalOffscreenMaxFps": {
-          "type": "number",
-          "default": 1,
-          "minimum": 0,
-          "maximum": 60,
-          "description": "Maximum render FPS for off-screen terminal tiles. Set to 0 to disable the cap."
-        },
-        "agentCanvasX.terminalOffscreenWriteBatchIntervalMs": {
-          "type": "number",
-          "default": 1000,
-          "minimum": 0,
-          "maximum": 10000,
-          "description": "How long terminal output waits before flushing into off-screen terminal tiles. Set to 0 for immediate writes."
-        },
-        "agentCanvasX.terminalFontFamily": {
-          "type": "string",
-          "default": "\"MesloLGL Nerd Font Mono\", \"MesloLGS NF\", \"SF Mono\", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, \"Liberation Mono\", monospace",
-          "description": "Font family stack used by Agent Canvas X terminal tiles. Set this to a Nerd Font installed on your system."
+          "description": "Theme preset used by the Agent Canvas X sidebar app."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "agentCanvasX.showOne",
+        "key": "ctrl+alt+1",
+        "mac": "cmd+alt+1",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.showTwo",
+        "key": "ctrl+alt+2",
+        "mac": "cmd+alt+2",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.showThree",
+        "key": "ctrl+alt+3",
+        "mac": "cmd+alt+3",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.showFour",
+        "key": "ctrl+alt+4",
+        "mac": "cmd+alt+4",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.showSix",
+        "key": "ctrl+alt+6",
+        "mac": "cmd+alt+6",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.showNine",
+        "key": "ctrl+alt+9",
+        "mac": "cmd+alt+9",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.setHorizontalView",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.setVerticalView",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "!inputFocus || terminalFocus"
+      },
+      {
+        "command": "agentCanvasX.setGridView",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g",
+        "when": "!inputFocus || terminalFocus"
+      }
+    ]
   },
   "activationEvents": [
-    "onCommand:agentCanvasX.moveCanvasToBottomPanel",
-    "onCommand:agentCanvasX.moveCanvasToPanel",
-    "onCommand:agentCanvasX.openCanvasBrowserDebug",
-    "onCommand:agentCanvasX.openCanvasPanel",
-    "onCommand:agentCanvasX.resetCanvasAndTerminals",
-    "onCommand:agentCanvasX.revealCanvasBottomPanel",
-    "onView:agentCanvasX.bottomPanel",
-    "onWebviewPanel:agentCanvasX.canvas"
+    "onStartupFinished",
+    "onView:agentCanvasX.sessions"
   ],
   "engines": {
     "vscode": "^1.110.0"

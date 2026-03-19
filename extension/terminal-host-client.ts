@@ -30,7 +30,7 @@ type PendingRequest = {
 
 type TerminalHostFireAndForgetRequest = Extract<
   TerminalHostRequest,
-  { type: "kill" | "resize" | "write" }
+  { type: "acknowledgeAttention" | "kill" | "resize" | "write" }
 >;
 
 export class TerminalHostClient extends EventEmitter {
@@ -84,9 +84,28 @@ export class TerminalHostClient extends EventEmitter {
     return response.session;
   }
 
+  public async configure(request: { idleShutdownTimeoutMs: number | null }): Promise<void> {
+    const response = await this.sendRequest({
+      idleShutdownTimeoutMs: request.idleShutdownTimeoutMs,
+      requestId: this.createRequestId(),
+      type: "configure",
+    });
+
+    if (!response.ok) {
+      throw new Error(response.error);
+    }
+  }
+
   public async dispose(): Promise<void> {
     this.socket?.destroy();
     this.socket = undefined;
+  }
+
+  public async acknowledgeAttention(sessionId: string): Promise<void> {
+    await this.send({
+      sessionId,
+      type: "acknowledgeAttention",
+    });
   }
 
   public async kill(sessionId: string): Promise<void> {

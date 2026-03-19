@@ -1,17 +1,21 @@
-export const TERMINAL_HOST_PROTOCOL_VERSION = 3;
+export const TERMINAL_HOST_PROTOCOL_VERSION = 5;
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error" | "disconnected";
 
 export type TerminalSessionRestoreState = "live" | "replayed";
 
+export type TerminalAgentStatus = "idle" | "working" | "attention";
+
 export type TerminalSessionSnapshot = {
-  tileId: string;
+  agentName?: string;
+  agentStatus: TerminalAgentStatus;
   cols: number;
   cwd: string;
   exitCode?: number;
   history?: string;
   restoreState: TerminalSessionRestoreState;
   rows: number;
+  sessionId: string;
   shell: string;
   startedAt: string;
   status: TerminalSessionStatus;
@@ -20,7 +24,7 @@ export type TerminalSessionSnapshot = {
   errorMessage?: string;
 };
 
-export type TerminalSessionsByTileId = Record<string, TerminalSessionSnapshot>;
+export type TerminalSessionsBySessionId = Record<string, TerminalSessionSnapshot>;
 
 export type TerminalHostAuthenticateRequest = {
   type: "authenticate";
@@ -57,9 +61,20 @@ export type TerminalHostKillRequest = {
   sessionId: string;
 };
 
+export type TerminalHostAcknowledgeAttentionRequest = {
+  type: "acknowledgeAttention";
+  sessionId: string;
+};
+
 export type TerminalHostListSessionsRequest = {
   type: "listSessions";
   requestId: string;
+};
+
+export type TerminalHostConfigureRequest = {
+  type: "configure";
+  requestId: string;
+  idleShutdownTimeoutMs: number | null;
 };
 
 export type TerminalHostRequest =
@@ -68,13 +83,20 @@ export type TerminalHostRequest =
   | TerminalHostWriteRequest
   | TerminalHostResizeRequest
   | TerminalHostKillRequest
-  | TerminalHostListSessionsRequest;
+  | TerminalHostAcknowledgeAttentionRequest
+  | TerminalHostListSessionsRequest
+  | TerminalHostConfigureRequest;
 
 export type TerminalHostAuthenticatedEvent = {
   type: "authenticated";
 };
 
 export type TerminalHostResponse =
+  | {
+      type: "response";
+      requestId: string;
+      ok: true;
+    }
   | {
       type: "response";
       requestId: string;
@@ -113,13 +135,13 @@ export type TerminalHostEvent =
 
 export type TerminalInputMessage = {
   type: "terminalInput";
-  tileId: string;
+  sessionId: string;
   data: string;
 };
 
 export type TerminalResizeMessage = {
   type: "terminalResize";
-  tileId: string;
+  sessionId: string;
   cols: number;
   rows: number;
 };
@@ -131,6 +153,6 @@ export type TerminalStateMessage = {
 
 export type TerminalOutputMessage = {
   type: "terminalOutput";
-  tileId: string;
+  sessionId: string;
   data: string;
 };

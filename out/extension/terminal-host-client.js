@@ -52,9 +52,25 @@ class TerminalHostClient extends node_events_1.EventEmitter {
         }
         return response.session;
     }
+    async configure(request) {
+        const response = await this.sendRequest({
+            idleShutdownTimeoutMs: request.idleShutdownTimeoutMs,
+            requestId: this.createRequestId(),
+            type: "configure",
+        });
+        if (!response.ok) {
+            throw new Error(response.error);
+        }
+    }
     async dispose() {
         this.socket?.destroy();
         this.socket = undefined;
+    }
+    async acknowledgeAttention(sessionId) {
+        await this.send({
+            sessionId,
+            type: "acknowledgeAttention",
+        });
     }
     async kill(sessionId) {
         await this.send({

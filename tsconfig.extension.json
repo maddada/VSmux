@@ -16,5 +16,5 @@
     "sourceMap": true
   },
   "include": ["extension", "shared"],
-  "exclude": ["node_modules", ".vscode-test", "src"]
+  "exclude": ["node_modules", ".vscode-test", "src", "**/*.test.ts", "**/*.spec.ts"]
 }

@@ -1,0 +1,302 @@
+export const GRID_COLUMN_COUNT = 3;
+export const MAX_SESSION_COUNT = GRID_COLUMN_COUNT * GRID_COLUMN_COUNT;
+
+export type VisibleSessionCount = 1 | 2 | 3 | 4 | 6 | 9;
+
+export type TerminalViewMode = "horizontal" | "vertical" | "grid";
+
+export type SessionGridDirection = "up" | "right" | "down" | "left";
+
+export type SidebarSessionActivityState = "idle" | "working" | "attention";
+
+export type SidebarTheme =
+  | "dark-modern"
+  | "dark-plus"
+  | "light-plus"
+  | "monokai"
+  | "solarized-dark";
+
+export type SessionRecord = {
+  sessionId: string;
+  title: string;
+  alias: string;
+  slotIndex: number;
+  row: number;
+  column: number;
+  createdAt: string;
+};
+
+export type SessionGridSnapshot = {
+  focusedSessionId?: string;
+  nextSessionNumber: number;
+  sessions: SessionRecord[];
+  visibleCount: VisibleSessionCount;
+  visibleSessionIds: string[];
+  viewMode: TerminalViewMode;
+};
+
+export type SidebarSessionItem = {
+  activity: SidebarSessionActivityState;
+  activityLabel?: string;
+  sessionId: string;
+  primaryTitle?: string;
+  alias: string;
+  shortcutLabel: string;
+  row: number;
+  column: number;
+  isFocused: boolean;
+  isVisible: boolean;
+  isRunning: boolean;
+  detail?: string;
+};
+
+export type SidebarHudState = {
+  focusedSessionTitle?: string;
+  theme: SidebarTheme;
+  visibleCount: VisibleSessionCount;
+  visibleSlotLabels: string[];
+  viewMode: TerminalViewMode;
+};
+
+export type SidebarHydrateMessage = {
+  type: "hydrate";
+  hud: SidebarHudState;
+  sessions: SidebarSessionItem[];
+};
+
+export type SidebarSessionStateMessage = {
+  type: "sessionState";
+  hud: SidebarHudState;
+  sessions: SidebarSessionItem[];
+};
+
+export type ExtensionToSidebarMessage = SidebarHydrateMessage | SidebarSessionStateMessage;
+
+export type SidebarToExtensionMessage =
+  | {
+      type: "ready";
+    }
+  | {
+      type: "openSettings";
+    }
+  | {
+      type: "createSession";
+    }
+  | {
+      type: "focusSession";
+      sessionId: string;
+      preserveFocus?: boolean;
+    }
+  | {
+      type: "promptRenameSession";
+      sessionId: string;
+    }
+  | {
+      type: "restartSession";
+      sessionId: string;
+    }
+  | {
+      type: "renameSession";
+      sessionId: string;
+      title: string;
+    }
+  | {
+      type: "closeSession";
+      sessionId: string;
+    }
+  | {
+      type: "setVisibleCount";
+      visibleCount: VisibleSessionCount;
+    }
+  | {
+      type: "setViewMode";
+      viewMode: TerminalViewMode;
+    }
+  | {
+      type: "syncSessionOrder";
+      sessionIds: string[];
+    };
+
+export function clampVisibleSessionCount(value: number): VisibleSessionCount {
+  if (value <= 1) {
+    return 1;
+  }
+
+  if (value === 2) {
+    return 2;
+  }
+
+  if (value === 3) {
+    return 3;
+  }
+
+  if (value <= 4) {
+    return 4;
+  }
+
+  if (value <= 6) {
+    return 6;
+  }
+
+  return 9;
+}
+
+export function clampTerminalViewMode(value: string | undefined): TerminalViewMode {
+  switch (value) {
+    case "horizontal":
+    case "vertical":
+    case "grid":
+      return value;
+    default:
+      return "grid";
+  }
+}
+
+export function clampSidebarTheme(value: string | undefined): SidebarTheme {
+  switch (value) {
+    case "dark-modern":
+    case "dark-plus":
+    case "light-plus":
+    case "monokai":
+    case "solarized-dark":
+      return value;
+    default:
+      return "dark-modern";
+  }
+}
+
+export function createDefaultSessionGridSnapshot(): SessionGridSnapshot {
+  return {
+    focusedSessionId: undefined,
+    nextSessionNumber: 1,
+    sessions: [],
+    visibleCount: 1,
+    visibleSessionIds: [],
+    viewMode: "grid",
+  };
+}
+
+export function getSlotPosition(slotIndex: number): Pick<SessionRecord, "column" | "row"> {
+  const normalizedSlotIndex = Math.max(0, Math.min(MAX_SESSION_COUNT - 1, Math.floor(slotIndex)));
+
+  return {
+    column: normalizedSlotIndex % GRID_COLUMN_COUNT,
+    row: Math.floor(normalizedSlotIndex / GRID_COLUMN_COUNT),
+  };
+}
+
+export function getSlotLabel(row: number, column: number): string {
+  return `R${row + 1}C${column + 1}`;
+}
+
+export function getSessionShortcutLabel(slotIndex: number, platform: "default" | "mac"): string {
+  const shortcutNumber = Math.max(1, Math.min(MAX_SESSION_COUNT, Math.floor(slotIndex) + 1));
+
+  return platform === "mac" ? `⌘⌥${shortcutNumber}` : `⌃⌥${shortcutNumber}`;
+}
+
+export function createSessionAlias(sessionNumber: number, slotIndex: number): string {
+  const adjectives = [
+    "Amber",
+    "Cinder",
+    "Golden",
+    "Harbor",
+    "Indigo",
+    "Juniper",
+    "Marble",
+    "Nova",
+    "Paper",
+    "Quiet",
+    "River",
+    "Solar",
+  ];
+  const nouns = [
+    "Atlas",
+    "Beacon",
+    "Comet",
+    "Drift",
+    "Ember",
+    "Field",
+    "Grove",
+    "Harbor",
+    "Lattice",
+    "Mosaic",
+    "Signal",
+    "Vale",
+  ];
+  const adjective = adjectives[(sessionNumber * 7 + slotIndex) % adjectives.length];
+  const noun = nouns[(sessionNumber * 11 + slotIndex * 3) % nouns.length];
+
+  return `${adjective} ${noun}`;
+}
+
+export function createSessionRecord(sessionNumber: number, slotIndex: number): SessionRecord {
+  const position = getSlotPosition(slotIndex);
+
+  return {
+    alias: createSessionAlias(sessionNumber, slotIndex),
+    column: position.column,
+    createdAt: new Date().toISOString(),
+    row: position.row,
+    sessionId: `session-${sessionNumber}`,
+    slotIndex,
+    title: `Session ${sessionNumber}`,
+  };
+}
+
+export function getVisiblePrimaryTitle(title: string): string | undefined {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle || /^Session \d+$/.test(normalizedTitle)) {
+    return undefined;
+  }
+
+  return normalizedTitle;
+}
+
+export function getOrderedSessions(snapshot: SessionGridSnapshot): SessionRecord[] {
+  return [...snapshot.sessions].sort((left, right) => left.slotIndex - right.slotIndex);
+}
+
+export function createSidebarHudState(
+  snapshot: SessionGridSnapshot,
+  theme: SidebarTheme = "dark-modern",
+): SidebarHudState {
+  const sessionById = new Map(snapshot.sessions.map((session) => [session.sessionId, session]));
+  const focusedSession = snapshot.focusedSessionId
+    ? sessionById.get(snapshot.focusedSessionId)
+    : undefined;
+
+  return {
+    focusedSessionTitle: focusedSession?.title,
+    theme,
+    visibleCount: snapshot.visibleCount,
+    visibleSlotLabels: snapshot.visibleSessionIds
+      .map((sessionId) => sessionById.get(sessionId))
+      .filter((session): session is SessionRecord => session !== undefined)
+      .map((session) => getSlotLabel(session.row, session.column)),
+    viewMode: snapshot.viewMode,
+  };
+}
+
+export function createSidebarSessionItems(
+  snapshot: SessionGridSnapshot,
+  platform: "default" | "mac" = "default",
+): SidebarSessionItem[] {
+  const visibleIds = new Set(snapshot.visibleSessionIds);
+  const orderedSessions = getOrderedSessions(snapshot);
+
+  return orderedSessions.map((session) => ({
+    alias: session.alias,
+    activity: "idle",
+    activityLabel: undefined,
+    column: session.column,
+    detail: undefined,
+    isFocused: snapshot.focusedSessionId === session.sessionId,
+    isRunning: false,
+    isVisible: visibleIds.has(session.sessionId),
+    primaryTitle: getVisiblePrimaryTitle(session.title),
+    row: session.row,
+    sessionId: session.sessionId,
+    shortcutLabel: getSessionShortcutLabel(session.slotIndex, platform),
+  }));
+}

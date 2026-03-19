@@ -3,18 +3,14 @@
     "target": "ES2023",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "jsx": "react-jsx",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "node", "vscode-webview"],
+    "lib": ["ES2023"],
+    "types": ["node"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "paths": {
-      "@/*": ["./src/*"]
-    },
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -22,5 +18,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "shared"]
+  "include": ["shared"]
 }
