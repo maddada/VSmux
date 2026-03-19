@@ -1,6 +1,6 @@
 import type { SidebarSessionActivityState } from "../shared/session-grid-contract";
 
-const CLAUDE_CODE_IDLE_MARKER = "✳";
+const CLAUDE_CODE_IDLE_MARKERS = ["✳", "*"] as const;
 const CLAUDE_CODE_TITLE = "Claude Code";
 
 export type TitleDerivedSessionActivity = {
@@ -67,14 +67,20 @@ export function haveSameTitleDerivedSessionActivity(
 
 function getClaudeCodeTitleState(title: string): "idleMarkerVisible" | "working" | undefined {
   const normalizedTitle = title.trim().replace(/\s+/g, " ");
-  if (normalizedTitle.toLowerCase() === CLAUDE_CODE_TITLE.toLowerCase()) {
-    return "working";
+  const lowerTitle = normalizedTitle.toLowerCase();
+  const lowerClaudeCodeTitle = CLAUDE_CODE_TITLE.toLowerCase();
+
+  if (!lowerTitle.includes(lowerClaudeCodeTitle)) {
+    return undefined;
   }
 
-  const markedClaudeCodeTitle = `${CLAUDE_CODE_IDLE_MARKER} ${CLAUDE_CODE_TITLE}`;
-  if (normalizedTitle.toLowerCase() === markedClaudeCodeTitle.toLowerCase()) {
+  if (containsAnyMarker(normalizedTitle, CLAUDE_CODE_IDLE_MARKERS)) {
     return "idleMarkerVisible";
   }
 
-  return undefined;
+  return "working";
+}
+
+function containsAnyMarker(title: string, markers: readonly string[]): boolean {
+  return markers.some((marker) => title.includes(marker));
 }

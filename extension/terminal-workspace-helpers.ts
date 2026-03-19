@@ -16,14 +16,11 @@ import type {
 export type PersistedSessionState = {
   agentName?: string;
   agentStatus: TerminalAgentStatus;
-  flashTitle?: string;
   title?: string;
 };
 
 export const DEFAULT_TERMINAL_COLS = 120;
 export const DEFAULT_TERMINAL_ROWS = 34;
-export const DEFAULT_FOCUSED_TERMINAL_FLASH_MARKERS = ["🟥", "🟩", "🟨", "🟦", "🟪", "⬜"] as const;
-export const FOCUSED_TERMINAL_FLASH_FRAME_DURATION_MS = 120;
 
 export async function applyEditorLayout(
   visibleCount: number,
@@ -116,7 +113,6 @@ export function getSessionActivityLabel(
 export function parsePersistedSessionState(rawState: string): PersistedSessionState {
   let agentName: string | undefined;
   let agentStatus: TerminalAgentStatus = "idle";
-  let flashTitle: string | undefined;
   let title: string | undefined;
 
   for (const line of rawState.split(/\r?\n/)) {
@@ -124,9 +120,6 @@ export function parsePersistedSessionState(rawState: string): PersistedSessionSt
     const value = valueParts.join("=").trim();
     if (key === "agent") {
       agentName = value || undefined;
-    }
-    if (key === "flash_title") {
-      flashTitle = value || undefined;
     }
     if (key === "title") {
       title = value || undefined;
@@ -139,7 +132,6 @@ export function parsePersistedSessionState(rawState: string): PersistedSessionSt
   return {
     agentName,
     agentStatus,
-    flashTitle,
     title,
   };
 }
@@ -148,7 +140,6 @@ export function serializePersistedSessionState(state: PersistedSessionState): st
   return [
     `status=${state.agentStatus}`,
     `agent=${normalizePersistedSessionValue(state.agentName) ?? ""}`,
-    `flash_title=${normalizePersistedSessionValue(state.flashTitle) ?? ""}`,
     `title=${normalizePersistedSessionValue(state.title) ?? ""}`,
     "",
   ].join("\n");
@@ -236,6 +227,39 @@ export function getViewColumn(index: number): vscode.ViewColumn {
   return Math.max(vscode.ViewColumn.One, Math.min(index + 1, vscode.ViewColumn.Nine));
 }
 
+export async function focusEditorGroupByIndex(index: number): Promise<boolean> {
+  const command = FOCUS_EDITOR_GROUP_COMMANDS[index];
+  if (!command) {
+    return false;
+  }
+
+  await vscode.commands.executeCommand(command);
+  return true;
+}
+
+export function matchesVisibleTerminalLayout(
+  snapshot: SessionGridSnapshot,
+  terminalTitleBySessionId: ReadonlyMap<string, string>,
+): boolean {
+  return snapshot.visibleSessionIds.every((sessionId, index) => {
+    const terminalTitle = terminalTitleBySessionId.get(sessionId);
+    if (!terminalTitle) {
+      return false;
+    }
+
+    const expectedViewColumn = getViewColumn(index);
+    return vscode.window.tabGroups.all.some((group) => {
+      if (group.viewColumn !== expectedViewColumn) {
+        return false;
+      }
+
+      return group.tabs.some(
+        (tab) => tab.input instanceof vscode.TabInputTerminal && tab.label === terminalTitle,
+      );
+    });
+  });
+}
+
 export function getWorkspaceId(): string {
   const workspaceKey =
     vscode.workspace.workspaceFile?.toString() ??
@@ -244,3 +268,15 @@ export function getWorkspaceId(): string {
 
   return createHash("sha1").update(workspaceKey).digest("hex").slice(0, 12);
 }
+
+const FOCUS_EDITOR_GROUP_COMMANDS = [
+  "workbench.action.focusFirstEditorGroup",
+  "workbench.action.focusSecondEditorGroup",
+  "workbench.action.focusThirdEditorGroup",
+  "workbench.action.focusFourthEditorGroup",
+  "workbench.action.focusFifthEditorGroup",
+  "workbench.action.focusSixthEditorGroup",
+  "workbench.action.focusSeventhEditorGroup",
+  "workbench.action.focusEighthEditorGroup",
+  "workbench.action.focusNinthEditorGroup",
+] as const;

@@ -45,9 +45,6 @@ const SETTINGS_SECTION = "VS-AGENT-MUX";
 const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
 const SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING = "sendRenameCommandOnSidebarRename";
 const SIDEBAR_THEME_SETTING = "sidebarTheme";
-const SHOW_TERMINAL_TITLE_INDICATOR_ON_SIDEBAR_ACTIVATE_SETTING =
-  "showTerminalTitleIndicatorOnSidebarActivate";
-const TERMINAL_TITLE_INDICATOR_MARKERS_SETTING = "terminalTitleIndicatorMarkers";
 const SHOW_CLOSE_BUTTON_ON_SESSION_CARDS_SETTING = "showCloseButtonOnSessionCards";
 const SHOW_HOTKEYS_ON_SESSION_CARDS_SETTING = "showHotkeysOnSessionCards";
 export const SESSIONS_VIEW_ID = "VS-AGENT-MUX.sessions";
@@ -331,7 +328,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.backend.killSession(sessionId);
     this.terminalTitleBySessionId.delete(sessionId);
     this.titleDerivedActivityBySessionId.delete(sessionId);
-    await this.backend.reconcileVisibleTerminals(this.getActiveSnapshot());
+    const snapshot = this.getActiveSnapshot();
+    const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
+
+    if (!this.backend.canReuseVisibleLayout(snapshot)) {
+      await this.backend.reconcileVisibleTerminals(snapshot);
+    } else if (focusedSessionId) {
+      await this.backend.focusSession(focusedSessionId, false);
+    }
+
     await this.refreshSidebar();
   }
 
@@ -594,7 +599,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       case "focusSession":
         if (message.sessionId) {
           await this.focusSession(message.sessionId, message.preserveFocus === true);
-          await this.flashSidebarFocusedTerminal(message.sessionId);
         }
         return;
 
@@ -797,10 +801,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   ): Promise<void> {
     const snapshot = this.getActiveSnapshot();
     const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
-    const canReuseVisibleTerminalLayout = this.backendKind !== "zmx";
 
     if (
-      canReuseVisibleTerminalLayout &&
       focusedSessionId &&
       haveSameSessionIds(previousVisibleSessionIds, snapshot.visibleSessionIds) &&
       (await this.backend.focusSession(focusedSessionId, preserveFocus))
@@ -836,19 +838,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     );
 
     return selection?.sessionId;
-  }
-
-  private async flashSidebarFocusedTerminal(sessionId: string): Promise<void> {
-    const snapshot = this.getActiveSnapshot();
-    if (
-      !getShowTerminalTitleIndicatorOnSidebarActivate() ||
-      snapshot.visibleSessionIds.length <= 1 ||
-      !snapshot.visibleSessionIds.includes(sessionId)
-    ) {
-      return;
-    }
-
-    this.backend.flashSession(sessionId, getTerminalTitleIndicatorMarkers());
   }
 
   private getActiveSnapshot() {
@@ -900,27 +889,6 @@ function getSidebarThemeSetting(): string {
 function getSidebarThemeVariant(): SidebarThemeVariant {
   const activeKind = vscode.window.activeColorTheme.kind;
   return activeKind === vscode.ColorThemeKind.Light ? "light" : "dark";
-}
-
-function getShowTerminalTitleIndicatorOnSidebarActivate(): boolean {
-  return (
-    vscode.workspace
-      .getConfiguration(SETTINGS_SECTION)
-      .get<boolean>(SHOW_TERMINAL_TITLE_INDICATOR_ON_SIDEBAR_ACTIVATE_SETTING, true) ?? true
-  );
-}
-
-function getTerminalTitleIndicatorMarkers(): string[] {
-  const configuredMarkers =
-    vscode.workspace
-      .getConfiguration(SETTINGS_SECTION)
-      .get<string>(TERMINAL_TITLE_INDICATOR_MARKERS_SETTING, "") ?? "";
-  const markers = configuredMarkers
-    .split(/[,\s]+/)
-    .map((marker) => marker.trim())
-    .filter((marker) => marker.length > 0);
-
-  return markers.length > 0 ? markers : [];
 }
 
 function getShowCloseButtonOnSessionCards(): boolean {

@@ -240,7 +240,17 @@ body,
 
 body {
   padding: 12px;
-  font: 13px/1.4 var(--vscode-font-family);
+  font-family: var(
+    --vscode-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe WPC",
+    "Segoe UI",
+    sans-serif
+  );
+  font-size: var(--vscode-font-size, 13px);
+  font-weight: var(--vscode-font-weight, 400);
+  line-height: 1.4;
   color: var(--app-foreground);
   background: var(--app-background);
   -webkit-user-select: none;
@@ -573,6 +583,7 @@ button:disabled {
 .confirm-modal-backdrop {
   background: color-mix(in srgb, #05070a 68%, transparent);
   border: 0;
+  border-radius: 0;
   inset: 0;
   position: absolute;
 }
@@ -668,7 +679,11 @@ button:disabled {
 }
 
 .session {
-  --session-surface: transparent;
+  --session-surface: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-card) 94%, #ffffff 6%),
+    color-mix(in srgb, var(--app-card) 98%, #000000 2%)
+  );
   --session-glow: transparent;
   width: 100%;
   padding: 10px 12px;
@@ -696,6 +711,7 @@ button:disabled {
 .session::after {
   content: "";
   position: absolute;
+  box-sizing: border-box;
   border-radius: inherit;
   opacity: 0;
   pointer-events: none;
@@ -713,6 +729,7 @@ button:disabled {
   inset: 1px;
   z-index: -1;
   background: var(--session-surface);
+  opacity: 1;
 }
 
 .session[data-dragging="true"] {
@@ -756,10 +773,6 @@ button:disabled {
     );
 }
 
-.session[data-visible="true"]::after {
-  opacity: 1;
-}
-
 .session[data-focused="true"] {
   border-color: color-mix(in srgb, var(--app-button-background) 72%, var(--app-border));
   outline-color: color-mix(in srgb, var(--app-button-background) 92%, #ffffff 8%);
@@ -774,6 +787,8 @@ button:disabled {
 }
 
 .session[data-activity="working"]::before {
+  inset: -2px;
+  padding: 2px;
   opacity: 0.95;
   background: conic-gradient(
     from 0deg,
@@ -784,6 +799,14 @@ button:disabled {
     var(--working-primary) 310deg,
     color-mix(in srgb, var(--working-primary) 8%, transparent) 360deg
   );
+  -webkit-mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  mask-composite: exclude;
   animation: session-working-orbit 2.8s linear infinite;
 }
 
@@ -799,12 +822,22 @@ button:disabled {
 }
 
 .session[data-activity="attention"]::before {
+  inset: -2px;
+  padding: 2px;
   opacity: 0.78;
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--attention-primary) 82%, transparent),
     color-mix(in srgb, var(--attention-secondary) 88%, transparent)
   );
+  -webkit-mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  mask-composite: exclude;
 }
 
 .session[data-activity="attention"]::after {
@@ -1045,6 +1078,12 @@ button:disabled {
   z-index: 30;
   transform: translate(-50%, calc(-100% - 8px));
   pointer-events: none;
+}
+
+.session-tooltip-trigger {
+  display: block;
+  min-width: 0;
+  width: 100%;
 }
 
 .tooltip-popup {

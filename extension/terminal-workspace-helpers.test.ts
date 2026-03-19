@@ -65,6 +65,13 @@ describe("getTitleDerivedSessionActivity", () => {
       agentName: "claude",
     });
   });
+
+  test("should treat any Claude Code title without the idle marker as working", () => {
+    expect(getTitleDerivedSessionActivity("· Claude Code")).toEqual({
+      activity: "working",
+      agentName: "claude",
+    });
+  });
 });
 
 describe("getTitleDerivedSessionActivityFromTransition", () => {
@@ -87,6 +94,18 @@ describe("getTitleDerivedSessionActivityFromTransition", () => {
     });
   });
 
+  test("should switch Claude Code into attention when the starred marker returns after a dot-prefixed working title", () => {
+    expect(
+      getTitleDerivedSessionActivityFromTransition("· Claude Code", "✳ Claude Code", {
+        activity: "working",
+        agentName: "claude",
+      }),
+    ).toEqual({
+      activity: "attention",
+      agentName: "claude",
+    });
+  });
+
   test("should ignore non-Claude titles", () => {
     expect(getTitleDerivedSessionActivityFromTransition("bash", "npm test")).toBeUndefined();
   });
@@ -94,16 +113,13 @@ describe("getTitleDerivedSessionActivityFromTransition", () => {
 
 describe("persisted session state", () => {
   test("should parse terminal titles from the persisted session state file", () => {
-    expect(
-      parsePersistedSessionState(
-        "status=working\nagent=codex\nflash_title=🔥 codex 🔥\ntitle=codex --yolo\n",
-      ),
-    ).toEqual({
-      agentName: "codex",
-      agentStatus: "working",
-      flashTitle: "🔥 codex 🔥",
-      title: "codex --yolo",
-    });
+    expect(parsePersistedSessionState("status=working\nagent=codex\ntitle=codex --yolo\n")).toEqual(
+      {
+        agentName: "codex",
+        agentStatus: "working",
+        title: "codex --yolo",
+      },
+    );
   });
 
   test("should normalize whitespace when serializing the persisted session state file", () => {
@@ -111,10 +127,9 @@ describe("persisted session state", () => {
       serializePersistedSessionState({
         agentName: "codex",
         agentStatus: "attention",
-        flashTitle: "  🔥\n  codex  ",
         title: "  npm\n  test  ",
       }),
-    ).toBe("status=attention\nagent=codex\nflash_title=🔥 codex\ntitle=npm test\n");
+    ).toBe("status=attention\nagent=codex\ntitle=npm test\n");
   });
 });
 

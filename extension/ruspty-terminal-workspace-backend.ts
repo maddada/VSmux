@@ -8,14 +8,13 @@ import type {
   TerminalWorkspaceBackendTitleChange,
 } from "./terminal-workspace-backend";
 import {
-  DEFAULT_FOCUSED_TERMINAL_FLASH_MARKERS,
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
-  FOCUSED_TERMINAL_FLASH_FRAME_DURATION_MS,
   applyEditorLayout,
   createDisconnectedSessionSnapshot,
   getDefaultShell,
   getDefaultWorkspaceCwd,
+  matchesVisibleTerminalLayout,
   getSessionTabTitle,
   getViewColumn,
 } from "./terminal-workspace-helpers";
@@ -197,8 +196,25 @@ export class RusptyTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
   }
 
-  public flashSession(sessionId: string, markers: readonly string[]): void {
-    this.projections.get(sessionId)?.bridge.flash(markers);
+  public canReuseVisibleLayout(snapshot: SessionGridSnapshot): boolean {
+    if (snapshot.visibleSessionIds.length !== this.projections.size) {
+      return false;
+    }
+
+    const projectedSessionIds = new Set(this.projections.keys());
+    if (snapshot.visibleSessionIds.some((sessionId) => !projectedSessionIds.has(sessionId))) {
+      return false;
+    }
+
+    return matchesVisibleTerminalLayout(
+      snapshot,
+      new Map(
+        Array.from(this.projections.entries(), ([sessionId, projection]) => [
+          sessionId,
+          projection.terminal.name,
+        ]),
+      ),
+    );
   }
 
   public async focusSession(sessionId: string, preserveFocus = false): Promise<boolean> {
@@ -400,9 +416,7 @@ class SessionTerminalBridge implements vscode.Disposable, vscode.Pseudoterminal 
   private readonly closeEmitter = new vscode.EventEmitter<number | void>();
   private readonly nameEmitter = new vscode.EventEmitter<string>();
   private readonly writeEmitter = new vscode.EventEmitter<string>();
-  private flashTimeout: NodeJS.Timeout | undefined;
   private hasReplayedHistory = false;
-  private isFlashingName = false;
   private isOpen = false;
   private pendingOutput = "";
   private stableName: string;
@@ -421,51 +435,9 @@ class SessionTerminalBridge implements vscode.Disposable, vscode.Pseudoterminal 
   }
 
   public dispose(): void {
-    if (this.flashTimeout) {
-      clearTimeout(this.flashTimeout);
-      this.flashTimeout = undefined;
-    }
-
     this.closeEmitter.dispose();
     this.nameEmitter.dispose();
     this.writeEmitter.dispose();
-  }
-
-  public flash(markers: readonly string[]): void {
-    if (!this.isOpen) {
-      return;
-    }
-
-    if (this.flashTimeout) {
-      clearTimeout(this.flashTimeout);
-    }
-
-    this.isFlashingName = true;
-    let frameIndex = 0;
-    const effectiveMarkers = markers.length > 0 ? markers : DEFAULT_FOCUSED_TERMINAL_FLASH_MARKERS;
-
-    const emitFrame = () => {
-      if (!this.isOpen) {
-        this.isFlashingName = false;
-        this.flashTimeout = undefined;
-        return;
-      }
-
-      const marker = effectiveMarkers[frameIndex];
-      this.nameEmitter.fire(`${marker} ${this.stableName} ${marker}`);
-
-      frameIndex += 1;
-      if (frameIndex >= effectiveMarkers.length) {
-        this.isFlashingName = false;
-        this.flashTimeout = undefined;
-        this.nameEmitter.fire(this.stableName);
-        return;
-      }
-
-      this.flashTimeout = setTimeout(emitFrame, FOCUSED_TERMINAL_FLASH_FRAME_DURATION_MS);
-    };
-
-    emitFrame();
   }
 
   public setName(name: string): void {
@@ -474,9 +446,7 @@ class SessionTerminalBridge implements vscode.Disposable, vscode.Pseudoterminal 
     }
 
     this.stableName = name;
-    if (!this.isFlashingName) {
-      this.nameEmitter.fire(name);
-    }
+    this.nameEmitter.fire(name);
   }
 
   public handleInput(data: string): void {

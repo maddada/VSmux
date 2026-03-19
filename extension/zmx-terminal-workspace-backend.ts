@@ -18,16 +18,16 @@ import {
   applyEditorLayout,
   createBlockedSessionSnapshot,
   createDisconnectedSessionSnapshot,
-  DEFAULT_FOCUSED_TERMINAL_FLASH_MARKERS,
-  FOCUSED_TERMINAL_FLASH_FRAME_DURATION_MS,
   extractLatestTerminalTitleFromVtHistory,
+  focusEditorGroupByIndex,
   getDefaultShell,
   getDefaultWorkspaceCwd,
-  type PersistedSessionState,
-  parsePersistedSessionState,
-  serializePersistedSessionState,
   getSessionTabTitle,
   getViewColumn,
+  matchesVisibleTerminalLayout,
+  parsePersistedSessionState,
+  serializePersistedSessionState,
+  type PersistedSessionState,
 } from "./terminal-workspace-helpers";
 import { ensureZmxBinary } from "./zmx-binary";
 import { parseZmxListSessionNames, toZmxSessionName } from "./zmx-session-utils";
@@ -42,16 +42,8 @@ type ZmxTerminalWorkspaceBackendOptions = {
 };
 
 type SessionProjection = {
-  initialTitle: string;
   sessionId: string;
   terminal: vscode.Terminal;
-};
-
-type SessionFlashState = {
-  currentTitle: string;
-  restoreTitle: string;
-  token: number;
-  timeout: NodeJS.Timeout | undefined;
 };
 
 export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
@@ -61,13 +53,11 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
   private readonly changeSessionTitleEmitter =
     new vscode.EventEmitter<TerminalWorkspaceBackendTitleChange>();
   private readonly disposables: vscode.Disposable[] = [];
-  private readonly flashStates = new Map<string, SessionFlashState>();
   private readonly projections = new Map<string, SessionProjection>();
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
   private readonly sessionTitles = new Map<string, string>();
   private readonly terminalToSessionId = new Map<vscode.Terminal, string>();
   private lastVisibleSnapshot: SessionGridSnapshot | undefined;
-  private nextFlashToken = 0;
   private pollTimer: NodeJS.Timeout | undefined;
   private readonly trackedSessionIds = new Set<string>();
   private zmxBinaryPath: string | undefined;
@@ -105,14 +95,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
           this.activateSessionEmitter.fire(sessionId);
         }
       }),
-      vscode.window.onDidChangeTerminalState((terminal) => {
-        const sessionId = this.terminalToSessionId.get(terminal);
-        if (!sessionId) {
-          return;
-        }
-
-        this.syncProjectionTitle(sessionId, terminal.name);
-      }),
       vscode.window.onDidCloseTerminal((terminal) => {
         const sessionId = this.terminalToSessionId.get(terminal);
         if (!sessionId) {
@@ -122,12 +104,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
         const projection = this.projections.get(sessionId);
         this.terminalToSessionId.delete(terminal);
         if (!projection || projection.terminal === terminal) {
-          const flashState = this.flashStates.get(sessionId);
-          if (flashState) {
-            clearTimeout(flashState.timeout);
-            this.flashStates.delete(sessionId);
-          }
-
           this.projections.delete(sessionId);
         }
 
@@ -145,12 +121,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     while (this.disposables.length > 0) {
       this.disposables.pop()?.dispose();
     }
-
-    for (const flashState of this.flashStates.values()) {
-      clearTimeout(flashState.timeout);
-    }
-
-    this.flashStates.clear();
 
     for (const projection of this.projections.values()) {
       this.terminalToSessionId.delete(projection.terminal);
@@ -191,47 +161,45 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     const snapshot =
       existingSession ??
       createDisconnectedSessionSnapshot(sessionRecord.sessionId, this.options.workspaceId);
-    await this.writeSessionAgentState(sessionRecord.sessionId, "idle", undefined, null, null);
+    await this.writeSessionAgentState(sessionRecord.sessionId, "idle", undefined, null);
     this.sessionTitles.delete(sessionRecord.sessionId);
     this.sessions.set(sessionRecord.sessionId, snapshot);
     this.changeSessionsEmitter.fire();
     return snapshot;
   }
 
-  public flashSession(sessionId: string, markers: readonly string[]): void {
-    const projection = this.projections.get(sessionId);
-    if (!projection) {
-      return;
+  public canReuseVisibleLayout(snapshot: SessionGridSnapshot): boolean {
+    if (snapshot.visibleSessionIds.length !== this.projections.size) {
+      return false;
     }
 
-    const existingFlashState = this.flashStates.get(sessionId);
-    if (existingFlashState) {
-      clearTimeout(existingFlashState.timeout);
-      this.flashStates.delete(sessionId);
+    const projectedSessionIds = new Set(this.projections.keys());
+    if (snapshot.visibleSessionIds.some((sessionId) => !projectedSessionIds.has(sessionId))) {
+      return false;
     }
 
-    const restoreTitle =
-      existingFlashState && projection.initialTitle === existingFlashState.currentTitle
-        ? existingFlashState.restoreTitle
-        : projection.initialTitle;
-
-    const flashToken = this.nextFlashToken + 1;
-    this.nextFlashToken = flashToken;
-
-    this.flashStates.set(sessionId, {
-      currentTitle: restoreTitle,
-      restoreTitle,
-      timeout: undefined,
-      token: flashToken,
-    });
-
-    void this.flashProjectionTitle(sessionId, restoreTitle, markers, 0, flashToken);
+    return matchesVisibleTerminalLayout(
+      snapshot,
+      new Map(
+        Array.from(this.projections.entries(), ([sessionId, projection]) => [
+          sessionId,
+          projection.terminal.name,
+        ]),
+      ),
+    );
   }
 
   public async focusSession(sessionId: string, preserveFocus = false): Promise<boolean> {
     const projection = this.projections.get(sessionId);
     if (!projection) {
       return false;
+    }
+
+    if (!preserveFocus && this.lastVisibleSnapshot) {
+      const visibleIndex = this.lastVisibleSnapshot.visibleSessionIds.indexOf(sessionId);
+      if (visibleIndex >= 0 && (await focusEditorGroupByIndex(visibleIndex))) {
+        return true;
+      }
     }
 
     projection.terminal.show(preserveFocus);
@@ -243,12 +211,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
   }
 
   public async killSession(sessionId: string): Promise<void> {
-    const flashState = this.flashStates.get(sessionId);
-    if (flashState) {
-      clearTimeout(flashState.timeout);
-      this.flashStates.delete(sessionId);
-    }
-
     this.disposeProjection(sessionId);
     this.trackedSessionIds.delete(sessionId);
 
@@ -364,7 +326,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     });
 
     const projection = {
-      initialTitle: terminalTitle,
       sessionId: sessionRecord.sessionId,
       terminal,
     };
@@ -437,83 +398,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     this.projections.delete(sessionId);
   }
 
-  private async flashProjectionTitle(
-    sessionId: string,
-    stableTitle: string,
-    markers: readonly string[],
-    frameIndex: number,
-    flashToken: number,
-  ): Promise<void> {
-    const flashState = this.flashStates.get(sessionId);
-    if (!flashState || flashState.token !== flashToken) {
-      return;
-    }
-
-    const effectiveMarkers =
-      markers.length > 0 ? [...markers] : [...DEFAULT_FOCUSED_TERMINAL_FLASH_MARKERS];
-    if (frameIndex >= effectiveMarkers.length) {
-      this.flashStates.delete(sessionId);
-      await this.writeSessionFlashTitle(sessionId, null);
-      return;
-    }
-
-    const flashTitle = createFlashTitle(stableTitle, effectiveMarkers[frameIndex]);
-    if (flashTitle === stableTitle) {
-      return;
-    }
-
-    if (!this.projections.has(sessionId)) {
-      this.flashStates.delete(sessionId);
-      return;
-    }
-
-    await this.writeSessionFlashTitle(sessionId, flashTitle);
-    if (!this.flashStates.has(sessionId)) {
-      this.flashStates.delete(sessionId);
-      return;
-    }
-
-    const nextFlashState = this.flashStates.get(sessionId);
-    if (!nextFlashState || nextFlashState.token !== flashToken) {
-      return;
-    }
-
-    nextFlashState.currentTitle = flashTitle;
-    nextFlashState.timeout = setTimeout(() => {
-      const currentFlashState = this.flashStates.get(sessionId);
-      if (!currentFlashState || currentFlashState.token !== flashToken) {
-        return;
-      }
-
-      if (!this.projections.has(sessionId)) {
-        this.flashStates.delete(sessionId);
-        return;
-      }
-
-      void this.flashProjectionTitle(
-        sessionId,
-        currentFlashState.restoreTitle,
-        effectiveMarkers,
-        frameIndex + 1,
-        flashToken,
-      );
-    }, getFlashDurationMs());
-  }
-
-  private async writeSessionFlashTitle(
-    sessionId: string,
-    flashTitle: string | null,
-  ): Promise<void> {
-    const existingState = await this.readSessionAgentState(sessionId);
-    await this.writeSessionAgentState(
-      sessionId,
-      existingState.agentStatus,
-      existingState.agentName,
-      undefined,
-      flashTitle,
-    );
-  }
-
   private getRequiredZmxBinaryPath(): string {
     if (!this.zmxBinaryPath) {
       throw new Error("zmx binary has not been initialized");
@@ -540,8 +424,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
   }
 
   private async refreshSessionSnapshots(): Promise<void> {
-    this.syncVisibleProjectionTitles();
-
     const runningSessionNames = new Set(
       parseZmxListSessionNames(await this.runZmxCommand(["list", "--short"])),
     );
@@ -604,31 +486,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     }
   }
 
-  private syncProjectionTitle(sessionId: string, title: string): void {
-    const projection = this.projections.get(sessionId);
-    const nextTitle = title.trim();
-    if (!projection || nextTitle.length === 0 || nextTitle === projection.initialTitle) {
-      return;
-    }
-
-    projection.initialTitle = nextTitle;
-    this.sessionTitles.set(sessionId, nextTitle);
-    const flashState = this.flashStates.get(sessionId);
-    if (flashState && flashState.currentTitle !== nextTitle) {
-      flashState.restoreTitle = nextTitle;
-    }
-    this.changeSessionTitleEmitter.fire({
-      sessionId,
-      title: nextTitle,
-    });
-  }
-
-  private syncVisibleProjectionTitles(): void {
-    for (const [sessionId, projection] of this.projections) {
-      this.syncProjectionTitle(sessionId, projection.terminal.name);
-    }
-  }
-
   private runZmxCommand(args: readonly string[]): Promise<string> {
     return new Promise((resolve, reject) => {
       execFile(
@@ -674,7 +531,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
       return {
         agentName: undefined,
         agentStatus: "idle",
-        flashTitle: undefined,
         title: undefined,
       };
     }
@@ -685,7 +541,6 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     agentStatus: TerminalAgentStatus,
     agentName?: string,
     title?: string | null,
-    flashTitle?: string | null,
   ): Promise<void> {
     const existingState = await this.readSessionAgentState(sessionId);
     await mkdir(this.getAgentStateDirectory(), { mode: 0o700, recursive: true });
@@ -694,23 +549,9 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
       serializePersistedSessionState({
         agentName,
         agentStatus,
-        flashTitle: flashTitle === undefined ? existingState.flashTitle : (flashTitle ?? undefined),
         title: title === undefined ? existingState.title : (title ?? undefined),
       }),
       { mode: 0o600 },
     );
   }
-}
-
-function createFlashTitle(stableTitle: string, marker: string): string {
-  const indicator = marker.trim();
-  if (indicator.length === 0) {
-    return stableTitle;
-  }
-
-  return `${indicator} ${stableTitle} ${indicator}`;
-}
-
-function getFlashDurationMs(): number {
-  return FOCUSED_TERMINAL_FLASH_FRAME_DURATION_MS;
 }

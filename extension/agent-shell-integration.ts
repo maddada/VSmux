@@ -308,16 +308,14 @@ if [ -n "$STATE_FILE" ]; then
   mkdir -p "$STATE_DIR" >/dev/null 2>&1 || true
   STATE_TMP="$STATE_FILE.tmp.$$"
   STATE_STATUS="${workingState}"
-  STATE_FLASH_TITLE=""
   STATE_TITLE=""
   if [ "$NORMALIZED_EVENT" = "stop" ]; then
     STATE_STATUS="${attentionState}"
   fi
   if [ -r "$STATE_FILE" ]; then
-    STATE_FLASH_TITLE=$(grep -E '^flash_title=' "$STATE_FILE" | head -n 1 | cut -d= -f2-)
     STATE_TITLE=$(grep -E '^title=' "$STATE_FILE" | head -n 1 | cut -d= -f2-)
   fi
-  printf 'status=%s\nagent=%s\nflash_title=%s\ntitle=%s\n' "$STATE_STATUS" "$AGENT_NAME" "$STATE_FLASH_TITLE" "$STATE_TITLE" >"$STATE_TMP"
+  printf 'status=%s\nagent=%s\ntitle=%s\n' "$STATE_STATUS" "$AGENT_NAME" "$STATE_TITLE" >"$STATE_TMP"
   mv "$STATE_TMP" "$STATE_FILE" >/dev/null 2>&1 || true
 fi
 
@@ -392,18 +390,12 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
     __vs_agent_mux_read_state_value title
   }
 
-  __vs_agent_mux_read_flash_title() {
-    emulate -L zsh
-    __vs_agent_mux_read_state_value flash_title
-  }
-
   __vs_agent_mux_write_session_title() {
     emulate -L zsh
     local state_file="\${VS_AGENT_MUX_SESSION_STATE_FILE:-}"
     local title="$1"
     local session_status="idle"
     local session_agent="\${VS_AGENT_MUX_AGENT:-}"
-    local session_flash_title=""
 
     [ -n "$state_file" ] || return 0
 
@@ -417,7 +409,6 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
         case "$key" in
           status) session_status="$value" ;;
           agent) session_agent="$value" ;;
-          flash_title) session_flash_title="$value" ;;
         esac
       done < "$state_file"
     fi
@@ -427,7 +418,6 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
     {
       printf 'status=%s\\n' "$session_status"
       printf 'agent=%s\\n' "$session_agent"
-      printf 'flash_title=%s\\n' "$session_flash_title"
       printf 'title=%s\\n' "$title"
     } >| "$tmp_file" && mv -f -- "$tmp_file" "$state_file"
   }
@@ -439,51 +429,6 @@ if [ -z "$__VS_AGENT_MUX_ZSH_HOOKS_INSTALLED" ]; then
   }
 
   alias vam-title='vs_agent_mux_set_title'
-
-  __vs_agent_mux_watch_flash_title() {
-    emulate -L zsh
-    local last_flash_title=""
-
-    while [ -n "\${VS_AGENT_MUX_SESSION_STATE_FILE:-}" ]; do
-      local flash_title="$(__vs_agent_mux_read_flash_title 2>/dev/null)"
-      if [ -n "$flash_title" ]; then
-        if [ "$flash_title" != "$last_flash_title" ]; then
-          __vs_agent_mux_emit_session_title "$flash_title"
-          last_flash_title="$flash_title"
-        fi
-      elif [ -n "$last_flash_title" ]; then
-        local session_title="$(__vs_agent_mux_read_session_title 2>/dev/null)"
-        if [ -z "$session_title" ]; then
-          session_title="\${(%):-%~}"
-        fi
-
-        __vs_agent_mux_emit_session_title "$session_title"
-        last_flash_title=""
-      fi
-
-      sleep 0.12
-    done
-  }
-
-  __vs_agent_mux_stop_flash_title_watcher() {
-    emulate -L zsh
-    if [ -n "\${__VS_AGENT_MUX_FLASH_WATCHER_PID:-}" ]; then
-      kill "\${__VS_AGENT_MUX_FLASH_WATCHER_PID}" >/dev/null 2>&1 || true
-      unset __VS_AGENT_MUX_FLASH_WATCHER_PID
-    fi
-  }
-
-  autoload -Uz add-zsh-hook 2>/dev/null || true
-  if whence add-zsh-hook >/dev/null 2>&1; then
-    add-zsh-hook zshexit __vs_agent_mux_stop_flash_title_watcher
-  else
-    zshexit_functions+=(__vs_agent_mux_stop_flash_title_watcher)
-  fi
-
-  if [ -n "$VS_AGENT_MUX_SESSION_STATE_FILE" ]; then
-    __vs_agent_mux_watch_flash_title >/dev/null 2>&1 &
-    typeset -g __VS_AGENT_MUX_FLASH_WATCHER_PID=$!
-  fi
 fi
 
 codex() {
@@ -541,7 +486,6 @@ _vs_agent_mux_write_title() {
   _vs_agent_mux_title="$1"
   _vs_agent_mux_status="idle"
   _vs_agent_mux_agent="\${VS_AGENT_MUX_AGENT:-}"
-  _vs_agent_mux_flash_title=""
 
   [ -n "$_vs_agent_mux_state_file" ] || return 0
 
@@ -550,13 +494,12 @@ _vs_agent_mux_write_title() {
       case "$_vs_agent_mux_key" in
         status) _vs_agent_mux_status="$_vs_agent_mux_value" ;;
         agent) _vs_agent_mux_agent="$_vs_agent_mux_value" ;;
-        flash_title) _vs_agent_mux_flash_title="$_vs_agent_mux_value" ;;
       esac
     done < "$_vs_agent_mux_state_file"
   fi
 
   _vs_agent_mux_tmp_file="$_vs_agent_mux_state_file.tmp.$$"
-  printf 'status=%s\nagent=%s\nflash_title=%s\ntitle=%s\n' "$_vs_agent_mux_status" "$_vs_agent_mux_agent" "$_vs_agent_mux_flash_title" "$_vs_agent_mux_title" >"$_vs_agent_mux_tmp_file"
+  printf 'status=%s\nagent=%s\ntitle=%s\n' "$_vs_agent_mux_status" "$_vs_agent_mux_agent" "$_vs_agent_mux_title" >"$_vs_agent_mux_tmp_file"
   mv "$_vs_agent_mux_tmp_file" "$_vs_agent_mux_state_file" >/dev/null 2>&1 || true
 }
 
@@ -656,7 +599,7 @@ export OPENCODE_CONFIG_DIR=${quotedConfigDir}
 
 if [ -n "$VS_AGENT_MUX_SESSION_STATE_FILE" ]; then
   _vs_agent_mux_tmp_file="$VS_AGENT_MUX_SESSION_STATE_FILE.tmp.$$"
-  printf 'status=idle\nagent=%s\nflash_title=\ntitle=%s\n' "$VS_AGENT_MUX_AGENT" "OpenCode" >"$_vs_agent_mux_tmp_file"
+  printf 'status=idle\nagent=%s\ntitle=%s\n' "$VS_AGENT_MUX_AGENT" "OpenCode" >"$_vs_agent_mux_tmp_file"
   mv "$_vs_agent_mux_tmp_file" "$VS_AGENT_MUX_SESSION_STATE_FILE" >/dev/null 2>&1 || true
 fi
 

@@ -1,1 +1,1 @@
-export const TOOLTIP_DELAY_MS = 2500;
+export const TOOLTIP_DELAY_MS = 1050;

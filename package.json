@@ -22,6 +22,8 @@
   "scripts": {
     "vscode:prepublish": "vp run sidebar:build && tsc -p ./tsconfig.extension.json && ./scripts/copy-ruspty-native.zsh",
     "sidebar:build": "vp build --config vite.sidebar.config.ts",
+    "storybook": "vp exec storybook dev -p 6006 --no-open",
+    "storybook:build": "vp exec storybook build",
     "compile": "vp run sidebar:build && tsc -p ./tsconfig.extension.json",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "lint": "vp lint",
@@ -40,12 +42,14 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@storybook/react-vite": "^10.3.0",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.110.0",
     "@vitejs/plugin-react": "^6.0.1",
     "@vscode/vsce": "^3.7.1",
+    "storybook": "^10.3.0",
     "typescript": "~5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest"
@@ -259,17 +263,10 @@
           "default": false,
           "description": "Show debugging UI such as the active terminal backend indicator in the status bar."
         },
-        "VS-AGENT-MUX.showTerminalTitleIndicatorOnSidebarActivate": {
-          "type": "boolean",
-          "default": true,
-          "order": 2,
-          "description": "Show indicator on terminal title when activated from sidebar card."
-        },
-        "VS-AGENT-MUX.terminalTitleIndicatorMarkers": {
+        "VS-AGENT-MUX.zmxBinaryPathOverride": {
           "type": "string",
-          "default": "🔥,🔥,🔥,🔥,🔥",
-          "order": 3,
-          "description": "Emoji sequence used for the terminal title indicator. Enter markers separated by spaces or commas."
+          "default": "",
+          "description": "Absolute path to a custom zmx binary. When set, VS-AGENT-MUX uses this binary instead of downloading the pinned upstream zmx release."
         },
         "VS-AGENT-MUX.showCloseButtonOnSessionCards": {
           "type": "boolean",

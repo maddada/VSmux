@@ -193,7 +193,7 @@ export function SessionGroupSection({
     }
 
     setContextMenuPosition(undefined);
-    if (orderedSessions.length === 0) {
+    if (orderedSessions.length <= 1) {
       vscode.postMessage({
         groupId: group.groupId,
         type: "closeGroup",

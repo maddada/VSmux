@@ -1,16 +1,15 @@
 import { Tooltip } from "@base-ui/react/tooltip";
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
+import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 
 export type SessionCardContentProps = {
   aliasHeadingRef?: RefObject<HTMLDivElement | null>;
   onClose?: () => void;
   secondaryRef?: RefObject<HTMLDivElement | null>;
   session: SidebarSessionItem;
-  showAliasTooltip?: boolean;
   showCloseButton: boolean;
   showHotkeys: boolean;
-  showSecondaryTooltip?: boolean;
 };
 
 export function SessionCardContent({
@@ -18,10 +17,8 @@ export function SessionCardContent({
   onClose,
   secondaryRef,
   session,
-  showAliasTooltip = false,
   showCloseButton,
   showHotkeys,
-  showSecondaryTooltip = false,
 }: SessionCardContentProps) {
   const secondaryText =
     session.detail ?? session.terminalTitle ?? session.primaryTitle ?? session.activityLabel;
@@ -35,7 +32,6 @@ export function SessionCardContent({
         <OverflowTooltipText
           className="session-alias-heading"
           textRef={aliasHeadingRef}
-          showTooltip={showAliasTooltip}
           text={session.alias}
         />
         {showCloseButton && onClose ? (
@@ -58,7 +54,6 @@ export function SessionCardContent({
           <OverflowTooltipText
             className="session-secondary"
             textRef={secondaryRef}
-            showTooltip={showSecondaryTooltip}
             text={secondaryText}
             tooltip={secondaryTitle}
           />
@@ -75,32 +70,83 @@ export function SessionCardContent({
 
 type OverflowTooltipTextProps = {
   className: string;
-  showTooltip: boolean;
   text: string;
   textRef?: RefObject<HTMLDivElement | null>;
   tooltip?: string;
 };
 
-function OverflowTooltipText({
-  className,
-  showTooltip,
-  text,
-  textRef,
-  tooltip,
-}: OverflowTooltipTextProps) {
+function OverflowTooltipText({ className, text, textRef, tooltip }: OverflowTooltipTextProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const openTimeoutIdRef = useRef<number>();
+
+  const clearOpenTimeout = () => {
+    if (openTimeoutIdRef.current === undefined) {
+      return;
+    }
+
+    window.clearTimeout(openTimeoutIdRef.current);
+    openTimeoutIdRef.current = undefined;
+  };
+
+  const closeTooltip = () => {
+    clearOpenTimeout();
+    setIsOpen(false);
+  };
+
+  const hasOverflow = () => {
+    const element = textRef?.current;
+    if (!element) {
+      return false;
+    }
+
+    if (element.scrollWidth > element.clientWidth) {
+      return true;
+    }
+
+    return element.scrollHeight > element.clientHeight;
+  };
+
+  const openTooltip = () => {
+    clearOpenTimeout();
+    if (!hasOverflow()) {
+      setIsOpen(false);
+      return;
+    }
+
+    openTimeoutIdRef.current = window.setTimeout(() => {
+      setIsOpen(true);
+      openTimeoutIdRef.current = undefined;
+    }, TOOLTIP_DELAY_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearOpenTimeout();
+    };
+  }, []);
+
   const content = (
     <div className={className} ref={textRef}>
       {text}
     </div>
   );
 
-  if (!showTooltip) {
-    return content;
-  }
-
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger render={content} />
+    <Tooltip.Root onOpenChange={(open) => !open && closeTooltip()} open={isOpen}>
+      <Tooltip.Trigger
+        disabled
+        render={
+          <div
+            className="session-tooltip-trigger"
+            onBlur={closeTooltip}
+            onFocus={openTooltip}
+            onMouseEnter={openTooltip}
+            onMouseLeave={closeTooltip}
+          >
+            {content}
+          </div>
+        }
+      />
       <Tooltip.Portal>
         <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
           <Tooltip.Popup className="tooltip-popup">{tooltip ?? text}</Tooltip.Popup>

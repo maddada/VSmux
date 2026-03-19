@@ -7,7 +7,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type RefObject,
 } from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
 import { SessionCardContent } from "./session-card-content";
@@ -57,10 +56,6 @@ export function SortableSessionCard({
   const menuRef = useRef<HTMLDivElement>(null);
   const aliasHeadingRef = useRef<HTMLDivElement>(null);
   const secondaryRef = useRef<HTMLDivElement>(null);
-  const isAliasOverflowing = useIsTextOverflowing(aliasHeadingRef, session.alias);
-  const secondaryText =
-    session.detail ?? session.terminalTitle ?? session.primaryTitle ?? session.activityLabel ?? "";
-  const isSecondaryOverflowing = useIsTextOverflowing(secondaryRef, secondaryText);
   const sortable = useSortable({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
@@ -210,10 +205,8 @@ export function SortableSessionCard({
           onClose={requestClose}
           secondaryRef={secondaryRef}
           session={session}
-          showAliasTooltip={isAliasOverflowing}
           showCloseButton={showCloseButton}
           showHotkeys={showHotkeys}
-          showSecondaryTooltip={isSecondaryOverflowing}
         />
       </article>
       {contextMenuPosition
@@ -268,36 +261,4 @@ export function SortableSessionCard({
         : null}
     </>
   );
-}
-
-function useIsTextOverflowing<TElement extends HTMLElement>(
-  ref: RefObject<TElement | null>,
-  text: string,
-): boolean {
-  const [isOverflowing, setIsOverflowing] = useState(false);
-
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      setIsOverflowing(false);
-      return;
-    }
-
-    const updateOverflow = () => {
-      setIsOverflowing(element.scrollWidth > element.clientWidth);
-    };
-
-    updateOverflow();
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateOverflow();
-    });
-
-    resizeObserver.observe(element);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [ref, text]);
-
-  return isOverflowing;
 }

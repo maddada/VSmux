@@ -9,6 +9,15 @@ import * as vscode from "vscode";
 import { getSupportedZmxTarget, ZMX_DOWNLOAD_URLS, ZMX_VERSION } from "./zmx-binary-helpers";
 
 export async function ensureZmxBinary(context: vscode.ExtensionContext): Promise<string> {
+  const configuredBinaryPath = getConfiguredZmxBinaryPath();
+  if (configuredBinaryPath) {
+    if (!(await pathExists(configuredBinaryPath))) {
+      throw new Error(`Configured zmx binary does not exist: ${configuredBinaryPath}`);
+    }
+
+    return configuredBinaryPath;
+  }
+
   const target = getSupportedZmxTarget(process.platform, process.arch);
   const installDirectory = path.join(context.globalStorageUri.fsPath, "zmx", ZMX_VERSION, target);
   const binaryPath = path.join(installDirectory, "zmx");
@@ -98,6 +107,15 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function getConfiguredZmxBinaryPath(): string | undefined {
+  const configuredPath = vscode.workspace
+    .getConfiguration("VS-AGENT-MUX")
+    .get<string>("zmxBinaryPathOverride")
+    ?.trim();
+
+  return configuredPath && configuredPath.length > 0 ? configuredPath : undefined;
 }
 
 export { ZMX_DOWNLOAD_URLS, ZMX_VERSION };
