@@ -293,7 +293,7 @@ button:disabled {
   gap: 6px;
   position: absolute;
   right: 0;
-  top: -10px;
+  top: -5px;
   z-index: 10;
 }
 
@@ -367,14 +367,14 @@ button:disabled {
 }
 
 .floating-toolbar-button {
-  min-height: 25px;
-  min-width: 25px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--app-card) 88%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow:
-    0 10px 18px color-mix(in srgb, #000000 14%, transparent),
-    0 0 0 1px color-mix(in srgb, #ffffff 3%, transparent);
+  min-height: 20px;
+  min-width: 20px;
+  /* border-radius: 999px; */
+  /* background: color-mix(in srgb, var(--app-card) 88%, transparent); */
+  /* backdrop-filter: blur(10px); */
+  /* box-shadow: */
+    /* 0 10px 18px color-mix(in srgb, #000000 14%, transparent), */
+    /* 0 0 0 1px color-mix(in srgb, #ffffff 3%, transparent); */
 }
 
 .floating-toolbar-button .toolbar-icon,

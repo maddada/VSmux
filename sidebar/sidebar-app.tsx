@@ -1,7 +1,7 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
 import { isSortable } from "@dnd-kit/react/sortable";
-import { IconBell, IconBellOff, IconFocusCentered } from "@tabler/icons-react";
+import { IconBell, IconBellOff, IconFocusCentered, IconSettings } from "@tabler/icons-react";
 import {
   startTransition,
   useEffect,
@@ -461,7 +461,12 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
                 role="menuitem"
                 type="button"
               >
-                <SettingsIcon className="session-context-menu-icon" />
+                <IconSettings
+                  aria-hidden="true"
+                  className="session-context-menu-icon"
+                  size={14}
+                  stroke={1.8}
+                />
                 Sidebar Settings
               </button>
             </div>
