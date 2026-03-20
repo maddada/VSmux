@@ -93,10 +93,12 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   const [draftGroupIds, setDraftGroupIds] = useState<string[] | undefined>();
   const [draggedSessionId, setDraggedSessionId] = useState<string>();
   const [draggedSessionWidth, setDraggedSessionWidth] = useState<number>();
+  const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
   const [draftSessionIdsByGroup, setDraftSessionIdsByGroup] = useState<
     Record<string, string[] | undefined>
   >({});
   const pendingCreateGroupRef = useRef(false);
+  const floatingControlsRef = useRef<HTMLDivElement>(null);
 
   const requestNewSession = () => {
     vscode.postMessage({ type: "createSession" });
@@ -168,6 +170,39 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       delete document.body.dataset.sidebarTheme;
     };
   }, [serverState.hud.theme]);
+
+  useEffect(() => {
+    if (!isOverflowMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (floatingControlsRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsOverflowMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOverflowMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOverflowMenuOpen]);
 
   const orderedGroups = useMemo(() => {
     const groupById = new Map(serverState.groups.map((group) => [group.groupId, group] as const));
@@ -376,14 +411,72 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
         data-sidebar-theme={serverState.hud.theme}
         onDoubleClick={handleSidebarDoubleClick}
       >
-        <section className="card hud">
-          <div className="toolbar-row">
-            <div className="toolbar-section">
-              <div className="toolbar-layout-shell">
+        <div
+          className="sidebar-floating-controls"
+          data-empty-space-blocking="true"
+          ref={floatingControlsRef}
+        >
+          <ToolbarIconButton
+            ariaControls="sidebar-overflow-menu"
+            ariaExpanded={isOverflowMenuOpen}
+            ariaHasPopup="menu"
+            ariaLabel="Open sidebar menu"
+            className="floating-toolbar-button"
+            isSelected={isOverflowMenuOpen}
+            onClick={() => setIsOverflowMenuOpen((previous) => !previous)}
+            tooltip="More"
+          >
+            <OverflowIcon />
+          </ToolbarIconButton>
+          {isOverflowMenuOpen ? (
+            <div
+              aria-label="Sidebar actions"
+              className="session-context-menu sidebar-floating-menu"
+              data-empty-space-blocking="true"
+              id="sidebar-overflow-menu"
+              role="menu"
+            >
+              <button
+                className="session-context-menu-item"
+                onClick={() => {
+                  setIsOverflowMenuOpen(false);
+                  vscode.postMessage({ type: "toggleCompletionBell" });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                {serverState.hud.completionBellEnabled ? (
+                  <IconBellOff aria-hidden="true" className="session-context-menu-icon" size={14} />
+                ) : (
+                  <IconBell aria-hidden="true" className="session-context-menu-icon" size={14} />
+                )}
+                {getCompletionBellMenuLabel(serverState.hud)}
+              </button>
+              <button
+                className="session-context-menu-item"
+                onClick={() => {
+                  setIsOverflowMenuOpen(false);
+                  vscode.postMessage({ type: "openSettings" });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <SettingsIcon className="session-context-menu-icon" />
+                Sidebar Settings
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <section className="commands-section">
+          <div className="section-titlebar" data-empty-space-blocking="true">
+            <div aria-hidden="true" className="section-titlebar-line" />
+            <span className="section-titlebar-label">Layout</span>
+            <div aria-hidden="true" className="section-titlebar-line" />
+          </div>
+          <div className="card hud">
+            <div className="toolbar-row">
+              <div className="toolbar-section">
                 <div className="toolbar-layout-block">
-                  <div className="control-label" data-empty-space-blocking="true">
-                    Layout
-                  </div>
                   <div className="button-group toolbar-mode-group">
                     <ToolbarIconButton
                       ariaLabel="Toggle focus mode"
@@ -414,62 +507,28 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
                     ))}
                   </div>
                 </div>
-                <div className="button-group toolbar-utility-group">
-                  <ToolbarIconButton
-                    ariaLabel={
-                      serverState.hud.completionBellEnabled
-                        ? "Disable completion sound for this project"
-                        : "Enable completion sound for this project"
-                    }
-                    isSelected={serverState.hud.completionBellEnabled}
-                    onClick={() => vscode.postMessage({ type: "toggleCompletionBell" })}
-                    tooltip={getCompletionBellTooltip(serverState.hud)}
-                  >
-                    {serverState.hud.completionBellEnabled ? (
-                      <IconBell aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
-                    ) : (
-                      <IconBellOff
-                        aria-hidden="true"
-                        className="toolbar-tabler-icon"
-                        stroke={1.8}
-                      />
-                    )}
-                  </ToolbarIconButton>
-                  <ToolbarIconButton
-                    ariaLabel="Open sidebar theme settings"
-                    onClick={() => vscode.postMessage({ type: "openSettings" })}
-                    tooltip="Sidebar Settings"
-                  >
-                    <SettingsIcon />
-                  </ToolbarIconButton>
+              </div>
+              <div className="toolbar-section">
+                <div className="control-label" data-empty-space-blocking="true">
+                  Sessions Shown
+                </div>
+                <div className="button-group">
+                  {COUNT_OPTIONS.map((visibleCount) => (
+                    <ToolbarIconButton
+                      ariaLabel={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
+                      key={visibleCount}
+                      data-dimmed={String(serverState.hud.isFocusModeActive)}
+                      onClick={() => vscode.postMessage({ type: "setVisibleCount", visibleCount })}
+                      tooltip={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
+                      isDimmed={serverState.hud.isFocusModeActive}
+                      isSelected={serverState.hud.highlightedVisibleCount === visibleCount}
+                    >
+                      {visibleCount}
+                    </ToolbarIconButton>
+                  ))}
                 </div>
               </div>
             </div>
-            <div className="toolbar-section">
-              <div className="control-label" data-empty-space-blocking="true">
-                Sessions Shown
-              </div>
-              <div className="button-group">
-                {COUNT_OPTIONS.map((visibleCount) => (
-                  <ToolbarIconButton
-                    ariaLabel={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
-                    key={visibleCount}
-                    data-dimmed={String(serverState.hud.isFocusModeActive)}
-                    onClick={() => vscode.postMessage({ type: "setVisibleCount", visibleCount })}
-                    tooltip={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
-                    isDimmed={serverState.hud.isFocusModeActive}
-                    isSelected={serverState.hud.highlightedVisibleCount === visibleCount}
-                  >
-                    {visibleCount}
-                  </ToolbarIconButton>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="action-row">
-            <button className="primary" onClick={requestNewSession} type="button">
-              New Session
-            </button>
           </div>
         </section>
         <AgentsPanel agents={serverState.hud.agents} vscode={vscode} />
@@ -567,6 +626,9 @@ function isEmptySidebarDoubleClick(
 }
 
 type ToolbarIconButtonProps = {
+  ariaControls?: string;
+  ariaExpanded?: boolean;
+  ariaHasPopup?: "menu";
   ariaLabel: string;
   children: React.ReactNode;
   className?: string;
@@ -580,6 +642,9 @@ type ToolbarIconButtonProps = {
 };
 
 function ToolbarIconButton({
+  ariaControls,
+  ariaExpanded,
+  ariaHasPopup,
   ariaLabel,
   children,
   className,
@@ -596,7 +661,10 @@ function ToolbarIconButton({
       <Tooltip.Trigger
         render={
           <button
+            aria-controls={ariaControls}
             aria-disabled={isDisabled}
+            aria-expanded={ariaExpanded}
+            aria-haspopup={ariaHasPopup}
             aria-label={ariaLabel}
             className={className ? `toolbar-button ${className}` : "toolbar-button"}
             data-disabled={String(isDisabled)}
@@ -801,9 +869,17 @@ function LayoutModeIcon({ viewMode }: LayoutModeIconProps) {
   }
 }
 
-function SettingsIcon() {
+type SettingsIconProps = {
+  className?: string;
+};
+
+function SettingsIcon({ className }: SettingsIconProps) {
   return (
-    <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
+    <svg
+      aria-hidden="true"
+      className={className ?? "toolbar-icon"}
+      viewBox="0 0 16 16"
+    >
       <path
         className="toolbar-icon-line"
         d="M8 2.2v1.4M8 12.4v1.4M3.76 3.76l1 1M11.24 11.24l1 1M2.2 8h1.4M12.4 8h1.4M3.76 12.24l1-1M11.24 4.76l1-1"
@@ -814,8 +890,16 @@ function SettingsIcon() {
   );
 }
 
-function getCompletionBellTooltip(hud: SidebarHudState): string {
-  return hud.completionBellEnabled
-    ? `Disable done sound for this project (${hud.completionSoundLabel})`
-    : `Enable done sound for this project (${hud.completionSoundLabel})`;
+function OverflowIcon() {
+  return (
+    <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
+      <circle cx="3.5" cy="8" fill="currentColor" r="1.1" />
+      <circle cx="8" cy="8" fill="currentColor" r="1.1" />
+      <circle cx="12.5" cy="8" fill="currentColor" r="1.1" />
+    </svg>
+  );
+}
+
+function getCompletionBellMenuLabel(hud: SidebarHudState): string {
+  return hud.completionBellEnabled ? "Disable Notifications" : "Enable Notifications";
 }

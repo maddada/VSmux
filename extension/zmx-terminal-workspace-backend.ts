@@ -22,12 +22,15 @@ import {
   extractTerminalTextTailFromVtHistory,
   extractLatestTerminalTitleFromVtHistory,
   focusEditorGroupByIndex,
+  getActiveEditorGroupViewColumn,
   getDefaultShell,
   getDefaultWorkspaceCwd,
   hasInterruptStatusInVtHistory,
   getSessionTabTitle,
   getViewColumn,
   matchesVisibleTerminalLayout,
+  moveActiveEditorToNextGroup,
+  moveActiveEditorToPreviousGroup,
   moveActiveTerminalToEditor,
   moveActiveTerminalToPanel,
   parsePersistedSessionState,
@@ -542,10 +545,37 @@ export class ZmxTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
     // editor group instead of populating the intended one.
     await this.showTerminal(projection.terminal, true);
     await this.runUiAction(() => moveActiveTerminalToEditor());
+    await this.alignActiveEditorGroupToVisibleIndex(visibleIndex);
     projection.location = {
       type: "editor",
       visibleIndex,
     };
+  }
+
+  private async alignActiveEditorGroupToVisibleIndex(visibleIndex: number): Promise<void> {
+    const expectedViewColumn = getViewColumn(visibleIndex);
+    let activeViewColumn = getActiveEditorGroupViewColumn();
+    let safetyCounter = 0;
+
+    while (
+      activeViewColumn !== undefined &&
+      activeViewColumn > expectedViewColumn &&
+      safetyCounter < 8
+    ) {
+      await this.runUiAction(() => moveActiveEditorToPreviousGroup());
+      activeViewColumn = getActiveEditorGroupViewColumn();
+      safetyCounter += 1;
+    }
+
+    while (
+      activeViewColumn !== undefined &&
+      activeViewColumn < expectedViewColumn &&
+      safetyCounter < 8
+    ) {
+      await this.runUiAction(() => moveActiveEditorToNextGroup());
+      activeViewColumn = getActiveEditorGroupViewColumn();
+      safetyCounter += 1;
+    }
   }
 
   private async moveProjectionToPanel(sessionId: string): Promise<void> {

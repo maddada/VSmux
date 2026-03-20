@@ -285,6 +285,16 @@ button:disabled {
   height: 100%;
   min-height: 100%;
   align-content: start;
+  position: relative;
+}
+
+.sidebar-floating-controls {
+  display: inline-flex;
+  gap: 6px;
+  position: absolute;
+  right: 0;
+  top: -10px;
+  z-index: 10;
 }
 
 .card {
@@ -324,18 +334,8 @@ button:disabled {
   letter-spacing: 0.04em;
 }
 
-.toolbar-layout-shell {
-  display: grid;
-  align-items: start;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "layout utility";
-}
-
 .toolbar-layout-block {
   display: grid;
-  gap: 6px;
-  grid-area: layout;
   min-width: 0;
 }
 
@@ -352,32 +352,9 @@ button:disabled {
   margin: 2px 2px;
 }
 
-.toolbar-mode-group,
-.toolbar-utility-group {
-  flex-wrap: nowrap;
-}
-
 .toolbar-mode-group {
+  flex-wrap: nowrap;
   min-width: 0;
-}
-
-.toolbar-utility-group {
-  flex: none;
-  grid-area: utility;
-  justify-self: end;
-}
-
-@media (max-width: 340px) {
-  .toolbar-layout-shell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "utility"
-      "layout";
-  }
-
-  .toolbar-utility-group {
-    justify-self: start;
-  }
 }
 
 .toolbar-button {
@@ -387,6 +364,23 @@ button:disabled {
   min-width: 32px;
   min-height: 32px;
   padding: 0;
+}
+
+.floating-toolbar-button {
+  min-height: 25px;
+  min-width: 25px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-card) 88%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 10px 18px color-mix(in srgb, #000000 14%, transparent),
+    0 0 0 1px color-mix(in srgb, #ffffff 3%, transparent);
+}
+
+.floating-toolbar-button .toolbar-icon,
+.floating-toolbar-button .toolbar-tabler-icon {
+  height: 10px;
+  width: 10px;
 }
 
 .toolbar-icon {
@@ -469,14 +463,14 @@ button:disabled {
   color: color-mix(in srgb, var(--app-foreground) 90%, var(--app-muted) 10%);
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   gap: 8px;
   justify-content: center;
   letter-spacing: 0.02em;
   max-width: 100%;
   min-height: 36px;
-  padding: 0 14px;
+  padding: 0 12px;
 }
 
 .agent-button:hover,
@@ -647,15 +641,24 @@ button:disabled {
 
 .group-title-row {
   align-items: center;
-  cursor: grab;
   display: flex;
-  gap: 10px;
-  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
 }
 
-.group-title-row:active {
+.group-title-handle {
+  cursor: grab;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.group-title-handle:active {
   cursor: grabbing;
+}
+
+.group-title {
+  text-transform: uppercase;
 }
 
 .group-title,
@@ -664,7 +667,6 @@ button:disabled {
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1.2;
-  text-transform: uppercase;
 }
 
 .group-title {
@@ -675,6 +677,36 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.group-add-button {
+  align-items: center;
+  background: color-mix(in srgb, var(--app-card-active) 88%, transparent);
+  border-color: color-mix(in srgb, var(--app-border) 92%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--app-button-background) 74%, var(--app-foreground) 26%);
+  display: inline-flex;
+  flex: none;
+  height: 22px;
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+  visibility: hidden;
+  width: 22px;
+}
+
+.group-add-button:hover,
+.group-add-button:focus-visible {
+  background: color-mix(in srgb, var(--app-button-background) 12%, var(--app-card-active) 88%);
+  border-color: color-mix(in srgb, var(--app-button-background) 54%, var(--app-border));
+  color: var(--app-button-background);
+  outline: none;
+}
+
+.group-add-icon {
+  display: block;
+  flex: none;
 }
 
 .group-meta {
@@ -752,8 +784,12 @@ button:disabled {
 }
 
 .group[data-active="true"] .group-meta,
-.group:hover .group-meta {
+.group[data-active="true"] .group-add-button,
+.group:hover .group-meta,
+.group:hover .group-add-button,
+.group:focus-within .group-add-button {
   opacity: 1;
+  pointer-events: auto;
   visibility: visible;
 }
 
@@ -771,7 +807,7 @@ button:disabled {
   display: grid;
 }
 
-.group-empty-drop-target[data-drop-target="true"] .group-empty-button {
+.group-empty-drop-target[data-drop-target="true"] .group-empty-state {
   background: color-mix(in srgb, var(--app-button-background) 12%, transparent);
   border-color: color-mix(in srgb, var(--app-button-background) 76%, var(--app-border));
   box-shadow:
@@ -779,25 +815,20 @@ button:disabled {
     0 12px 24px color-mix(in srgb, var(--app-button-background) 8%, transparent);
 }
 
-.group-empty-button {
+.group-empty-state {
   align-items: center;
   align-self: center;
   border: 1px dashed color-mix(in srgb, var(--app-button-background) 44%, var(--app-border));
   border-radius: 18px;
-  color: color-mix(in srgb, var(--app-button-background) 72%, var(--app-foreground) 28%);
-  display: inline-flex;
-  font-size: 30px;
+  color: color-mix(in srgb, var(--app-muted) 82%, var(--app-foreground) 18%);
+  display: flex;
+  font-size: 12px;
+  letter-spacing: 0.03em;
   height: 72px;
   justify-content: center;
   justify-self: stretch;
   line-height: 1;
   width: 100%;
-}
-
-.group-empty-button:hover,
-.group-empty-button:focus-visible {
-  background: color-mix(in srgb, var(--app-button-background) 10%, transparent);
-  border-color: color-mix(in srgb, var(--app-button-background) 68%, var(--app-border));
 }
 
 .confirm-modal-root {
@@ -973,7 +1004,7 @@ button:disabled {
   padding: 10px 12px;
   border: 1px solid var(--app-border);
   outline: 2px solid transparent;
-  outline-offset: 2px;
+  outline-offset: -3px;
   border-radius: 18px;
   background: transparent;
   color: inherit;
@@ -1064,7 +1095,7 @@ button:disabled {
 .session[data-focused="true"] {
   border-color: color-mix(in srgb, var(--app-button-background) 72%, var(--app-border));
   outline-color: color-mix(in srgb, var(--app-button-background) 92%, #ffffff 8%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-button-background) 88%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-button-background) 88%, transparent);
 }
 
 .session:focus-visible {
@@ -1303,6 +1334,31 @@ button:disabled {
 .session-context-menu-item-danger:hover,
 .session-context-menu-item-danger:focus-visible {
   background: color-mix(in srgb, #ff7b72 18%, transparent);
+}
+
+.session-context-menu.sidebar-floating-menu {
+  min-width: 188px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+}
+
+@media (max-width: 249px) {
+  .section-titlebar {
+    display: flex;
+    gap: 0;
+    justify-content: flex-start;
+  }
+
+  .section-titlebar-line {
+    display: none;
+  }
+
+  .section-titlebar-label {
+    justify-self: auto;
+    text-align: left;
+  }
 }
 
 .session-summary {

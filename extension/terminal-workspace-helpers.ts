@@ -290,6 +290,10 @@ export function getViewColumn(index: number): vscode.ViewColumn {
   return Math.max(vscode.ViewColumn.One, Math.min(index + 1, vscode.ViewColumn.Nine));
 }
 
+export function getActiveEditorGroupViewColumn(): vscode.ViewColumn | undefined {
+  return vscode.window.tabGroups.activeTabGroup?.viewColumn;
+}
+
 export async function focusEditorGroupByIndex(index: number): Promise<boolean> {
   const command = FOCUS_EDITOR_GROUP_COMMANDS[index];
   if (!command) {

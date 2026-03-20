@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   clampCompletionSoundSetting,
@@ -53,6 +54,7 @@ import type { TerminalWorkspaceBackend } from "./terminal-workspace-backend";
 import {
   createDisconnectedSessionSnapshot,
   createEmptyWorkspaceSessionSnapshot,
+  getDefaultShell,
   getDefaultWorkspaceCwd,
   getSessionActivityLabel,
   getWorkspaceId,
@@ -74,6 +76,7 @@ const COMPLETION_BELL_ENABLED_KEY = "VSmux.completionBellEnabled";
 export const SESSIONS_VIEW_ID = "VSmux.sessions";
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const WORKING_ACTIVITY_STALE_TIMEOUT_MS = 10_000;
+const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
 
 type NativeTerminalWorkspaceBackendKind = "zmx";
 
@@ -409,19 +412,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    const terminal = vscode.window.createTerminal({
-      cwd: getDefaultWorkspaceCwd(),
-      iconPath: new vscode.ThemeIcon("terminal"),
-      isTransient: true,
-      location: vscode.TerminalLocation.Panel,
-      name: `VSmux: ${commandButton?.name ?? "Command"}`,
-    });
+    if (commandButton?.closeTerminalOnExit) {
+      const terminal = this.createSidebarCommandTerminal(commandButton.name, command, true);
+      terminal.show(true);
+      this.disposeTerminalWhenProcessExits(terminal);
+      return;
+    }
+
+    const terminal = this.createSidebarCommandTerminal(commandButton?.name ?? "Command");
     terminal.show(true);
     terminal.sendText(command, true);
-
-    if (commandButton?.closeTerminalOnExit) {
-      terminal.sendText("exit", true);
-    }
   }
 
   public async runSidebarAgent(agentId: string): Promise<void> {
@@ -1122,6 +1122,58 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private getAllSessionRecords(): SessionRecord[] {
     return this.store.getSnapshot().groups.flatMap((group) => getOrderedSessions(group.snapshot));
   }
+
+  private createSidebarCommandTerminal(
+    name: string,
+    command?: string,
+    closeOnExit = false,
+  ): vscode.Terminal {
+    if (closeOnExit && command) {
+      const shellPath = getDefaultShell();
+      return vscode.window.createTerminal({
+        cwd: getDefaultWorkspaceCwd(),
+        iconPath: new vscode.ThemeIcon("terminal"),
+        isTransient: true,
+        location: vscode.TerminalLocation.Panel,
+        name: `VSmux: ${name}`,
+        shellArgs: getCommandTerminalShellArgs(shellPath, command),
+        shellPath,
+      });
+    }
+
+    return vscode.window.createTerminal({
+      cwd: getDefaultWorkspaceCwd(),
+      iconPath: new vscode.ThemeIcon("terminal"),
+      isTransient: true,
+      location: vscode.TerminalLocation.Panel,
+      name: `VSmux: ${name}`,
+    });
+  }
+
+  private disposeTerminalWhenProcessExits(terminal: vscode.Terminal): void {
+    const interval = setInterval(() => {
+      if (!terminal.exitStatus) {
+        return;
+      }
+
+      clearInterval(interval);
+      terminal.dispose();
+    }, COMMAND_TERMINAL_EXIT_POLL_MS);
+  }
+}
+
+function getCommandTerminalShellArgs(shellPath: string, command: string): string[] {
+  const shellName = path.basename(shellPath).toLowerCase();
+
+  if (process.platform === "win32") {
+    if (shellName === "cmd.exe" || shellName === "cmd") {
+      return ["/d", "/c", command];
+    }
+
+    return ["-NoLogo", "-NoProfile", "-Command", command];
+  }
+
+  return ["-l", "-c", command];
 }
 
 function getVisibleTerminalTitle(title: string | undefined): string | undefined {

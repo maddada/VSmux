@@ -1,4 +1,4 @@
-import { IconFocusCentered, IconPencil, IconX } from "@tabler/icons-react";
+import { IconFocusCentered, IconPencil, IconPlus, IconX } from "@tabler/icons-react";
 import { useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { createPortal } from "react-dom";
@@ -225,11 +225,6 @@ export function SessionGroupSection({
   };
 
   const requestCreateSession = () => {
-    if (group.isActive) {
-      vscode.postMessage({ type: "createSession" });
-      return;
-    }
-
     vscode.postMessage({
       groupId: group.groupId,
       type: "createSessionInGroup",
@@ -288,7 +283,7 @@ export function SessionGroupSection({
         ref={sortable.ref}
       >
         <div className="group-head">
-          <div className="group-title-wrap" ref={isEditing ? undefined : sortable.handleRef}>
+          <div className="group-title-wrap">
             {isEditing ? (
               <input
                 autoFocus
@@ -301,7 +296,9 @@ export function SessionGroupSection({
               />
             ) : (
               <div className="group-title-row">
-                <div className="group-title">{group.title}</div>
+                <div className="group-title-handle" ref={sortable.handleRef}>
+                  <div className="group-title">{group.title}</div>
+                </div>
                 <div className="group-meta">
                   {group.isFocusModeActive ? (
                     <span
@@ -337,6 +334,19 @@ export function SessionGroupSection({
                     </>
                   )}
                 </div>
+                <button
+                  aria-label={`Create a session in ${group.title}`}
+                  className="group-add-button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    requestCreateSession();
+                  }}
+                  title={`Create a session in ${group.title}`}
+                  type="button"
+                >
+                  <IconPlus aria-hidden="true" className="group-add-icon" size={14} stroke={2} />
+                </button>
               </div>
             )}
           </div>
@@ -363,18 +373,7 @@ export function SessionGroupSection({
               className="group-empty-drop-target"
               data-drop-target={String(sessionDropTarget.isDropTarget)}
             >
-              <button
-                aria-label={`Create a session in ${group.title}`}
-                className="group-empty-button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  requestCreateSession();
-                }}
-                type="button"
-              >
-                +
-              </button>
+              <div className="group-empty-state">No sessions in this group yet.</div>
             </div>
           )}
         </div>

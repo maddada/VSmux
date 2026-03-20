@@ -27,13 +27,19 @@ export const ToolbarActions: Story = {
     highlightedVisibleCount: 4,
     visibleCount: 4,
   },
-  play: async ({ canvas, step, userEvent }) => {
+  play: async ({ canvas, canvasElement, step, userEvent }) => {
+    const body = within(canvasElement.ownerDocument.body);
+
     await waitForReadyMessage();
     resetSidebarStoryMessages();
 
-    await step("request a new session", async () => {
-      await userEvent.click(canvas.getByRole("button", { name: "New Session" }));
-      await expectMessage({ type: "createSession" });
+    await step("remove the global new session button", async () => {
+      await expect(canvas.queryByRole("button", { name: "New Session" })).toBeNull();
+    });
+
+    await step("request a new session inside a group", async () => {
+      await userEvent.click(canvas.getByRole("button", { name: "Create a session in Group 4" }));
+      await expectMessage({ groupId: "group-4", type: "createSessionInGroup" });
     });
 
     await step("change sessions shown", async () => {
@@ -50,7 +56,8 @@ export const ToolbarActions: Story = {
 
     await step("open sidebar settings", async () => {
       resetSidebarStoryMessages();
-      await userEvent.click(canvas.getByRole("button", { name: "Open sidebar theme settings" }));
+      await userEvent.click(canvas.getByRole("button", { name: "Open sidebar menu" }));
+      await userEvent.click(await body.findByRole("menuitem", { name: "Sidebar Settings" }));
       await expectMessage({ type: "openSettings" });
     });
   },
