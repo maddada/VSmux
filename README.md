@@ -1,17 +1,37 @@
 # VSMux: Manage all your AI coding sessions in 1 place.  
 
-Inspired by Codex app, T3Code, CMux, and Superset + many more.
-
-Based on zmx (tmux alternative) & ghostty 1.3. Persistent terminal sessions. Works with Claude Code/Codex CLI/OpenCode/PI/etc.
-
-Works great with my other tool that shows all running agent sessions: https://github.com/maddada/agent-manager-x
-
-Contributions welcome 🙏🏻
-
 <img width="3322" height="2054" alt="Code 2026-03-21 05 05 53" src="https://github.com/user-attachments/assets/24248a2e-a3e8-4178-abad-9d09f13c86d8" />
 
-Early version video showing the core experience (will create a new one soon showing all the new stuff):
+Early version video showing the core experience of VSmux (will create a new video soon showing all of the new stuff):
 https://x.com/i/status/2034602427442503890
+
+The shpeel: You like to code using multiple agent CLIs, but you don't want to be locked into a tool like conductor or super set or w/e. You don't want to be missing out on the new features that are coming to the CLIs first. You also love to be close to the code for some projects and review changes in your favorite editor (VS Code/Cursor/Antigravity/etc.)
+
+Then this is the extension for you! You get a very nice interface to work with your agents without having to jump between the editor and the ADE tool.
+
+Inspired by Antigravity agent panel, Codex app, T3Code, CMux, and Superset + many more.
+
+Based on zmx (tmux alternative) & ghostty 1.3. Persistent terminal sessions. Works with any agent CLI (Claude Code/Codex CLI/OpenCode/PI/etc.)
+
+Btw can work with worktrees in VS Code very easily by enabling these setting: 
+
+## Recommended VS Code Setup
+
+### 1. Enable Native Tabs
+
+If you are on macOS, turn on VS Code's `window.nativeTabs` setting.
+
+This makes it much easier to switch between projects, repos, and worktrees because each VS Code window can live in the same native tab strip. Instead of juggling separate windows, you can keep multiple VS-AGENT-MUX workspaces open and move between them quickly with the normal macOS tab workflow.
+
+### 2. Turn On Repositories Explorer for Worktrees
+
+Enable `SCM > Repositories: Explorer`, and make sure `SCM > Repositories: Selection Mode` is set to `single`.
+
+This exposes repository artifacts directly inside the Source Control UI, including branches, stashes, tags, and worktrees. It makes creating and managing Git worktrees much easier from the VS Code UI, without needing to drop into the terminal for every worktree action.
+
+Works great with my other tool that shows all running agent sessions which shows all running agents in a mini floating bar on macOS: https://github.com/maddada/agent-manager-x
+
+Contributions welcome 🙏🏻
 
 ---
 
@@ -31,20 +51,6 @@ Unlike a normal terminal tab workflow, VS-AGENT-MUX is built for keeping several
 - Supports session nicknames, drag reordering, restart, reveal, and reset actions
 - Can keep detached sessions alive after reloads and restart them into place on reopen
 - Places the sessions view in the right-side secondary sidebar for quick access
-
-## Recommended VS Code Setup
-
-### 1. Enable Native Tabs
-
-If you are on macOS, turn on VS Code's `window.nativeTabs` setting.
-
-This makes it much easier to switch between projects, repos, and worktrees because each VS Code window can live in the same native tab strip. Instead of juggling separate windows, you can keep multiple VS-AGENT-MUX workspaces open and move between them quickly with the normal macOS tab workflow.
-
-### 2. Turn On Repositories Explorer for Worktrees
-
-Enable `SCM > Repositories: Explorer`, and make sure `SCM > Repositories: Selection Mode` is set to `single`.
-
-This exposes repository artifacts directly inside the Source Control UI, including branches, stashes, tags, and worktrees. It makes creating and managing Git worktrees much easier from the VS Code UI, without needing to drop into the terminal for every worktree action.
 
 ## Recommended Hotkeys
 
