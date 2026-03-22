@@ -394,10 +394,10 @@ function ActionKindIcon({ actionType }: ActionKindIconProps) {
   const className = "command-button-kind-icon";
 
   if (actionType === "browser") {
-    return <IconBrowser aria-hidden="true" className={className} size={12} stroke={1.8} />;
+    return <IconBrowser aria-hidden="true" className={className} size={15} stroke={1.8} />;
   }
 
-  return <IconTerminal2 aria-hidden="true" className={className} size={12} stroke={1.8} />;
+  return <IconTerminal2 aria-hidden="true" className={className} size={15} stroke={1.8} />;
 }
 
 function moveCommandId(

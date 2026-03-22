@@ -465,7 +465,7 @@ button:disabled {
   flex: 0 0 auto;
   font-size: 10px;
   font-weight: 700;
-  gap: 8px;
+  gap: 5px;
   justify-content: center;
   letter-spacing: 0.02em;
   max-width: 100%;
@@ -557,22 +557,19 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 
 .command-button-kind-badge {
   align-items: center;
-  background: color-mix(in srgb, var(--app-button-background) 18%, var(--app-card-active) 82%);
-  border: 1px solid color-mix(in srgb, var(--app-button-background) 34%, var(--app-border));
-  border-radius: 999px;
   color: color-mix(in srgb, var(--app-foreground) 88%, var(--app-muted) 12%);
   display: inline-flex;
   flex: none;
-  height: 20px;
+  height: 16px;
   justify-content: center;
   padding: 0;
-  width: 20px;
+  width: 16px;
 }
 
 .command-button-kind-icon {
   display: block;
-  height: 12px;
-  width: 12px;
+  height: 15px;
+  width: 15px;
 }
 
 .session-groups-panel {

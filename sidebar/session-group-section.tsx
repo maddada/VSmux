@@ -25,6 +25,9 @@ const CONTEXT_MENU_HEIGHT_PX = 90;
 const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 164;
 const COUNT_OPTIONS: VisibleSessionCount[] = [1, 2, 3, 4, 6, 9];
+const GROUP_CONTROL_MENU_MARGIN_PX = 12;
+const GROUP_LAYOUT_MENU_WIDTH_PX = 156;
+const GROUP_VISIBLE_COUNT_MENU_WIDTH_PX = 72;
 
 type ContextMenuPosition = {
   x: number;
@@ -74,6 +77,30 @@ function clampContextMenuPosition(clientX: number, clientY: number): ContextMenu
     y: Math.max(
       CONTEXT_MENU_MARGIN_PX,
       Math.min(clientY, window.innerHeight - CONTEXT_MENU_HEIGHT_PX - CONTEXT_MENU_MARGIN_PX),
+    ),
+  };
+}
+
+function getControlMenuPosition(
+  button: HTMLButtonElement | null,
+  menuWidth: number,
+): ContextMenuPosition | undefined {
+  if (!button) {
+    return undefined;
+  }
+
+  const bounds = button.getBoundingClientRect();
+  return {
+    x: Math.max(
+      GROUP_CONTROL_MENU_MARGIN_PX,
+      Math.min(
+        bounds.right - menuWidth,
+        window.innerWidth - menuWidth - GROUP_CONTROL_MENU_MARGIN_PX,
+      ),
+    ),
+    y: Math.max(
+      GROUP_CONTROL_MENU_MARGIN_PX,
+      Math.min(bounds.bottom + 6, window.innerHeight - GROUP_CONTROL_MENU_MARGIN_PX),
     ),
   };
 }
@@ -131,9 +158,11 @@ export function SessionGroupSection({
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [openControlMenu, setOpenControlMenu] = useState<GroupControlMenu>();
+  const layoutButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const controlMenuRef = useRef<HTMLDivElement>(null);
   const controlAnchorRef = useRef<HTMLDivElement>(null);
+  const visibleCountButtonRef = useRef<HTMLButtonElement>(null);
   const sortable = useSortable({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
@@ -415,6 +444,7 @@ export function SessionGroupSection({
                             previous === "layout" ? undefined : "layout",
                           );
                         }}
+                        ref={layoutButtonRef}
                         type="button"
                       >
                         {group.isFocusModeActive ? (
@@ -427,54 +457,6 @@ export function SessionGroupSection({
                           <GroupLayoutIcon viewMode={group.viewMode} />
                         )}
                       </button>
-                      {openControlMenu === "layout" ? (
-                        <div
-                          className="group-control-menu session-context-menu"
-                          ref={controlMenuRef}
-                          role="menu"
-                        >
-                          {LAYOUT_OPTIONS.map((option) => {
-                            const isSelected =
-                              option.kind === "focus"
-                                ? group.isFocusModeActive
-                                : !group.isFocusModeActive && group.viewMode === option.viewMode;
-                            const isDisabled =
-                              option.kind === "view-mode" &&
-                              isViewModeDisabled(option.viewMode, group.visibleCount);
-
-                            return (
-                              <button
-                                aria-pressed={isSelected}
-                                className="session-context-menu-item group-control-menu-item"
-                                data-selected={String(isSelected)}
-                                disabled={isDisabled}
-                                key={option.label}
-                                onClick={() => {
-                                  if (isDisabled) {
-                                    return;
-                                  }
-
-                                  setLayout(option);
-                                }}
-                                role="menuitem"
-                                type="button"
-                              >
-                                {option.kind === "focus" ? (
-                                  <IconFocusCentered
-                                    aria-hidden="true"
-                                    className="session-context-menu-icon"
-                                    size={14}
-                                    stroke={1.8}
-                                  />
-                                ) : (
-                                  <GroupLayoutIcon viewMode={option.viewMode} />
-                                )}
-                                {option.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
                     </div>
                     <div className="group-control-anchor">
                       <button
@@ -488,31 +470,11 @@ export function SessionGroupSection({
                             previous === "visible-count" ? undefined : "visible-count",
                           );
                         }}
+                        ref={visibleCountButtonRef}
                         type="button"
                       >
                         <GroupVisibleCountIcon visibleCount={group.visibleCount} />
                       </button>
-                      {openControlMenu === "visible-count" ? (
-                        <div
-                          className="group-control-menu session-context-menu group-control-count-menu"
-                          ref={controlMenuRef}
-                          role="menu"
-                        >
-                          {COUNT_OPTIONS.map((visibleCount) => (
-                            <button
-                              aria-pressed={group.visibleCount === visibleCount}
-                              className="session-context-menu-item group-control-menu-item"
-                              data-selected={String(group.visibleCount === visibleCount)}
-                              key={visibleCount}
-                              onClick={() => setVisibleCount(visibleCount)}
-                              role="menuitem"
-                              type="button"
-                            >
-                              {visibleCount}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -600,6 +562,88 @@ export function SessionGroupSection({
             document.body,
           )
         : null}
+      {openControlMenu === "layout"
+        ? createPortal(
+            <div
+              className="group-control-menu session-context-menu"
+              onClick={(event) => event.stopPropagation()}
+              ref={controlMenuRef}
+              role="menu"
+              style={getPortalMenuStyle(layoutButtonRef.current, GROUP_LAYOUT_MENU_WIDTH_PX)}
+            >
+              {LAYOUT_OPTIONS.map((option) => {
+                const isSelected =
+                  option.kind === "focus"
+                    ? group.isFocusModeActive
+                    : !group.isFocusModeActive && group.viewMode === option.viewMode;
+                const isDisabled =
+                  option.kind === "view-mode" &&
+                  isViewModeDisabled(option.viewMode, group.visibleCount);
+
+                return (
+                  <button
+                    aria-pressed={isSelected}
+                    className="session-context-menu-item group-control-menu-item"
+                    data-selected={String(isSelected)}
+                    disabled={isDisabled}
+                    key={option.label}
+                    onClick={() => {
+                      if (isDisabled) {
+                        return;
+                      }
+
+                      setLayout(option);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    {option.kind === "focus" ? (
+                      <IconFocusCentered
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                        stroke={1.8}
+                      />
+                    ) : (
+                      <GroupLayoutIcon viewMode={option.viewMode} />
+                    )}
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body,
+          )
+        : null}
+      {openControlMenu === "visible-count"
+        ? createPortal(
+            <div
+              className="group-control-menu session-context-menu group-control-count-menu"
+              onClick={(event) => event.stopPropagation()}
+              ref={controlMenuRef}
+              role="menu"
+              style={getPortalMenuStyle(
+                visibleCountButtonRef.current,
+                GROUP_VISIBLE_COUNT_MENU_WIDTH_PX,
+              )}
+            >
+              {COUNT_OPTIONS.map((visibleCount) => (
+                <button
+                  aria-pressed={group.visibleCount === visibleCount}
+                  className="session-context-menu-item group-control-menu-item"
+                  data-selected={String(group.visibleCount === visibleCount)}
+                  key={visibleCount}
+                  onClick={() => setVisibleCount(visibleCount)}
+                  role="menuitem"
+                  type="button"
+                >
+                  {visibleCount}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
       <ConfirmationModal
         confirmLabel="Terminate Group"
         description={`This will terminate all ${orderedSessions.length} session${orderedSessions.length === 1 ? "" : "s"} in ${group.title}.`}
@@ -616,6 +660,20 @@ export function SessionGroupSection({
       />
     </>
   );
+}
+
+function getPortalMenuStyle(button: HTMLButtonElement | null, menuWidth: number) {
+  const position = getControlMenuPosition(button, menuWidth);
+  if (!position) {
+    return undefined;
+  }
+
+  return {
+    left: `${position.x}px`,
+    position: "fixed" as const,
+    top: `${position.y}px`,
+    width: `${menuWidth}px`,
+  };
 }
 
 function isViewModeDisabled(
