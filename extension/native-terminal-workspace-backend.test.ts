@@ -169,6 +169,9 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       ensureShellSpawnAllowed: async () => true,
       workspaceId: "workspace-1",
     });
+    vi.spyOn(backend as any, "runUiAction").mockImplementation(
+      async (callback: () => Promise<unknown> | unknown) => await callback(),
+    );
 
     (backend as any).projections.set("session-1", {
       location: { type: "panel" },
@@ -176,6 +179,7 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       terminal,
     });
 
+    await backend.syncConfiguration();
     await (backend as any).moveProjectionToEditor("session-1", 1);
 
     expect(callOrder).toEqual([
@@ -192,6 +196,7 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
 
   test("should temporarily unlock a locked destination group before moving a panel terminal into it", async () => {
     const callOrder: string[] = [];
+    testState.configurationValues.keepSessionGroupsUnlocked = false;
     const terminal = {
       dispose: vi.fn(),
       exitStatus: undefined,
@@ -289,6 +294,7 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       terminal,
     });
 
+    await backend.syncConfiguration();
     await (backend as any).moveProjectionToEditor("session-1", 1);
 
     expect(callOrder).toEqual([
@@ -305,6 +311,7 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
 
   test("should unlock and relock the destination group even when the lock state is unavailable", async () => {
     const callOrder: string[] = [];
+    testState.configurationValues.keepSessionGroupsUnlocked = false;
     const terminal = {
       dispose: vi.fn(),
       exitStatus: undefined,
@@ -368,6 +375,7 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       terminal,
     });
 
+    await backend.syncConfiguration();
     await (backend as any).moveProjectionToEditor("session-1", 1);
 
     expect(callOrder).toEqual([
@@ -380,6 +388,86 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       "workbench.action.lockEditorGroup",
       "workbench.action.focusSecondEditorGroup",
     ]);
+  });
+
+  test("should not change editor group locks during moves when keepSessionGroupsUnlocked is enabled", async () => {
+    const callOrder: string[] = [];
+    const terminal = {
+      dispose: vi.fn(),
+      exitStatus: undefined,
+      name: "Vale",
+      sendText: vi.fn(),
+      show: vi.fn((preserveFocus: boolean) => {
+        testState.activeTerminal = terminal;
+        callOrder.push(`show:${String(preserveFocus)}`);
+      }),
+    };
+    testState.tabGroupsAll = [
+      {
+        isLocked: true,
+        tabs: [
+          {
+            input: new testState.TabInputTerminalClass(),
+            label: "Grove",
+          },
+        ],
+        viewColumn: 2,
+      },
+    ];
+    testState.executeCommand.mockImplementation(async (command: string) => {
+      if (command === "workbench.action.focusSecondEditorGroup") {
+        testState.activeViewColumn = 2;
+      }
+      if (command === "workbench.action.terminal.moveToEditor") {
+        testState.activeViewColumn = 2;
+        testState.tabGroupsAll = [
+          {
+            isLocked: true,
+            tabs: [
+              {
+                input: new testState.TabInputTerminalClass(),
+                label: "Grove",
+              },
+              {
+                input: new testState.TabInputTerminalClass(),
+                label: "Vale",
+              },
+            ],
+            viewColumn: 2,
+          },
+        ];
+      }
+      callOrder.push(command);
+      return undefined;
+    });
+
+    const backend = new NativeTerminalWorkspaceBackend({
+      context: {
+        globalStorageUri: {
+          fsPath: "/extension-storage",
+        },
+      } as never,
+      ensureShellSpawnAllowed: async () => true,
+      workspaceId: "workspace-1",
+    });
+
+    (backend as any).projections.set("session-1", {
+      location: { type: "panel" },
+      sessionId: "session-1",
+      terminal,
+    });
+
+    await backend.syncConfiguration();
+    await (backend as any).moveProjectionToEditor("session-1", 1);
+
+    expect(callOrder).toEqual([
+      "show:true",
+      "workbench.action.focusSecondEditorGroup",
+      "workbench.action.terminal.moveToEditor",
+      "workbench.action.focusSecondEditorGroup",
+    ]);
+    expect(callOrder).not.toContain("workbench.action.unlockEditorGroup");
+    expect(callOrder).not.toContain("workbench.action.lockEditorGroup");
   });
 
   test("should wait for the owner window to be focused before running UI actions", async () => {
@@ -2016,4 +2104,21 @@ describe("NativeTerminalWorkspaceBackend reconcileVisibleTerminals", () => {
 
     expect((backend as any).nativeTerminalActionDelayMs).toBe(1000);
   });
+
+  test("should default to keeping session groups unlocked", async () => {
+    const backend = new NativeTerminalWorkspaceBackend({
+      context: {
+        globalStorageUri: {
+          fsPath: "/extension-storage",
+        },
+      } as never,
+      ensureShellSpawnAllowed: async () => true,
+      workspaceId: "workspace-1",
+    });
+
+    await backend.syncConfiguration();
+
+    expect((backend as any).keepSessionGroupsUnlocked).toBe(true);
+  });
+
 });

@@ -72,6 +72,7 @@ const SETTINGS_SECTION = "VSmux";
 const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
 const MATCH_VISIBLE_TERMINAL_ORDER_SETTING = "matchVisibleTerminalOrderInSessionsArea";
 const NATIVE_TERMINAL_ACTION_DELAY_MS_SETTING = "nativeTerminalActionDelayMs";
+const KEEP_SESSION_GROUPS_UNLOCKED_SETTING = "keepSessionGroupsUnlocked";
 const SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING = "sendRenameCommandOnSidebarRename";
 const SIDEBAR_THEME_SETTING = "sidebarTheme";
 const SHOW_CLOSE_BUTTON_ON_SESSION_CARDS_SETTING = "showCloseButtonOnSessionCards";
@@ -169,7 +170,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         if (
           event.affectsConfiguration(getBackgroundSessionTimeoutConfigurationKey()) ||
           event.affectsConfiguration(getMatchVisibleTerminalOrderConfigurationKey()) ||
-          event.affectsConfiguration(getNativeTerminalActionDelayConfigurationKey())
+          event.affectsConfiguration(getNativeTerminalActionDelayConfigurationKey()) ||
+          event.affectsConfiguration(getKeepSessionGroupsUnlockedConfigurationKey())
         ) {
           void this.backend.syncConfiguration();
         }
@@ -1685,6 +1687,10 @@ function getMatchVisibleTerminalOrderConfigurationKey(): string {
 
 function getNativeTerminalActionDelayConfigurationKey(): string {
   return `${SETTINGS_SECTION}.${NATIVE_TERMINAL_ACTION_DELAY_MS_SETTING}`;
+}
+
+function getKeepSessionGroupsUnlockedConfigurationKey(): string {
+  return `${SETTINGS_SECTION}.${KEEP_SESSION_GROUPS_UNLOCKED_SETTING}`;
 }
 
 function getShowCloseButtonOnSessionCardsConfigurationKey(): string {

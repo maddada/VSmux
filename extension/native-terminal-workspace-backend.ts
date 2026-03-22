@@ -51,6 +51,8 @@ import {
 const SETTINGS_SECTION = "VSmux";
 const MATCH_VISIBLE_TERMINAL_ORDER_SETTING = "matchVisibleTerminalOrderInSessionsArea";
 const NATIVE_TERMINAL_ACTION_DELAY_MS_SETTING = "nativeTerminalActionDelayMs";
+const KEEP_SESSION_GROUPS_UNLOCKED_SETTING = "keepSessionGroupsUnlocked";
+const LEGACY_DO_NOT_CHANGE_EDITOR_GROUP_LOCKS_SETTING = "nativeTerminalDoNotChangeEditorGroupLocks";
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
 const POLL_INTERVAL_MS = 750;
 const RESTORE_SETTLE_INTERVAL_MS = 150;
@@ -123,6 +125,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private managedTerminalDiscoveryVersion = 0;
   private matchVisibleTerminalOrder = false;
   private nativeTerminalActionDelayMs = 0;
+  private keepSessionGroupsUnlocked = true;
 
   public readonly onDidActivateSession = this.activateSessionEmitter.event;
   public readonly onDidChangeDebugState = this.changeDebugStateEmitter.event;
@@ -462,6 +465,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           );
           this.refreshProjectionLocations();
         }
+        await this.ensureSessionGroupsUnlocked();
       });
       void this.trace.log("RECONCILE", "complete", {
         nextVisibleSessionIds: [...snapshot.visibleSessionIds],
@@ -498,6 +502,11 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       0,
       Math.floor(configuration.get<number>(NATIVE_TERMINAL_ACTION_DELAY_MS_SETTING, 0) ?? 0),
     );
+    this.keepSessionGroupsUnlocked =
+      configuration.get<boolean>(
+        KEEP_SESSION_GROUPS_UNLOCKED_SETTING,
+        configuration.get<boolean>(LEGACY_DO_NOT_CHANGE_EDITOR_GROUP_LOCKS_SETTING, true) ?? true,
+      ) ?? true;
     this.emitDebugStateChange();
   }
 
@@ -1081,6 +1090,13 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     visibleIndex: number,
     callback: () => Promise<T>,
   ): Promise<T> {
+    if (this.keepSessionGroupsUnlocked) {
+      void this.trace.log("MOVE", "unlockTargetGroup:skippedBySetting", {
+        visibleIndex,
+      });
+      return await callback();
+    }
+
     const targetGroup = this.getTabGroupByVisibleIndex(visibleIndex);
     if (!targetGroup) {
       return await callback();
@@ -1108,6 +1124,45 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private getTabGroupByVisibleIndex(visibleIndex: number): vscode.TabGroup | undefined {
     const viewColumn = getViewColumn(visibleIndex);
     return vscode.window.tabGroups.all.find((group) => group.viewColumn === viewColumn);
+  }
+
+  private async ensureSessionGroupsUnlocked(): Promise<void> {
+    if (!this.keepSessionGroupsUnlocked) {
+      return;
+    }
+
+    const visibleIndices = Array.from(
+      new Set(
+        Array.from(this.projections.values()).flatMap((projection) =>
+          projection.location.type === "editor" ? [projection.location.visibleIndex] : [],
+        ),
+      ),
+    ).sort((left, right) => left - right);
+    if (visibleIndices.length === 0) {
+      return;
+    }
+
+    const activeViewColumn = getActiveEditorGroupViewColumn();
+    const restoreVisibleIndex =
+      typeof activeViewColumn === "number" ? Math.max(0, Number(activeViewColumn) - 1) : undefined;
+
+    void this.trace.log("MOVE", "ensureSessionGroupsUnlocked:start", {
+      restoreVisibleIndex,
+      visibleIndices,
+    });
+    for (const visibleIndex of visibleIndices) {
+      await this.runUiAction(() => focusEditorGroupByIndex(visibleIndex));
+      await this.runUiAction(() => unlockActiveEditorGroup());
+    }
+
+    if (restoreVisibleIndex !== undefined) {
+      await this.runUiAction(() => focusEditorGroupByIndex(restoreVisibleIndex));
+    }
+
+    void this.trace.log("MOVE", "ensureSessionGroupsUnlocked:complete", {
+      restoreVisibleIndex,
+      visibleIndices,
+    });
   }
 
   private async waitForProjectionLocation(

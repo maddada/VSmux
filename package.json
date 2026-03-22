@@ -289,6 +289,12 @@
           "default": 0,
           "description": "Delay native terminal move actions for debugging so you can watch layout changes more clearly."
         },
+        "VSmux.keepSessionGroupsUnlocked": {
+          "title": "Keep Session Groups Unlocked",
+          "type": "boolean",
+          "default": true,
+          "description": "Keep editor groups that contain VSmux session terminals unlocked after native moves complete."
+        },
         "VSmux.showCloseButtonOnSessionCards": {
           "title": "Show Close Button On Session Cards",
           "type": "boolean",
