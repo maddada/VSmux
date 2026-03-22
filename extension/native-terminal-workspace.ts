@@ -1814,7 +1814,7 @@ function normalizeStoredSessionAgentLaunch(
 }
 
 function quoteForSingleShellArgument(value: string): string {
-  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 export function getClampedSidebarThemeSetting(): SidebarThemeSetting {

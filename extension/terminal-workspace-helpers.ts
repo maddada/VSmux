@@ -308,13 +308,30 @@ function normalizePersistedSessionValue(value: string | undefined): string | und
   return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
 }
 
+const ESCAPE_SEQUENCE_PATTERN = "\\u001b";
+const BELL_SEQUENCE_PATTERN = "\\u0007";
+const OSC_SEQUENCE_PATTERN = new RegExp(
+  `${ESCAPE_SEQUENCE_PATTERN}\\][\\s\\S]*?(?:${BELL_SEQUENCE_PATTERN}|${ESCAPE_SEQUENCE_PATTERN}\\\\)`,
+  "gu",
+);
+const DCS_SEQUENCE_PATTERN = new RegExp(
+  `${ESCAPE_SEQUENCE_PATTERN}P[\\s\\S]*?${ESCAPE_SEQUENCE_PATTERN}\\\\`,
+  "gu",
+);
+const CSI_SEQUENCE_PATTERN = new RegExp(`${ESCAPE_SEQUENCE_PATTERN}\\[[0-?]*[ -/]*[@-~]`, "gu");
+const SINGLE_ESCAPE_SEQUENCE_PATTERN = new RegExp(`${ESCAPE_SEQUENCE_PATTERN}[@-_]`, "gu");
+const OTHER_CONTROL_SEQUENCE_PATTERN = new RegExp(
+  String.raw`[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]`,
+  "gu",
+);
+
 function stripTerminalControlSequences(history: string): string {
   return history
-    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/gu, " ")
-    .replace(/\u001bP[\s\S]*?\u001b\\/gu, " ")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
-    .replace(/\u001b[@-_]/gu, "")
-    .replace(/[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/gu, " ")
+    .replace(OSC_SEQUENCE_PATTERN, " ")
+    .replace(DCS_SEQUENCE_PATTERN, " ")
+    .replace(CSI_SEQUENCE_PATTERN, "")
+    .replace(SINGLE_ESCAPE_SEQUENCE_PATTERN, "")
+    .replace(OTHER_CONTROL_SEQUENCE_PATTERN, " ")
     .replace(/\r/gu, "\n");
 }
 

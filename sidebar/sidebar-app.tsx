@@ -869,23 +869,6 @@ function LayoutModeIcon({ viewMode }: LayoutModeIconProps) {
   }
 }
 
-type SettingsIconProps = {
-  className?: string;
-};
-
-function SettingsIcon({ className }: SettingsIconProps) {
-  return (
-    <svg aria-hidden="true" className={className ?? "toolbar-icon"} viewBox="0 0 16 16">
-      <path
-        className="toolbar-icon-line"
-        d="M8 2.2v1.4M8 12.4v1.4M3.76 3.76l1 1M11.24 11.24l1 1M2.2 8h1.4M12.4 8h1.4M3.76 12.24l1-1M11.24 4.76l1-1"
-      />
-      <circle className="toolbar-icon-frame" cx="8" cy="8" r="2.4" />
-      <circle className="toolbar-icon-frame" cx="8" cy="8" r="4.6" />
-    </svg>
-  );
-}
-
 function OverflowIcon() {
   return (
     <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
