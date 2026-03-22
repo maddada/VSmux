@@ -165,6 +165,8 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
     case "openSettings":
     case "openDebugInspector":
     case "toggleCompletionBell":
+    case "toggleVsMuxDisabled":
+    case "moveSidebarToOtherSide":
     case "createSession":
     case "toggleFullscreenSession":
       return true;

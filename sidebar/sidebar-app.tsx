@@ -7,6 +7,7 @@ import {
   IconBellOff,
   IconBug,
   IconHistory,
+  IconLayoutSidebar,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
@@ -65,6 +66,7 @@ const INITIAL_STATE: SidebarState = {
     focusedSessionTitle: undefined,
     highlightedVisibleCount: 1,
     isFocusModeActive: false,
+    isVsMuxDisabled: false,
     showCloseButtonOnSessionCards: false,
     showHotkeysOnSessionCards: false,
     theme: getInitialSidebarTheme(),
@@ -162,6 +164,10 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   };
 
   const requestNewSession = () => {
+    if (serverState.hud.isVsMuxDisabled) {
+      return;
+    }
+
     vscode.postMessage({ type: "createSession" });
   };
 
@@ -492,6 +498,23 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
                 className="session-context-menu-item"
                 onClick={() => {
                   setIsOverflowMenuOpen(false);
+                  vscode.postMessage({ type: "moveSidebarToOtherSide" });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <IconLayoutSidebar
+                  aria-hidden="true"
+                  className="session-context-menu-icon"
+                  size={14}
+                  stroke={1.8}
+                />
+                Move to Other Side
+              </button>
+              <button
+                className="session-context-menu-item"
+                onClick={() => {
+                  setIsOverflowMenuOpen(false);
                   vscode.postMessage({ type: "openSettings" });
                 }}
                 role="menuitem"
@@ -562,28 +585,39 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
             onDragStart={handleDragStart}
             sensors={sensors}
           >
-            <div className="group-list">
-              {orderedGroups.map((group, groupIndex) => (
-                <SessionGroupSection
-                  autoEdit={autoEditingGroupId === group.groupId}
-                  canClose={orderedGroups.length > 1}
-                  group={group}
-                  index={groupIndex}
-                  key={group.groupId}
-                  onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
-                  orderedSessions={group.orderedSessions}
-                  showDebugSessionNumbers={serverState.hud.debuggingMode}
-                  showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
-                  showHotkeys={serverState.hud.showHotkeysOnSessionCards}
-                  vscode={vscode}
+            <button
+              className="disable-vsmux-toggle-button"
+              data-selected={String(serverState.hud.isVsMuxDisabled)}
+              onClick={() => vscode.postMessage({ type: "toggleVsMuxDisabled" })}
+              type="button"
+            >
+              Deactivate VS Mux
+            </button>
+            {!serverState.hud.isVsMuxDisabled ? (
+              <div className="group-list">
+                {orderedGroups.map((group, groupIndex) => (
+                  <SessionGroupSection
+                    autoEdit={autoEditingGroupId === group.groupId}
+                    canClose={orderedGroups.length > 1}
+                    group={group}
+                    index={groupIndex}
+                    key={group.groupId}
+                    onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
+                    orderedSessions={group.orderedSessions}
+                    showDebugSessionNumbers={serverState.hud.debuggingMode}
+                    showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
+                    showHotkeys={serverState.hud.showHotkeysOnSessionCards}
+                    vscode={vscode}
+                  />
+                ))}
+                <CreateGroupDropTarget
+                  isVisible={Boolean(draggedSessionId) && orderedGroups.length < MAX_GROUP_COUNT}
                 />
-              ))}
-              <CreateGroupDropTarget
-                isVisible={Boolean(draggedSessionId) && orderedGroups.length < MAX_GROUP_COUNT}
-              />
-            </div>
+              </div>
+            ) : null}
           </DragDropProvider>
-          {orderedGroups.every((group) => group.sessions.length === 0) ? (
+          {!serverState.hud.isVsMuxDisabled &&
+          orderedGroups.every((group) => group.sessions.length === 0) ? (
             <div className="empty" data-empty-space-blocking="true">
               Create the first session to start the workspace.
             </div>

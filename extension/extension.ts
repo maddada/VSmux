@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { type TerminalViewMode, type VisibleSessionCount } from "../shared/session-grid-contract";
 import { DebuggingStatusIndicator } from "./debugging-status-indicator";
-import { NativeTerminalWorkspaceController } from "./native-terminal-workspace";
+import { NativeTerminalWorkspaceController, SESSIONS_VIEW_ID } from "./native-terminal-workspace";
 
 export function activate(context: vscode.ExtensionContext): void {
   const workspace = new NativeTerminalWorkspaceController(context);

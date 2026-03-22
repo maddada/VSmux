@@ -714,6 +714,27 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     );
   });
 
+  test("should not save browser sessions into previous session history", async () => {
+    vi.setSystemTime(new Date("2026-03-22T08:15:00.000Z"));
+    const session = createSessionRecord(3, 0, {
+      browser: {
+        url: "https://example.com/docs",
+      },
+      kind: "browser",
+      title: "Docs",
+    });
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const controller = new NativeTerminalWorkspaceController(createContext(workspaceSnapshot));
+
+    await controller.closeSession(session.sessionId);
+
+    expect(testState.sidebarPostMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        previousSessions: [],
+      }),
+    );
+  });
+
   test("should show the sidebar welcome only once after the view is first resolved", async () => {
     const session = createSessionRecord(3, 0);
     const workspaceSnapshot = createWorkspaceSnapshot(session);
@@ -732,7 +753,7 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     controller.dispose();
   });
 
-  test("should move the sidebar to the secondary sidebar from the welcome action", async () => {
+  test("should only acknowledge the welcome from its OK action", async () => {
     const session = createSessionRecord(3, 0);
     const workspaceSnapshot = createWorkspaceSnapshot(session);
     const sharedGlobalValues = new Map<string, unknown>();
@@ -740,15 +761,18 @@ describe("NativeTerminalWorkspaceController rename session", () => {
       createContext(workspaceSnapshot, [], sharedGlobalValues),
     );
 
-    testState.showInformationMessage.mockResolvedValue("Move to Secondary Sidebar");
+    testState.showInformationMessage.mockResolvedValue("OK");
 
     await testState.sidebarResolveView?.();
 
-    expect(testState.executeCommand).toHaveBeenCalledWith("vscode.moveViews", {
-      destinationId: "VSmuxSessionsSecondary",
-      viewIds: ["VSmux.sessions"],
-    });
-    expect(sharedGlobalValues.get("VSmux.sidebarLocationInSecondary")).toBe(true);
+    expect(testState.showInformationMessage).toHaveBeenCalledWith(
+      "Welcome to VSmux",
+      expect.objectContaining({
+        modal: true,
+      }),
+      "OK",
+    );
+    expect(sharedGlobalValues.get("VSmux.sidebarWelcomeDismissed")).toBe(true);
     controller.dispose();
   });
 
@@ -768,6 +792,32 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     expect(testState.executeCommand).toHaveBeenCalledWith(
       "workbench.view.extension.VSmuxSessionsSecondary",
     );
+    controller.dispose();
+  });
+
+  test("should open both sidebars and show drag instructions when asked to move sides", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const sharedGlobalValues = new Map<string, unknown>([
+      ["VSmux.sidebarLocationInSecondary", true],
+      ["VSmux.sidebarWelcomeDismissed", true],
+    ]);
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [], sharedGlobalValues),
+    );
+
+    await controller.moveSidebarToOtherSide();
+
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.view.extension.VSmuxSessions");
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.action.focusAuxiliaryBar");
+    expect(testState.showInformationMessage).toHaveBeenCalledWith(
+      "Drag the VSmux icon to the other side to move it.",
+      expect.objectContaining({
+        detail: expect.stringContaining("primary and secondary sidebars are open now"),
+      }),
+      "OK",
+    );
+    expect(sharedGlobalValues.get("VSmux.sidebarLocationInSecondary")).toBe(true);
     controller.dispose();
   });
 
