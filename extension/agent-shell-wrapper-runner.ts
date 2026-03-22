@@ -39,6 +39,7 @@ async function main(): Promise<void> {
       args.unshift("--settings", options.claudeSettingsPath);
       break;
     case "codex": {
+      delete environment.ELECTRON_RUN_AS_NODE;
       await writeInitialSessionState("codex", "Codex");
       environment.CODEX_TUI_RECORD_SESSION = "1";
       if (!environment.CODEX_TUI_SESSION_LOG_PATH) {
@@ -62,7 +63,7 @@ async function main(): Promise<void> {
       ? startCodexWatcher(environment.CODEX_TUI_SESSION_LOG_PATH, options.notifyRunnerPath)
       : undefined;
 
-  const exitCode = await spawnAgentProcess(executablePath, args, environment);
+  const exitCode = await spawnAgentProcess(options.agent, executablePath, args, environment);
   watcher?.stop();
   process.exit(exitCode);
 }
@@ -143,16 +144,20 @@ function normalizePath(value: string): string {
   return process.platform === "win32" ? resolvedValue.toLowerCase() : resolvedValue;
 }
 
-function getCandidateExecutableNames(agent: AgentName): string[] {
-  if (process.platform !== "win32") {
+export function getCandidateExecutableNames(
+  agent: AgentName,
+  platform = process.platform,
+  pathExt = process.env.PATHEXT,
+): string[] {
+  if (platform !== "win32") {
     return [agent];
   }
 
-  const pathExtensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+  const pathExtensions = (pathExt ?? ".COM;.EXE;.BAT;.CMD")
     .split(";")
     .filter((entry) => entry.length > 0);
 
-  return [agent, ...pathExtensions.map((extension) => `${agent}${extension.toLowerCase()}`)];
+  return pathExtensions.map((extension) => `${agent}${extension.toLowerCase()}`);
 }
 
 async function writeInitialSessionState(agent: AgentName, title: string): Promise<void> {
@@ -263,18 +268,49 @@ function emitNotifyEvent(eventName: "Start" | "Stop", notifyRunnerPath: string):
 }
 
 function spawnAgentProcess(
+  agent: AgentName,
   executablePath: string,
   args: readonly string[],
   environment: NodeJS.ProcessEnv,
 ): Promise<number> {
+  if (process.platform === "win32" && agent === "codex") {
+    const executableDir = path.dirname(executablePath);
+    const nodePath = path.join(executableDir, "node.exe");
+    const codexEntrypointPath = path.join(
+      executableDir,
+      "node_modules",
+      "@openai",
+      "codex",
+      "bin",
+      "codex.js",
+    );
+
+    try {
+      if (statSync(nodePath).isFile() && statSync(codexEntrypointPath).isFile()) {
+        return new Promise((resolve, reject) => {
+          const child = spawn(nodePath, [codexEntrypointPath, ...args], {
+            env: environment,
+            stdio: "inherit",
+          });
+
+          child.once("error", reject);
+          child.once("exit", (code) => {
+            resolve(code ?? 1);
+          });
+        });
+      }
+    } catch {
+      // Fall back to the resolved executable path if this is not an npm-style global Codex install.
+    }
+  }
+
   if (process.platform === "win32" && /\.(bat|cmd)$/i.test(executablePath)) {
     return new Promise((resolve, reject) => {
-      const commandLine = [`"${executablePath}"`, ...args.map(quoteWindowsCommandArgument)].join(
-        " ",
-      );
+      const commandLine = [`"${executablePath}"`, ...args.map(quoteWindowsCommandArgument)].join(" ");
       const child = spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], {
         env: environment,
         stdio: "inherit",
+        windowsVerbatimArguments: true,
       });
 
       child.once("error", reject);
@@ -301,8 +337,15 @@ function quoteWindowsCommandArgument(value: string): string {
   return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
 }
 
-void main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-});
+const isMainModule =
+  typeof __filename === "string" &&
+  process.argv[1] !== undefined &&
+  normalizePath(process.argv[1]) === normalizePath(__filename);
+
+if (isMainModule) {
+  void main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  });
+}

@@ -2,12 +2,13 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import * as vscode from "vscode";
 import type { T3SessionMetadata } from "../shared/session-grid-contract";
 import { getDefaultShell, getDefaultWorkspaceCwd } from "./terminal-workspace-helpers";
 
 const DEFAULT_MODEL = "gpt-5-codex";
-const DEFAULT_T3_COMMAND = "npx t3";
+const DEFAULT_T3_COMMAND = "npx --yes t3";
 const T3_HOST = "127.0.0.1";
 const T3_PORT = 3773;
 const START_TIMEOUT_MS = 30_000;
@@ -352,8 +353,9 @@ export class T3RuntimeManager implements vscode.Disposable {
 
       const supervisorScriptPath = join(__dirname, "t3-runtime-supervisor.js");
       const shellPath = getDefaultShell();
+      const nodeRuntimePath = getNodeRuntimePath();
       const child = spawn(
-        process.execPath,
+        nodeRuntimePath,
         [
           supervisorScriptPath,
           "--command",
@@ -380,6 +382,7 @@ export class T3RuntimeManager implements vscode.Disposable {
       );
       child.unref();
       this.writeOutputLine(`[start] ${startupCommand}`);
+      this.writeOutputLine(`[runtime] ${nodeRuntimePath}`);
     } finally {
       await releaseLock();
     }
@@ -457,7 +460,7 @@ export class T3RuntimeManager implements vscode.Disposable {
     }
 
     const alive = isProcessAlive(state.pid);
-    if (alive) {
+    if (alive && (await isOriginResponsive(getT3Origin()))) {
       return true;
     }
 
@@ -509,6 +512,29 @@ export class T3RuntimeManager implements vscode.Disposable {
 
 function getT3Origin(): string {
   return `http://${T3_HOST}:${String(T3_PORT)}`;
+}
+
+function getNodeRuntimePath(): string {
+  const execBaseName = basename(process.execPath).toLowerCase();
+  if (execBaseName === "node" || execBaseName === "node.exe") {
+    return process.execPath;
+  }
+
+  if (process.platform === "win32") {
+    const result = spawnSync("where.exe", ["node"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const firstResolvedPath = result.stdout
+      ?.split(/\r?\n/)
+      .map((value) => value.trim())
+      .find((value) => value.length > 0);
+    if (firstResolvedPath) {
+      return firstResolvedPath;
+    }
+  }
+
+  return process.platform === "win32" ? "node.exe" : "node";
 }
 
 function getT3WebSocketUrl(): string {

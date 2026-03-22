@@ -34,8 +34,8 @@
     "fmt": "vp fmt",
     "check": "vp check",
     "prepare": "vp config",
-    "vsix:package": "./scripts/vsix.zsh package",
-    "vsix:install": "./scripts/vsix.zsh install"
+    "vsix:package": "node ./scripts/vsix.mjs package",
+    "vsix:install": "node ./scripts/vsix.mjs install"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

@@ -380,12 +380,10 @@ export function resolveThreadActivity(
         ? "attention"
         : "idle",
     completionMarker,
-    isRunning:
-      sessionStatus === "starting" ||
-      sessionStatus === "running" ||
-      sessionStatus === "ready" ||
-      sessionStatus === "interrupted" ||
-      latestTurnState === "running",
+    // Threads remain reopenable even when T3 has not materialized a live
+    // session object for them yet, so only explicit runtime errors should
+    // mark them as not running in the sidebar.
+    isRunning: sessionStatus !== "error",
   };
 }
 

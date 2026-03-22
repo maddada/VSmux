@@ -259,8 +259,14 @@ function getAgentWrapperCmdContent(
 ): string {
   return `@echo off
 setlocal
-set ELECTRON_RUN_AS_NODE=1
-"${process.execPath}" "${options.wrapperRunnerPath}" --agent ${agentName} --bin-dir "${options.binDir}" --claude-settings-path "${options.claudeSettingsPath}" --notify-runner-path "${options.notifyPath}" --opencode-config-dir "${options.opencodeConfigDir}" -- %*
+set "_vsmux_node="
+for %%I in (node.exe) do set "_vsmux_node=%%~$PATH:I"
+if defined _vsmux_node (
+  "%_vsmux_node%" "${options.wrapperRunnerPath}" --agent ${agentName} --bin-dir "${options.binDir}" --claude-settings-path "${options.claudeSettingsPath}" --notify-runner-path "${options.notifyPath}" --opencode-config-dir "${options.opencodeConfigDir}" -- %*
+) else (
+  set ELECTRON_RUN_AS_NODE=1
+  "${process.execPath}" "${options.wrapperRunnerPath}" --agent ${agentName} --bin-dir "${options.binDir}" --claude-settings-path "${options.claudeSettingsPath}" --notify-runner-path "${options.notifyPath}" --opencode-config-dir "${options.opencodeConfigDir}" -- %*
+)
 `;
 }
 

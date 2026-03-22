@@ -6,7 +6,7 @@ describe("createSidebarAgentButtons", () => {
     expect(createSidebarAgentButtons([])).toEqual([
       {
         agentId: "t3",
-        command: "npx t3",
+        command: "npx --yes t3",
         icon: "t3",
         isDefault: true,
         name: "T3 Code",
@@ -62,7 +62,7 @@ describe("createSidebarAgentButtons", () => {
     ).toEqual([
       {
         agentId: "t3",
-        command: "npx t3",
+        command: "npx --yes t3",
         icon: "t3",
         isDefault: true,
         name: "T3 Code",

@@ -33,8 +33,12 @@ async function main(): Promise<void> {
       T3CODE_NO_BROWSER: "true",
       T3CODE_PORT: String(options.port),
     },
-    stdio: "ignore",
+    // On Windows, ignoring stdio causes PowerShell-launched `npx --yes t3`
+    // to exit immediately. Keep stdout/stderr piped and drain them instead.
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  child.stdout?.resume();
+  child.stderr?.resume();
   child.unref();
 
   await writeSupervisorState(options, child);

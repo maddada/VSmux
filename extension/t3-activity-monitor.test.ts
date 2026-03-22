@@ -13,6 +13,18 @@ vi.mock("vscode", () => ({
 import { resolveThreadActivity } from "./t3-activity-monitor";
 
 describe("resolveThreadActivity", () => {
+  test("should keep threads without a live session object marked as running", () => {
+    expect(
+      resolveThreadActivity({
+        id: "thread-1",
+      }),
+    ).toEqual({
+      activity: "idle",
+      completionMarker: undefined,
+      isRunning: true,
+    });
+  });
+
   test("should not raise attention from the first completed snapshot after reload", () => {
     expect(
       resolveThreadActivity({
@@ -59,6 +71,23 @@ describe("resolveThreadActivity", () => {
       activity: "attention",
       completionMarker: "turn:turn-1:completed:2026-03-22T10:00:00.000Z",
       isRunning: true,
+    });
+  });
+
+  test("should mark errored thread sessions as not running", () => {
+    expect(
+      resolveThreadActivity({
+        id: "thread-1",
+        session: {
+          lastError: "boom",
+          status: "error",
+          updatedAt: "2026-03-22T10:00:00.000Z",
+        },
+      }),
+    ).toEqual({
+      activity: "idle",
+      completionMarker: "session:2026-03-22T10:00:00.000Z:error:boom",
+      isRunning: false,
     });
   });
 });

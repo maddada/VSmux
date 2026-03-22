@@ -787,7 +787,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
   }
 
-  private async createT3Session(startupCommand = "npx t3"): Promise<void> {
+  private async createT3Session(startupCommand = "npx --yes t3"): Promise<void> {
     const workspaceRoot = getDefaultWorkspaceCwd();
     const t3Runtime = await this.getOrCreateT3Runtime();
     if (!t3Runtime) {
