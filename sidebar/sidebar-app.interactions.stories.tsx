@@ -44,13 +44,19 @@ export const ToolbarActions: Story = {
 
     await step("change sessions shown", async () => {
       resetSidebarStoryMessages();
-      await userEvent.click(canvas.getByRole("button", { name: "Show 6 sessions" }));
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Open visible session options for Group 4" }),
+      );
+      await userEvent.click(await body.findByRole("menuitem", { name: "6" }));
       await expectMessage({ type: "setVisibleCount", visibleCount: 6 });
     });
 
     await step("switch layout mode", async () => {
       resetSidebarStoryMessages();
-      await userEvent.click(canvas.getByRole("button", { name: "Horizontal" }));
+      await userEvent.click(
+        canvas.getByRole("button", { name: "Open layout options for Group 4" }),
+      );
+      await userEvent.click(await body.findByRole("menuitem", { name: "Columns" }));
       await expectMessage({ type: "setViewMode", viewMode: "horizontal" });
     });
 
@@ -76,10 +82,11 @@ export const SessionCardActions: Story = {
       await expectMessage({ sessionId: "session-3", type: "focusSession" });
     });
 
-    await step("rename a session with double click", async () => {
+    await step("rename a session from the hover button", async () => {
       resetSidebarStoryMessages();
 
-      await userEvent.dblClick(sessionCard);
+      await userEvent.hover(sessionCard);
+      await userEvent.click(await canvas.findByRole("button", { name: "Rename session" }));
 
       await expectMessage({ sessionId: "session-3", type: "promptRenameSession" });
     });

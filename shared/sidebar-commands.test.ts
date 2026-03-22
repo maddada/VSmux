@@ -6,43 +6,52 @@ import {
 } from "./sidebar-commands";
 
 describe("createSidebarCommandButtons", () => {
-  test("should expose the default command slots when no commands are configured", () => {
+  test("should expose the default terminal action slots when no actions are configured", () => {
     expect(createSidebarCommandButtons([])).toEqual([
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "dev",
         isDefault: true,
         name: "Dev",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "build",
         isDefault: true,
         name: "Build",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "test",
         isDefault: true,
         name: "Test",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "setup",
         isDefault: true,
         name: "Setup",
+        url: undefined,
       },
     ]);
   });
 
-  test("should merge configured defaults and append custom commands", () => {
+  test("should merge configured defaults and append custom terminal and browser actions", () => {
     expect(
       createSidebarCommandButtons([
         {
+          actionType: "terminal",
           closeTerminalOnExit: false,
           command: "vp dev",
           commandId: "dev",
@@ -50,127 +59,153 @@ describe("createSidebarCommandButtons", () => {
           name: "App",
         },
         {
-          closeTerminalOnExit: true,
-          command: "vp run docs",
+          actionType: "browser",
+          closeTerminalOnExit: false,
           commandId: "custom-docs",
           isDefault: false,
           name: "Docs",
+          url: "https://example.com/docs",
         },
       ]),
     ).toEqual([
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: "vp dev",
         commandId: "dev",
         isDefault: true,
         name: "App",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "build",
         isDefault: true,
         name: "Build",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "test",
         isDefault: true,
         name: "Test",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "setup",
         isDefault: true,
         name: "Setup",
+        url: undefined,
       },
       {
-        closeTerminalOnExit: true,
-        command: "vp run docs",
+        actionType: "browser",
+        closeTerminalOnExit: false,
+        command: undefined,
         commandId: "custom-docs",
         isDefault: false,
         name: "Docs",
+        url: "https://example.com/docs",
       },
     ]);
   });
 
-  test("should respect a stored command order for defaults and custom commands", () => {
+  test("should respect a stored action order for defaults and custom actions", () => {
     expect(
       createSidebarCommandButtons(
         [
           {
-            closeTerminalOnExit: true,
-            command: "vp run docs",
+            actionType: "browser",
+            closeTerminalOnExit: false,
             commandId: "custom-docs",
             isDefault: false,
             name: "Docs",
+            url: "https://example.com/docs",
           },
         ],
         ["test", "custom-docs", "dev"],
       ),
     ).toEqual([
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "test",
         isDefault: true,
         name: "Test",
+        url: undefined,
       },
       {
-        closeTerminalOnExit: true,
-        command: "vp run docs",
+        actionType: "browser",
+        closeTerminalOnExit: false,
+        command: undefined,
         commandId: "custom-docs",
         isDefault: false,
         name: "Docs",
+        url: "https://example.com/docs",
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "dev",
         isDefault: true,
         name: "Dev",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "build",
         isDefault: true,
         name: "Build",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "setup",
         isDefault: true,
         name: "Setup",
+        url: undefined,
       },
     ]);
   });
 
-  test("should hide deleted default commands", () => {
+  test("should hide deleted default actions", () => {
     expect(createSidebarCommandButtons([], [], ["build", "test"])).toEqual([
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "dev",
         isDefault: true,
         name: "Dev",
+        url: undefined,
       },
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: undefined,
         commandId: "setup",
         isDefault: true,
         name: "Setup",
+        url: undefined,
       },
     ]);
   });
 });
 
 describe("normalizeStoredSidebarCommands", () => {
-  test("should ignore invalid entries and trim valid values", () => {
+  test("should normalize legacy terminal actions and trim valid values", () => {
     expect(
       normalizeStoredSidebarCommands([
         {
@@ -180,21 +215,44 @@ describe("normalizeStoredSidebarCommands", () => {
           isDefault: true,
           name: "  Dev server ",
         },
-        {
-          closeTerminalOnExit: "nope",
-          command: "vp test",
-          commandId: "test",
-          isDefault: true,
-          name: "Test",
-        },
       ]),
     ).toEqual([
       {
+        actionType: "terminal",
         closeTerminalOnExit: false,
         command: "vp dev",
         commandId: "dev",
         isDefault: true,
         name: "Dev server",
+      },
+    ]);
+  });
+
+  test("should normalize browser actions and reject invalid values", () => {
+    expect(
+      normalizeStoredSidebarCommands([
+        {
+          actionType: "browser",
+          commandId: " docs ",
+          isDefault: false,
+          name: " Docs ",
+          url: " https://example.com/docs ",
+        },
+        {
+          actionType: "browser",
+          commandId: "missing-url",
+          isDefault: false,
+          name: "Broken",
+        },
+      ]),
+    ).toEqual([
+      {
+        actionType: "browser",
+        closeTerminalOnExit: false,
+        commandId: "docs",
+        isDefault: false,
+        name: "Docs",
+        url: "https://example.com/docs",
       },
     ]);
   });

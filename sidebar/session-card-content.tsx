@@ -1,3 +1,4 @@
+import { IconPencil } from "@tabler/icons-react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
@@ -16,6 +17,7 @@ const AGENT_SECONDARY_LABELS: Record<SidebarAgentIcon, readonly string[]> = {
 export type SessionCardContentProps = {
   aliasHeadingRef?: RefObject<HTMLDivElement | null>;
   onClose?: () => void;
+  onRename?: () => void;
   session: SidebarSessionItem;
   showDebugSessionNumbers: boolean;
   showCloseButton: boolean;
@@ -25,6 +27,7 @@ export type SessionCardContentProps = {
 export function SessionCardContent({
   aliasHeadingRef,
   onClose,
+  onRename,
   session,
   showDebugSessionNumbers,
   showCloseButton,
@@ -73,6 +76,20 @@ export function SessionCardContent({
               <span className="session-shortcut-label">{session.shortcutLabel}</span>
             ) : null}
           </div>
+          {onRename ? (
+            <button
+              aria-label="Rename session"
+              className="session-rename-button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onRename();
+              }}
+              type="button"
+            >
+              <IconPencil aria-hidden="true" size={14} stroke={1.8} />
+            </button>
+          ) : null}
           {showCloseButton && onClose ? (
             <button
               aria-label="Close session"

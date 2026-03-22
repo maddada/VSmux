@@ -6,7 +6,6 @@ import {
   IconBell,
   IconBellOff,
   IconBug,
-  IconFocusCentered,
   IconHistory,
   IconPlus,
   IconSettings,
@@ -31,8 +30,6 @@ import {
   type SidebarSessionItem,
   type SidebarSessionStateMessage,
   type SidebarTheme,
-  type TerminalViewMode,
-  type VisibleSessionCount,
 } from "../shared/session-grid-contract";
 import { playCompletionSound } from "./completion-sound-player";
 import { AgentsPanel } from "./agents-panel";
@@ -55,13 +52,6 @@ type SidebarState = {
 };
 
 type SessionIdsByGroup = Record<string, string[]>;
-
-const COUNT_OPTIONS: VisibleSessionCount[] = [1, 2, 3, 4, 6, 9];
-const MODE_OPTIONS: { tooltip: string; viewMode: TerminalViewMode }[] = [
-  { tooltip: "Vertical", viewMode: "vertical" },
-  { tooltip: "Horizontal", viewMode: "horizontal" },
-  { tooltip: "Grid", viewMode: "grid" },
-];
 
 const INITIAL_STATE: SidebarState = {
   groups: [],
@@ -537,70 +527,6 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
             </div>
           ) : null}
         </div>
-        <section className="commands-section">
-          <div className="section-titlebar" data-empty-space-blocking="true">
-            <div aria-hidden="true" className="section-titlebar-line" />
-            <span className="section-titlebar-label">Layout</span>
-            <div aria-hidden="true" className="section-titlebar-line" />
-          </div>
-          <div className="card hud">
-            <div className="toolbar-row">
-              <div className="toolbar-section">
-                <div className="toolbar-layout-block">
-                  <div className="button-group toolbar-mode-group">
-                    <ToolbarIconButton
-                      ariaLabel="Toggle focus mode"
-                      isSelected={serverState.hud.isFocusModeActive}
-                      onClick={() => vscode.postMessage({ type: "toggleFullscreenSession" })}
-                      tooltip={
-                        serverState.hud.isFocusModeActive
-                          ? "Restore previous session layout"
-                          : "Focus on the active session"
-                      }
-                    >
-                      <IconFocusCentered
-                        aria-hidden="true"
-                        className="toolbar-tabler-icon"
-                        stroke={1.8}
-                      />
-                    </ToolbarIconButton>
-                    <div aria-hidden="true" className="toolbar-divider" />
-                    {MODE_OPTIONS.map((mode) => (
-                      <ModeButton
-                        isDimmed={serverState.hud.isFocusModeActive}
-                        key={mode.viewMode}
-                        mode={mode}
-                        viewMode={serverState.hud.viewMode}
-                        visibleCount={serverState.hud.visibleCount}
-                        vscode={vscode}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="toolbar-section">
-                <div className="control-label" data-empty-space-blocking="true">
-                  Sessions Shown
-                </div>
-                <div className="button-group">
-                  {COUNT_OPTIONS.map((visibleCount) => (
-                    <ToolbarIconButton
-                      ariaLabel={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
-                      key={visibleCount}
-                      data-dimmed={String(serverState.hud.isFocusModeActive)}
-                      onClick={() => vscode.postMessage({ type: "setVisibleCount", visibleCount })}
-                      tooltip={`Show ${visibleCount} session${visibleCount === 1 ? "" : "s"}`}
-                      isDimmed={serverState.hud.isFocusModeActive}
-                      isSelected={serverState.hud.highlightedVisibleCount === visibleCount}
-                    >
-                      {visibleCount}
-                    </ToolbarIconButton>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
         <AgentsPanel
           agents={serverState.hud.agents}
           createRequestId={agentCreateRequestId}
@@ -762,34 +688,6 @@ function ToolbarIconButton({
   );
 }
 
-type ModeButtonProps = {
-  isDimmed: boolean;
-  mode: (typeof MODE_OPTIONS)[number];
-  viewMode: TerminalViewMode;
-  visibleCount: VisibleSessionCount;
-  vscode: WebviewApi;
-};
-
-function ModeButton({ isDimmed, mode, viewMode, visibleCount, vscode }: ModeButtonProps) {
-  const isDisabled = isViewModeDisabled(mode.viewMode, visibleCount);
-
-  return (
-    <ToolbarIconButton
-      ariaLabel={mode.tooltip}
-      isDisabled={isDisabled}
-      isDimmed={isDimmed}
-      isSelected={!isDimmed && viewMode === mode.viewMode}
-      onClick={() => {
-        vscode.postMessage({ type: "setViewMode", viewMode: mode.viewMode });
-      }}
-      tabIndex={isDisabled ? -1 : 0}
-      tooltip={mode.tooltip}
-    >
-      <LayoutModeIcon viewMode={mode.viewMode} />
-    </ToolbarIconButton>
-  );
-}
-
 function createSessionIdsByGroup(groups: readonly SidebarSessionGroup[]): SessionIdsByGroup {
   return Object.fromEntries(
     groups.map((group) => [group.groupId, group.sessions.map((session) => session.sessionId)]),
@@ -844,57 +742,12 @@ function haveSameSessionOrder(left: readonly string[], right: readonly string[])
   return left.every((sessionId, index) => sessionId === right[index]);
 }
 
-function isViewModeDisabled(
-  viewMode: TerminalViewMode,
-  visibleCount: VisibleSessionCount,
-): boolean {
-  if (visibleCount === 1) {
-    return true;
-  }
-
-  if (visibleCount === 2 && viewMode === "grid") {
-    return true;
-  }
-
-  return false;
-}
-
 function findCreatedGroupId(
   previousGroups: readonly SidebarSessionGroup[],
   nextGroups: readonly SidebarSessionGroup[],
 ): string | undefined {
   const previousGroupIds = new Set(previousGroups.map((group) => group.groupId));
   return nextGroups.find((group) => !previousGroupIds.has(group.groupId))?.groupId;
-}
-
-type LayoutModeIconProps = {
-  viewMode: TerminalViewMode;
-};
-
-function LayoutModeIcon({ viewMode }: LayoutModeIconProps) {
-  switch (viewMode) {
-    case "horizontal":
-      return (
-        <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
-          <rect className="toolbar-icon-frame" height="12" rx="2" width="12" x="2" y="2" />
-          <path className="toolbar-icon-line" d="M6 4v8M10 4v8" />
-        </svg>
-      );
-    case "vertical":
-      return (
-        <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
-          <rect className="toolbar-icon-frame" height="12" rx="2" width="12" x="2" y="2" />
-          <path className="toolbar-icon-line" d="M4 6h8M4 10h8" />
-        </svg>
-      );
-    case "grid":
-      return (
-        <svg aria-hidden="true" className="toolbar-icon" viewBox="0 0 16 16">
-          <rect className="toolbar-icon-frame" height="12" rx="2" width="12" x="2" y="2" />
-          <path className="toolbar-icon-line" d="M8 4v8M4 8h8" />
-        </svg>
-      );
-  }
 }
 
 function OverflowIcon() {

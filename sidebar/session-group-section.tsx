@@ -24,11 +24,14 @@ import type { WebviewApi } from "./webview-api";
 const CONTEXT_MENU_HEIGHT_PX = 90;
 const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 164;
+const COUNT_OPTIONS: VisibleSessionCount[] = [1, 2, 3, 4, 6, 9];
 
 type ContextMenuPosition = {
   x: number;
   y: number;
 };
+
+type GroupControlMenu = "layout" | "visible-count";
 
 type GroupLayoutIconProps = {
   viewMode: TerminalViewMode;
@@ -37,6 +40,17 @@ type GroupLayoutIconProps = {
 type GroupVisibleCountIconProps = {
   visibleCount: VisibleSessionCount;
 };
+
+type LayoutOption =
+  | { kind: "focus"; label: string }
+  | { kind: "view-mode"; label: string; viewMode: TerminalViewMode };
+
+const LAYOUT_OPTIONS: readonly LayoutOption[] = [
+  { kind: "focus", label: "Focus" },
+  { kind: "view-mode", label: "Rows", viewMode: "vertical" },
+  { kind: "view-mode", label: "Columns", viewMode: "horizontal" },
+  { kind: "view-mode", label: "Grid", viewMode: "grid" },
+];
 
 export type SessionGroupSectionProps = {
   autoEdit: boolean;
@@ -116,7 +130,10 @@ export function SessionGroupSection({
   const [draftTitle, setDraftTitle] = useState(group.title);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [openControlMenu, setOpenControlMenu] = useState<GroupControlMenu>();
   const menuRef = useRef<HTMLDivElement>(null);
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const controlAnchorRef = useRef<HTMLDivElement>(null);
   const sortable = useSortable({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
@@ -148,7 +165,16 @@ export function SessionGroupSection({
 
   useEffect(() => {
     setContextMenuPosition(undefined);
+    setOpenControlMenu(undefined);
   }, [group.groupId, group.title]);
+
+  useEffect(() => {
+    if (group.isActive) {
+      return;
+    }
+
+    setOpenControlMenu(undefined);
+  }, [group.isActive]);
 
   useEffect(() => {
     if (!contextMenuPosition) {
@@ -198,6 +224,50 @@ export function SessionGroupSection({
     };
   }, [contextMenuPosition]);
 
+  useEffect(() => {
+    if (!openControlMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (controlMenuRef.current?.contains(target) || controlAnchorRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpenControlMenu(undefined);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenControlMenu(undefined);
+      }
+    };
+    const handleBlur = () => {
+      setOpenControlMenu(undefined);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        setOpenControlMenu(undefined);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [openControlMenu]);
+
   const submitRename = () => {
     const nextTitle = draftTitle.trim();
     setIsEditing(false);
@@ -225,6 +295,34 @@ export function SessionGroupSection({
     vscode.postMessage({
       groupId: group.groupId,
       type: "createSessionInGroup",
+    });
+  };
+
+  const setVisibleCount = (visibleCount: VisibleSessionCount) => {
+    setOpenControlMenu(undefined);
+    vscode.postMessage({
+      type: "setVisibleCount",
+      visibleCount,
+    });
+  };
+
+  const setLayout = (option: LayoutOption) => {
+    setOpenControlMenu(undefined);
+
+    if (option.kind === "focus") {
+      if (!group.isFocusModeActive) {
+        vscode.postMessage({ type: "toggleFullscreenSession" });
+      }
+      return;
+    }
+
+    if (group.isFocusModeActive) {
+      vscode.postMessage({ type: "toggleFullscreenSession" });
+    }
+
+    vscode.postMessage({
+      type: "setViewMode",
+      viewMode: option.viewMode,
     });
   };
 
@@ -296,41 +394,128 @@ export function SessionGroupSection({
                 <div className="group-title-handle" ref={sortable.handleRef}>
                   <div className="group-title">{group.title}</div>
                 </div>
-                <div className="group-meta">
-                  {group.isFocusModeActive ? (
-                    <span
-                      aria-label="Focus mode active"
-                      className="group-meta-item"
-                      role="img"
-                      title="Focus mode active"
-                    >
-                      <IconFocusCentered
-                        aria-hidden="true"
-                        className="group-meta-focus-icon"
-                        stroke={1.8}
-                      />
-                    </span>
-                  ) : (
-                    <>
-                      <span
-                        aria-label={`Layout ${group.viewMode}`}
-                        className="group-meta-item"
-                        role="img"
-                        title={`Layout: ${group.viewMode}`}
+                {group.isActive ? (
+                  <div
+                    className="group-layout-controls"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    ref={controlAnchorRef}
+                  >
+                    <div className="group-control-anchor">
+                      <button
+                        aria-expanded={openControlMenu === "layout"}
+                        aria-haspopup="menu"
+                        aria-label={`Open layout options for ${group.title}`}
+                        className="group-add-button group-control-button"
+                        data-open={String(openControlMenu === "layout")}
+                        onClick={() => {
+                          setOpenControlMenu((previous) =>
+                            previous === "layout" ? undefined : "layout",
+                          );
+                        }}
+                        type="button"
                       >
-                        <GroupLayoutIcon viewMode={group.viewMode} />
-                      </span>
-                      <span
-                        aria-label={`${group.visibleCount} sessions shown`}
-                        className="group-meta-item"
-                        role="img"
-                        title={`Sessions shown: ${group.visibleCount}`}
+                        {group.isFocusModeActive ? (
+                          <IconFocusCentered
+                            aria-hidden="true"
+                            className="group-meta-focus-icon"
+                            stroke={1.8}
+                          />
+                        ) : (
+                          <GroupLayoutIcon viewMode={group.viewMode} />
+                        )}
+                      </button>
+                      {openControlMenu === "layout" ? (
+                        <div
+                          className="group-control-menu session-context-menu"
+                          ref={controlMenuRef}
+                          role="menu"
+                        >
+                          {LAYOUT_OPTIONS.map((option) => {
+                            const isSelected =
+                              option.kind === "focus"
+                                ? group.isFocusModeActive
+                                : !group.isFocusModeActive && group.viewMode === option.viewMode;
+                            const isDisabled =
+                              option.kind === "view-mode" &&
+                              isViewModeDisabled(option.viewMode, group.visibleCount);
+
+                            return (
+                              <button
+                                aria-pressed={isSelected}
+                                className="session-context-menu-item group-control-menu-item"
+                                data-selected={String(isSelected)}
+                                disabled={isDisabled}
+                                key={option.label}
+                                onClick={() => {
+                                  if (isDisabled) {
+                                    return;
+                                  }
+
+                                  setLayout(option);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {option.kind === "focus" ? (
+                                  <IconFocusCentered
+                                    aria-hidden="true"
+                                    className="session-context-menu-icon"
+                                    size={14}
+                                    stroke={1.8}
+                                  />
+                                ) : (
+                                  <GroupLayoutIcon viewMode={option.viewMode} />
+                                )}
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="group-control-anchor">
+                      <button
+                        aria-expanded={openControlMenu === "visible-count"}
+                        aria-haspopup="menu"
+                        aria-label={`Open visible session options for ${group.title}`}
+                        className="group-add-button group-control-button"
+                        data-open={String(openControlMenu === "visible-count")}
+                        onClick={() => {
+                          setOpenControlMenu((previous) =>
+                            previous === "visible-count" ? undefined : "visible-count",
+                          );
+                        }}
+                        type="button"
                       >
                         <GroupVisibleCountIcon visibleCount={group.visibleCount} />
-                      </span>
-                    </>
-                  )}
-                </div>
+                      </button>
+                      {openControlMenu === "visible-count" ? (
+                        <div
+                          className="group-control-menu session-context-menu group-control-count-menu"
+                          ref={controlMenuRef}
+                          role="menu"
+                        >
+                          {COUNT_OPTIONS.map((visibleCount) => (
+                            <button
+                              aria-pressed={group.visibleCount === visibleCount}
+                              className="session-context-menu-item group-control-menu-item"
+                              data-selected={String(group.visibleCount === visibleCount)}
+                              key={visibleCount}
+                              onClick={() => setVisibleCount(visibleCount)}
+                              role="menuitem"
+                              type="button"
+                            >
+                              {visibleCount}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <button
                   aria-label={`Create a session in ${group.title}`}
                   className="group-add-button"
@@ -431,4 +616,19 @@ export function SessionGroupSection({
       />
     </>
   );
+}
+
+function isViewModeDisabled(
+  viewMode: TerminalViewMode,
+  visibleCount: VisibleSessionCount,
+): boolean {
+  if (visibleCount === 1) {
+    return true;
+  }
+
+  if (visibleCount === 2 && viewMode === "grid") {
+    return true;
+  }
+
+  return false;
 }

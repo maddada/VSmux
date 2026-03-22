@@ -123,6 +123,20 @@ const testState = vi.hoisted(() => ({
         revealStoredSession: ReturnType<typeof vi.fn>;
       }
     | undefined,
+  browserSessionManagers: [] as Array<{
+    dispose: ReturnType<typeof vi.fn>;
+    disposeSession: ReturnType<typeof vi.fn>;
+    reconcileVisibleSessions: ReturnType<typeof vi.fn>;
+    revealStoredSession: ReturnType<typeof vi.fn>;
+  }>,
+  browserSessionManager: undefined as
+    | {
+        dispose: ReturnType<typeof vi.fn>;
+        disposeSession: ReturnType<typeof vi.fn>;
+        reconcileVisibleSessions: ReturnType<typeof vi.fn>;
+        revealStoredSession: ReturnType<typeof vi.fn>;
+      }
+    | undefined,
 }));
 
 vi.mock("vscode", () => ({
@@ -307,6 +321,21 @@ vi.mock("./t3-webview-manager", () => ({
   },
 }));
 
+vi.mock("./browser-session-manager", () => ({
+  BrowserSessionManager: class BrowserSessionManager {
+    public constructor() {
+      testState.browserSessionManager = {
+        dispose: vi.fn(),
+        disposeSession: vi.fn(async () => {}),
+        reconcileVisibleSessions: vi.fn(async () => {}),
+        revealStoredSession: vi.fn(async () => {}),
+      };
+      testState.browserSessionManagers.push(testState.browserSessionManager);
+      return testState.browserSessionManager;
+    }
+  },
+}));
+
 import type { GroupedSessionWorkspaceSnapshot } from "../shared/session-grid-contract";
 import {
   createSessionAlias,
@@ -359,6 +388,8 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     testState.t3ActivityMonitor = undefined;
     testState.t3WebviewManagers.length = 0;
     testState.t3WebviewManager = undefined;
+    testState.browserSessionManagers.length = 0;
+    testState.browserSessionManager = undefined;
   });
 
   afterEach(() => {
@@ -507,6 +538,43 @@ describe("NativeTerminalWorkspaceController rename session", () => {
 
     expect(terminal?.dispose).toHaveBeenCalledTimes(1);
     expect(testState.backend?.writeText).not.toHaveBeenCalled();
+  });
+
+  test("should create a browser session for browser actions", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [
+        [
+          "VSmux.sidebarCommands",
+          [
+            {
+              actionType: "browser",
+              closeTerminalOnExit: false,
+              commandId: "docs",
+              isDefault: false,
+              name: "Docs",
+              url: "https://example.com/docs",
+            },
+          ],
+        ],
+      ]),
+    );
+
+    await controller.runSidebarCommand("docs");
+
+    expect(testState.createTerminal).not.toHaveBeenCalled();
+    expect(testState.backend?.createOrAttachSession).toHaveBeenCalledTimes(1);
+    expect(testState.backend?.createOrAttachSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browser: {
+          url: "https://example.com/docs",
+        },
+        kind: "browser",
+        title: "Docs",
+      }),
+    );
+    expect(testState.browserSessionManager?.reconcileVisibleSessions).toHaveBeenCalled();
   });
 
   test("should keep the generated alias and attach the selected agent icon for sidebar agents", async () => {

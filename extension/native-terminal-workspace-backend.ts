@@ -8,6 +8,7 @@ import type {
   NativeTerminalDebugProjection,
 } from "../shared/native-terminal-debug-contract";
 import {
+  isBrowserSession,
   isT3Session,
   isTerminalSession,
   type SessionGridSnapshot,
@@ -717,7 +718,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return false;
     }
 
-    if (this.hasVisibleT3Sessions(snapshot)) {
+    if (this.hasVisibleNonTerminalSessions(snapshot)) {
       return false;
     }
 
@@ -1338,7 +1339,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     if (
       this.matchVisibleTerminalOrder ||
       snapshot.visibleSessionIds.length <= 1 ||
-      this.hasVisibleT3Sessions(snapshot)
+      this.hasVisibleNonTerminalSessions(snapshot)
     ) {
       return cloneSnapshot(snapshot);
     }
@@ -1402,10 +1403,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     });
   }
 
-  private hasVisibleT3Sessions(snapshot: SessionGridSnapshot): boolean {
+  private hasVisibleNonTerminalSessions(snapshot: SessionGridSnapshot): boolean {
     return snapshot.visibleSessionIds.some((sessionId) => {
       const sessionRecord = this.getSnapshotSession(snapshot, sessionId);
-      return Boolean(sessionRecord && isT3Session(sessionRecord));
+      return Boolean(
+        sessionRecord && (isT3Session(sessionRecord) || isBrowserSession(sessionRecord)),
+      );
     });
   }
 

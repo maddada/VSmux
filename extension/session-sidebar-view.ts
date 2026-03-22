@@ -269,8 +269,11 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
         (message.commandId === undefined ||
           (typeof message.commandId === "string" && message.commandId.length > 0)) &&
         typeof message.name === "string" &&
-        typeof message.command === "string" &&
-        typeof message.closeTerminalOnExit === "boolean"
+        typeof message.actionType === "string" &&
+        ["browser", "terminal"].includes(message.actionType) &&
+        typeof message.closeTerminalOnExit === "boolean" &&
+        (message.command === undefined || typeof message.command === "string") &&
+        (message.url === undefined || typeof message.url === "string")
       );
 
     case "saveSidebarAgent":

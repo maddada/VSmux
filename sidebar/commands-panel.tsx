@@ -1,7 +1,7 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { DragDropProvider } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
-import { IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconBrowser, IconPencil, IconTerminal2, IconTrash } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { SidebarCommandButton } from "../shared/sidebar-commands";
@@ -122,15 +122,20 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
 
   const openCommandEditor = (command: SidebarCommandButton) => {
     setEditingCommand({
+      actionType: command.actionType,
       closeTerminalOnExit: command.closeTerminalOnExit,
-      command: command.command ?? "",
+      command: command.command,
       commandId: command.commandId,
       name: command.name,
+      url: command.url,
     });
   };
 
   const runOrConfigureCommand = (command: SidebarCommandButton) => {
-    if (!command.command) {
+    if (
+      (command.actionType === "browser" && !command.url) ||
+      (command.actionType === "terminal" && !command.command)
+    ) {
       openCommandEditor(command);
       return;
     }
@@ -152,10 +157,12 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
 
     setContextMenu(undefined);
     setEditingCommand({
+      actionType: "terminal",
       closeTerminalOnExit: false,
       command: "",
       commandId: undefined,
       name: "",
+      url: "",
     });
   }, [createRequestId]);
 
@@ -218,7 +225,7 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
       <section className="commands-section">
         <div className="section-titlebar" data-empty-space-blocking="true">
           <div aria-hidden="true" className="section-titlebar-line" />
-          <span className="section-titlebar-label">Commands</span>
+          <span className="section-titlebar-label">Actions</span>
           <div aria-hidden="true" className="section-titlebar-line" />
         </div>
         <div className="card commands-panel">
@@ -274,7 +281,7 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
                 type="button"
               >
                 <IconPencil aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Configure Command
+                Configure Action
               </button>
               <button
                 className="session-context-menu-item session-context-menu-item-danger"
@@ -289,7 +296,7 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
                 type="button"
               >
                 <IconTrash aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Remove Command
+                Remove Action
               </button>
             </div>,
             document.body,
@@ -303,11 +310,13 @@ export function CommandsPanel({ commands, createRequestId, vscode }: CommandsPan
           onSave={(draft) => {
             setEditingCommand(undefined);
             vscode.postMessage({
+              actionType: draft.actionType,
               closeTerminalOnExit: draft.closeTerminalOnExit,
               command: draft.command,
               commandId: draft.commandId,
               name: draft.name,
               type: "saveSidebarCommand",
+              url: draft.url,
             });
           }}
         />
@@ -347,10 +356,12 @@ function SortableCommandButton({
         render={
           <button
             aria-label={
-              command.command ? `Run ${command.name}` : `Configure ${command.name} command`
+              isConfigured(command)
+                ? runActionAriaLabel(command)
+                : `Configure ${command.name} action`
             }
             className="command-button"
-            data-configured={String(Boolean(command.command))}
+            data-configured={String(isConfigured(command))}
             data-default={String(command.isDefault)}
             data-dragging={String(Boolean(sortable.isDragging))}
             data-empty-space-blocking="true"
@@ -359,19 +370,34 @@ function SortableCommandButton({
             ref={sortable.ref}
             type="button"
           >
+            <span aria-hidden="true" className="command-button-kind-badge">
+              <ActionKindIcon actionType={command.actionType} />
+            </span>
             <span className="command-button-label">{command.name}</span>
           </button>
         }
       />
       <Tooltip.Portal>
         <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
-          <Tooltip.Popup className="tooltip-popup">
-            {command.command ? `${command.name}: ${command.command}` : `Configure ${command.name}`}
-          </Tooltip.Popup>
+          <Tooltip.Popup className="tooltip-popup">{getActionTooltip(command)}</Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>
   );
+}
+
+type ActionKindIconProps = {
+  actionType: SidebarCommandButton["actionType"];
+};
+
+function ActionKindIcon({ actionType }: ActionKindIconProps) {
+  const className = "command-button-kind-icon";
+
+  if (actionType === "browser") {
+    return <IconBrowser aria-hidden="true" className={className} size={12} stroke={1.8} />;
+  }
+
+  return <IconTerminal2 aria-hidden="true" className={className} size={12} stroke={1.8} />;
 }
 
 function moveCommandId(
@@ -427,4 +453,22 @@ function haveSameCommandOrder(left: readonly string[], right: readonly string[])
   }
 
   return left.every((commandId, index) => commandId === right[index]);
+}
+
+function isConfigured(command: SidebarCommandButton): boolean {
+  return command.actionType === "browser" ? Boolean(command.url) : Boolean(command.command);
+}
+
+function getActionTooltip(command: SidebarCommandButton): string {
+  if (!isConfigured(command)) {
+    return `Configure ${command.name}`;
+  }
+
+  return command.actionType === "browser"
+    ? `${command.name}: ${command.url}`
+    : `${command.name}: ${command.command}`;
+}
+
+function runActionAriaLabel(command: SidebarCommandButton): string {
+  return command.actionType === "browser" ? `Open ${command.name}` : `Run ${command.name}`;
 }

@@ -18,30 +18,37 @@ export const DEFAULT_SIDEBAR_COMMANDS = [
 ] as const;
 
 export type DefaultSidebarCommandId = (typeof DEFAULT_SIDEBAR_COMMANDS)[number]["commandId"];
+export type SidebarActionType = "browser" | "terminal";
 
 export type SidebarCommandButton = {
+  actionType: SidebarActionType;
   closeTerminalOnExit: boolean;
   command?: string;
   commandId: string;
   isDefault: boolean;
   name: string;
+  url?: string;
 };
 
 export type StoredSidebarCommand = {
+  actionType: SidebarActionType;
   closeTerminalOnExit: boolean;
-  command: string;
   commandId: string;
   isDefault: boolean;
   name: string;
+  command?: string;
+  url?: string;
 };
 
 export function createDefaultSidebarCommandButtons(): SidebarCommandButton[] {
   return DEFAULT_SIDEBAR_COMMANDS.map((command) => ({
+    actionType: "terminal",
     closeTerminalOnExit: false,
     command: undefined,
     commandId: command.commandId,
     isDefault: true,
     name: command.name,
+    url: undefined,
   }));
 }
 
@@ -62,21 +69,7 @@ export function createSidebarCommandButtons(
 
       const storedCommand = storedCommandById.get(command.commandId);
       buttons.push(
-        storedCommand
-          ? {
-              closeTerminalOnExit: storedCommand.closeTerminalOnExit,
-              command: storedCommand.command,
-              commandId: storedCommand.commandId,
-              isDefault: true,
-              name: storedCommand.name,
-            }
-          : {
-              closeTerminalOnExit: false,
-              command: undefined,
-              commandId: command.commandId,
-              isDefault: true,
-              name: command.name,
-            },
+        storedCommand ? normalizeStoredCommandButton(storedCommand) : defaultAction(command),
       );
       return buttons;
     },
@@ -85,13 +78,7 @@ export function createSidebarCommandButtons(
 
   const customButtons = storedCommands
     .filter((command) => !isDefaultSidebarCommandId(command.commandId))
-    .map((command) => ({
-      closeTerminalOnExit: command.closeTerminalOnExit,
-      command: command.command,
-      commandId: command.commandId,
-      isDefault: false,
-      name: command.name,
-    }));
+    .map((command) => normalizeStoredCommandButton(command));
 
   return orderSidebarCommandButtons([...defaultButtons, ...customButtons], storedOrder);
 }
@@ -113,24 +100,46 @@ export function normalizeStoredSidebarCommands(candidate: unknown): StoredSideba
       continue;
     }
 
-    const partialItem = item as Partial<StoredSidebarCommand>;
+    const partialItem = item as Partial<StoredSidebarCommand> & {
+      actionType?: string;
+      command?: string;
+      url?: string;
+    };
     const commandId = partialItem.commandId?.trim();
     const name = partialItem.name?.trim();
-    const command = partialItem.command?.trim();
+    const actionType = normalizeActionType(partialItem.actionType);
     const isDefault =
       partialItem.isDefault === true || (commandId ? isDefaultSidebarCommandId(commandId) : false);
 
-    if (
-      !commandId ||
-      !name ||
-      !command ||
-      typeof partialItem.closeTerminalOnExit !== "boolean" ||
-      seenCommandIds.has(commandId)
-    ) {
+    if (!commandId || !name || seenCommandIds.has(commandId)) {
+      continue;
+    }
+
+    if (actionType === "browser") {
+      const url = partialItem.url?.trim();
+      if (!url) {
+        continue;
+      }
+
+      normalizedCommands.push({
+        actionType,
+        closeTerminalOnExit: false,
+        commandId,
+        isDefault,
+        name,
+        url,
+      });
+      seenCommandIds.add(commandId);
+      continue;
+    }
+
+    const command = partialItem.command?.trim();
+    if (!command || typeof partialItem.closeTerminalOnExit !== "boolean") {
       continue;
     }
 
     normalizedCommands.push({
+      actionType,
       closeTerminalOnExit: partialItem.closeTerminalOnExit,
       command,
       commandId,
@@ -166,6 +175,44 @@ export function normalizeStoredSidebarCommandOrder(candidate: unknown): string[]
   }
 
   return normalizedOrder;
+}
+
+function defaultAction(command: (typeof DEFAULT_SIDEBAR_COMMANDS)[number]): SidebarCommandButton {
+  return {
+    actionType: "terminal",
+    closeTerminalOnExit: false,
+    command: undefined,
+    commandId: command.commandId,
+    isDefault: true,
+    name: command.name,
+    url: undefined,
+  };
+}
+
+function normalizeStoredCommandButton(command: StoredSidebarCommand): SidebarCommandButton {
+  return command.actionType === "browser"
+    ? {
+        actionType: "browser",
+        closeTerminalOnExit: false,
+        command: undefined,
+        commandId: command.commandId,
+        isDefault: command.isDefault,
+        name: command.name,
+        url: command.url,
+      }
+    : {
+        actionType: "terminal",
+        closeTerminalOnExit: command.closeTerminalOnExit,
+        command: command.command,
+        commandId: command.commandId,
+        isDefault: command.isDefault,
+        name: command.name,
+        url: undefined,
+      };
+}
+
+function normalizeActionType(value: string | undefined): SidebarActionType {
+  return value === "browser" ? "browser" : "terminal";
 }
 
 function orderSidebarCommandButtons(

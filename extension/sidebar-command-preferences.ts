@@ -4,6 +4,7 @@ import {
   isDefaultSidebarCommandId,
   normalizeStoredSidebarCommandOrder,
   normalizeStoredSidebarCommands,
+  type SidebarActionType,
   type SidebarCommandButton,
   type StoredSidebarCommand,
 } from "../shared/sidebar-commands";
@@ -13,10 +14,12 @@ const SIDEBAR_COMMAND_ORDER_KEY = "VSmux.sidebarCommandOrder";
 const DELETED_DEFAULT_COMMANDS_KEY = "VSmux.deletedSidebarDefaultCommands";
 
 export type SaveSidebarCommandInput = {
+  actionType: SidebarActionType;
   closeTerminalOnExit: boolean;
-  command: string;
   commandId?: string;
   name: string;
+  command?: string;
+  url?: string;
 };
 
 export function getSidebarCommandButtons(context: vscode.ExtensionContext): SidebarCommandButton[] {
@@ -39,8 +42,17 @@ export async function saveSidebarCommandPreference(
   input: SaveSidebarCommandInput,
 ): Promise<void> {
   const name = input.name.trim();
-  const command = input.command.trim();
-  if (!name || !command) {
+  const command = input.command?.trim();
+  const url = input.url?.trim();
+  if (!name) {
+    return;
+  }
+
+  if (input.actionType === "browser" && !url) {
+    return;
+  }
+
+  if (input.actionType === "terminal" && !command) {
     return;
   }
 
@@ -52,11 +64,12 @@ export async function saveSidebarCommandPreference(
   const deletedDefaultCommandIds = getDeletedDefaultCommandIds(context);
   const commandId = input.commandId?.trim() || createCustomCommandId();
   const nextCommand: StoredSidebarCommand = {
-    closeTerminalOnExit: input.closeTerminalOnExit,
-    command,
+    actionType: input.actionType,
+    closeTerminalOnExit: input.actionType === "terminal" ? input.closeTerminalOnExit : false,
     commandId,
     isDefault: isDefaultSidebarCommandId(commandId),
     name,
+    ...(input.actionType === "browser" ? { url } : { command }),
   };
   const existingIndex = storedCommands.findIndex((candidate) => candidate.commandId === commandId);
   const nextCommands =

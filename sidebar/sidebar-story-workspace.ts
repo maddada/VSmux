@@ -196,11 +196,14 @@ export function reduceSidebarStoryWorkspace(
         (command) => command.commandId === nextCommandId,
       );
       const nextCommand = {
-        closeTerminalOnExit: message.closeTerminalOnExit,
-        command: message.command,
+        actionType: message.actionType,
+        closeTerminalOnExit:
+          message.actionType === "terminal" ? message.closeTerminalOnExit : false,
+        command: message.actionType === "terminal" ? message.command : undefined,
         commandId: nextCommandId,
         isDefault: existingIndex >= 0 ? nextCommands[existingIndex]?.isDefault === true : false,
         name: message.name,
+        url: message.actionType === "browser" ? message.url : undefined,
       };
 
       if (existingIndex >= 0) {

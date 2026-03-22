@@ -8,7 +8,11 @@ import {
   type SidebarAgentButton,
   type SidebarAgentIcon,
 } from "./sidebar-agents";
-import { createDefaultSidebarCommandButtons, type SidebarCommandButton } from "./sidebar-commands";
+import {
+  createDefaultSidebarCommandButtons,
+  type SidebarActionType,
+  type SidebarCommandButton,
+} from "./sidebar-commands";
 
 export const GRID_COLUMN_COUNT = 3;
 export const MAX_SESSION_COUNT = GRID_COLUMN_COUNT * GRID_COLUMN_COUNT;
@@ -52,13 +56,17 @@ export type SidebarThemeSetting =
 
 export type SidebarThemeVariant = "light" | "dark";
 
-export type SessionKind = "terminal" | "t3";
+export type SessionKind = "browser" | "terminal" | "t3";
 
 export type T3SessionMetadata = {
   projectId: string;
   serverOrigin: string;
   threadId: string;
   workspaceRoot: string;
+};
+
+export type BrowserSessionMetadata = {
+  url: string;
 };
 
 type BaseSessionRecord = {
@@ -81,9 +89,19 @@ export type T3SessionRecord = BaseSessionRecord & {
   t3: T3SessionMetadata;
 };
 
-export type SessionRecord = TerminalSessionRecord | T3SessionRecord;
+export type BrowserSessionRecord = BaseSessionRecord & {
+  browser: BrowserSessionMetadata;
+  kind: "browser";
+};
+
+export type SessionRecord = BrowserSessionRecord | TerminalSessionRecord | T3SessionRecord;
 
 export type CreateSessionRecordOptions =
+  | {
+      browser: BrowserSessionMetadata;
+      kind: "browser";
+      title?: string;
+    }
   | {
       kind?: "terminal";
       title?: string;
@@ -291,10 +309,12 @@ export type SidebarToExtensionMessage =
     }
   | {
       type: "saveSidebarCommand";
+      actionType: SidebarActionType;
       closeTerminalOnExit: boolean;
-      command: string;
       commandId?: string;
       name: string;
+      command?: string;
+      url?: string;
     }
   | {
       type: "deleteSidebarCommand";
@@ -473,6 +493,20 @@ export function createSessionRecord(
 ): SessionRecord {
   const position = getSlotPosition(slotIndex);
   const title = options?.title?.trim() || `Session ${sessionNumber}`;
+  if (options?.kind === "browser") {
+    return {
+      alias: createSessionAlias(sessionNumber, slotIndex),
+      browser: options.browser,
+      column: position.column,
+      createdAt: new Date().toISOString(),
+      kind: "browser",
+      row: position.row,
+      sessionId: `session-${sessionNumber}`,
+      slotIndex,
+      title,
+    };
+  }
+
   if (options?.kind === "t3") {
     return {
       alias: createSessionAlias(sessionNumber, slotIndex),
@@ -514,6 +548,10 @@ export function getOrderedSessions(snapshot: SessionGridSnapshot): SessionRecord
 
 export function isTerminalSession(session: SessionRecord): session is TerminalSessionRecord {
   return session.kind === "terminal";
+}
+
+export function isBrowserSession(session: SessionRecord): session is BrowserSessionRecord {
+  return session.kind === "browser";
 }
 
 export function isT3Session(session: SessionRecord): session is T3SessionRecord {

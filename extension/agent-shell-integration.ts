@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
 type AgentLifecycleEventType = "start" | "stop";
-type AgentLifecycleStateStatus = "idle" | "working" | "attention";
 
 export type AgentLifecycleEvent = {
   agentName?: string;
@@ -27,8 +26,10 @@ const AGENT_CONTROL_COMMAND = "9001";
 const AGENT_CONTROL_NAMESPACE = "VSmux";
 const AGENT_SHELL_DIR_NAME = "agent-shell-integration";
 const CLAUDE_SETTINGS_FILE_NAME = "settings.json";
-const NOTIFY_SCRIPT_NAME = "notify.sh";
+const CLAUDE_NOTIFY_SCRIPT_STEM = "notify";
+const NOTIFY_RUNNER_FILE_NAME = "agent-shell-notify-runner.js";
 const OPENCODE_PLUGIN_FILE_NAME = "VSmux-notify.js";
+const WRAPPER_RUNNER_FILE_NAME = "agent-shell-wrapper-runner.js";
 const CODEX_START_LOG_PATTERNS = [
   [`"type":"event_msg"`, `"payload":{"type":"task_started"`],
   [`"msg":{"type":"task_started"`],
@@ -39,6 +40,8 @@ const CODEX_STOP_LOG_PATTERNS = [
   [`"msg":{"type":"task_complete"`],
   [`"msg":{"type":"turn_aborted"`],
 ] as const;
+
+type AgentWrapperName = "claude" | "codex" | "opencode";
 
 const integrationPromises = new Map<string, Promise<AgentShellIntegration>>();
 
@@ -123,7 +126,14 @@ async function createAgentShellIntegration(daemonStateDir: string): Promise<Agen
   const hooksDir = path.join(integrationRoot, "hooks");
   const claudeConfigDir = path.join(hooksDir, "claude");
   const claudeSettingsPath = path.join(claudeConfigDir, CLAUDE_SETTINGS_FILE_NAME);
-  const notifyPath = path.join(hooksDir, NOTIFY_SCRIPT_NAME);
+  const notifyPath = path.join(__dirname, NOTIFY_RUNNER_FILE_NAME);
+  const wrapperRunnerPath = path.join(__dirname, WRAPPER_RUNNER_FILE_NAME);
+  const claudeNotifyCommandPath = path.join(
+    claudeConfigDir,
+    process.platform === "win32"
+      ? `${CLAUDE_NOTIFY_SCRIPT_STEM}.cmd`
+      : `${CLAUDE_NOTIFY_SCRIPT_STEM}.sh`,
+  );
   const opencodeConfigDir = path.join(hooksDir, "opencode");
   const opencodePluginDir = path.join(opencodeConfigDir, "plugin");
   const opencodePluginPath = path.join(opencodePluginDir, OPENCODE_PLUGIN_FILE_NAME);
@@ -135,24 +145,49 @@ async function createAgentShellIntegration(daemonStateDir: string): Promise<Agen
   await mkdir(opencodePluginDir, { recursive: true });
   await mkdir(zshDotDir, { recursive: true });
 
-  await writeFileIfChanged(notifyPath, getNotifyScriptContent(), 0o755);
-  await writeFileIfChanged(claudeSettingsPath, getClaudeHookSettingsContent(notifyPath), 0o644);
   await writeFileIfChanged(
-    path.join(binDir, "claude"),
-    getClaudeWrapperContent(binDir, claudeSettingsPath),
-    0o755,
+    claudeNotifyCommandPath,
+    getClaudeNotifyCommandContent(notifyPath),
+    process.platform === "win32" ? 0o644 : 0o755,
   );
   await writeFileIfChanged(
-    path.join(binDir, "codex"),
-    getCodexWrapperContent(binDir, notifyPath),
-    0o755,
+    claudeSettingsPath,
+    getClaudeHookSettingsContent(claudeNotifyCommandPath, process.platform),
+    0o644,
   );
+
+  for (const agentName of ["claude", "codex", "opencode"] as const) {
+    await writeFileIfChanged(
+      path.join(binDir, agentName),
+      getAgentWrapperShellScriptContent(agentName, {
+        binDir,
+        claudeSettingsPath,
+        notifyPath,
+        opencodeConfigDir,
+        wrapperRunnerPath,
+      }),
+      0o755,
+    );
+    if (process.platform === "win32") {
+      await writeFileIfChanged(
+        path.join(binDir, `${agentName}.cmd`),
+        getAgentWrapperCmdContent(agentName, {
+          binDir,
+          claudeSettingsPath,
+          notifyPath,
+          opencodeConfigDir,
+          wrapperRunnerPath,
+        }),
+        0o644,
+      );
+    }
+  }
+
   await writeFileIfChanged(
-    path.join(binDir, "opencode"),
-    getOpenCodeWrapperContent(binDir, opencodeConfigDir),
-    0o755,
+    opencodePluginPath,
+    getOpenCodePluginContent(notifyPath, process.execPath),
+    0o644,
   );
-  await writeFileIfChanged(opencodePluginPath, getOpenCodePluginContent(notifyPath), 0o644);
   await writeFileIfChanged(path.join(zshDotDir, ".zshenv"), getZshEnvShimContent(), 0o644);
   await writeFileIfChanged(
     path.join(zshDotDir, ".zprofile"),
@@ -196,6 +231,52 @@ async function writeFileIfChanged(filePath: string, content: string, mode: numbe
   await writeFile(filePath, content, { mode });
 }
 
+function getAgentWrapperShellScriptContent(
+  agentName: AgentWrapperName,
+  options: {
+    binDir: string;
+    claudeSettingsPath: string;
+    notifyPath: string;
+    opencodeConfigDir: string;
+    wrapperRunnerPath: string;
+  },
+): string {
+  return `#!/bin/sh
+exec ${quoteShellLiteral(process.execPath)} ${quoteShellLiteral(options.wrapperRunnerPath)} --agent ${quoteShellLiteral(agentName)} --bin-dir ${quoteShellLiteral(options.binDir)} --claude-settings-path ${quoteShellLiteral(options.claudeSettingsPath)} --notify-runner-path ${quoteShellLiteral(options.notifyPath)} --opencode-config-dir ${quoteShellLiteral(options.opencodeConfigDir)} -- "$@"
+`;
+}
+
+function getAgentWrapperCmdContent(
+  agentName: AgentWrapperName,
+  options: {
+    binDir: string;
+    claudeSettingsPath: string;
+    notifyPath: string;
+    opencodeConfigDir: string;
+    wrapperRunnerPath: string;
+  },
+): string {
+  return `@echo off
+setlocal
+"${process.execPath}" "${options.wrapperRunnerPath}" --agent ${agentName} --bin-dir "${options.binDir}" --claude-settings-path "${options.claudeSettingsPath}" --notify-runner-path "${options.notifyPath}" --opencode-config-dir "${options.opencodeConfigDir}" -- %*
+`;
+}
+
+function getClaudeNotifyCommandContent(notifyPath: string): string {
+  if (process.platform === "win32") {
+    return `@echo off
+setlocal
+set VSMUX_AGENT=claude
+"${process.execPath}" "${notifyPath}" %*
+`;
+  }
+
+  return `#!/bin/sh
+export VSMUX_AGENT=claude
+exec ${quoteShellLiteral(process.execPath)} ${quoteShellLiteral(notifyPath)} "$@"
+`;
+}
+
 function parseAgentControlEvent(controlBody: string): AgentLifecycleEvent | undefined {
   const controlParts = controlBody.split(";");
   if (
@@ -232,15 +313,6 @@ function normalizeLifecycleEventType(
   }
 }
 
-function toLifecycleStateStatus(eventType: AgentLifecycleEventType): AgentLifecycleStateStatus {
-  switch (eventType) {
-    case "start":
-      return "working";
-    case "stop":
-      return "attention";
-  }
-}
-
 function findOscTerminator(
   data: string,
   startIndex: number,
@@ -271,81 +343,6 @@ function quoteShellLiteral(value: string): string {
 
 function matchesLogPattern(line: string, patterns: readonly (readonly string[])[]): boolean {
   return patterns.some((pattern) => pattern.every((fragment) => line.includes(fragment)));
-}
-
-function createShellLogMatchExpression(
-  lineVariableName: string,
-  patterns: readonly (readonly string[])[],
-): string {
-  return patterns
-    .map((pattern) =>
-      pattern
-        .map(
-          (fragment) =>
-            `printf '%s\\n' "$${lineVariableName}" | grep -F -- ${quoteShellLiteral(fragment)} >/dev/null`,
-        )
-        .join(" && "),
-    )
-    .map((patternExpression) => `( ${patternExpression} )`)
-    .join(" || ");
-}
-
-function getNotifyScriptContent(): string {
-  const workingState = toLifecycleStateStatus("start");
-  const attentionState = toLifecycleStateStatus("stop");
-
-  return `#!/bin/sh
-INPUT=""
-if [ -n "$1" ]; then
-  INPUT="$1"
-else
-  INPUT=$(cat)
-fi
-
-EVENT_TYPE=$(printf '%s' "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-if [ -z "$EVENT_TYPE" ]; then
-  RAW_TYPE=$(printf '%s' "$INPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-  if [ "$RAW_TYPE" = "agent-turn-complete" ] || [ "$RAW_TYPE" = "task_complete" ]; then
-    EVENT_TYPE="Stop"
-  fi
-fi
-
-case "$EVENT_TYPE" in
-  Start|start)
-    NORMALIZED_EVENT="start"
-    ;;
-  Stop|stop)
-    NORMALIZED_EVENT="stop"
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-
-  AGENT_NAME=$(printf '%s' "$INPUT" | grep -oE '"agent"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-if [ -z "$AGENT_NAME" ]; then
-  AGENT_NAME="\${VSMUX_AGENT:-unknown}"
-fi
-
-STATE_FILE="\${VSMUX_SESSION_STATE_FILE:-}"
-if [ -n "$STATE_FILE" ]; then
-  STATE_DIR=$(dirname "$STATE_FILE")
-  mkdir -p "$STATE_DIR" >/dev/null 2>&1 || true
-  STATE_TMP="$STATE_FILE.tmp.$$"
-  STATE_STATUS="${workingState}"
-  STATE_TITLE=""
-  if [ "$NORMALIZED_EVENT" = "stop" ]; then
-    STATE_STATUS="${attentionState}"
-  fi
-  if [ -r "$STATE_FILE" ]; then
-    STATE_TITLE=$(grep -E '^title=' "$STATE_FILE" | head -n 1 | cut -d= -f2-)
-  fi
-  printf 'status=%s\nagent=%s\ntitle=%s\n' "$STATE_STATUS" "$AGENT_NAME" "$STATE_TITLE" >"$STATE_TMP"
-  mv "$STATE_TMP" "$STATE_FILE" >/dev/null 2>&1 || true
-fi
-
-printf '\\033]${AGENT_CONTROL_COMMAND};${AGENT_CONTROL_NAMESPACE};%s;%s\\007' "$NORMALIZED_EVENT" "$AGENT_NAME"
-`;
 }
 
 function getZshEnvShimContent(): string {
@@ -469,8 +466,11 @@ opencode() {
 `;
 }
 
-export function getClaudeHookSettingsContent(notifyPath: string): string {
-  const quotedNotifyPath = quoteShellLiteral(notifyPath);
+export function getClaudeHookSettingsContent(
+  notifyPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const command = platform === "win32" ? `"${notifyPath}"` : quoteShellLiteral(notifyPath);
 
   return `${JSON.stringify(
     {
@@ -480,7 +480,7 @@ export function getClaudeHookSettingsContent(notifyPath: string): string {
             hooks: [
               {
                 type: "command",
-                command: `VSMUX_AGENT=claude sh ${quotedNotifyPath}`,
+                command,
               },
             ],
           },
@@ -490,7 +490,7 @@ export function getClaudeHookSettingsContent(notifyPath: string): string {
             hooks: [
               {
                 type: "command",
-                command: `VSMUX_AGENT=claude sh ${quotedNotifyPath}`,
+                command,
               },
             ],
           },
@@ -500,7 +500,7 @@ export function getClaudeHookSettingsContent(notifyPath: string): string {
             hooks: [
               {
                 type: "command",
-                command: `VSMUX_AGENT=claude sh ${quotedNotifyPath}`,
+                command,
               },
             ],
           },
@@ -511,7 +511,7 @@ export function getClaudeHookSettingsContent(notifyPath: string): string {
             hooks: [
               {
                 type: "command",
-                command: `VSMUX_AGENT=claude sh ${quotedNotifyPath}`,
+                command,
               },
             ],
           },
@@ -523,232 +523,18 @@ export function getClaudeHookSettingsContent(notifyPath: string): string {
   )}\n`;
 }
 
-function getClaudeWrapperContent(binDir: string, claudeSettingsPath: string): string {
-  const quotedBinDir = quoteShellLiteral(binDir);
-  const quotedSettingsPath = quoteShellLiteral(claudeSettingsPath);
-
-  return `#!/bin/bash
-# VSmux claude wrapper
-
-find_real_binary() {
-  local name="$1"
-  local IFS=:
-  for dir in $PATH; do
-    [ -z "$dir" ] && continue
-    dir="\${dir%/}"
-    case "$dir" in
-      ${quotedBinDir}) continue ;;
-    esac
-    if [ -x "$dir/$name" ] && [ ! -d "$dir/$name" ]; then
-      printf "%s\\n" "$dir/$name"
-      return 0
-    fi
-  done
-  return 1
-}
-
-REAL_BIN="$(find_real_binary "claude")"
-if [ -z "$REAL_BIN" ]; then
-  echo "VSmux: claude not found in PATH." >&2
-  exit 127
-fi
-
-export VSMUX_AGENT="claude"
-
-if [ -n "$VSMUX_SESSION_STATE_FILE" ]; then
-  _vsmux_tmp_file="$VSMUX_SESSION_STATE_FILE.tmp.$$"
-  printf 'status=idle\\nagent=%s\\ntitle=%s\\n' "$VSMUX_AGENT" "Claude Code" >"$_vsmux_tmp_file"
-  mv "$_vsmux_tmp_file" "$VSMUX_SESSION_STATE_FILE" >/dev/null 2>&1 || true
-fi
-
-exec "$REAL_BIN" --settings ${quotedSettingsPath} "$@"
-`;
-}
-
-function getCodexWrapperContent(binDir: string, notifyPath: string): string {
-  const quotedBinDir = quoteShellLiteral(binDir);
-  const quotedNotifyPath = quoteShellLiteral(notifyPath);
-  const notifyConfigValue = JSON.stringify(["sh", notifyPath]);
-  const codexTaskStartedCheck = createShellLogMatchExpression(
-    "_vsmux_line",
-    CODEX_START_LOG_PATTERNS,
-  );
-  const codexTaskCompleteCheck = createShellLogMatchExpression(
-    "_vsmux_line",
-    CODEX_STOP_LOG_PATTERNS,
-  );
-
-  return `#!/bin/bash
-# VSmux codex wrapper
-
-find_real_binary() {
-  local name="$1"
-  local IFS=:
-  for dir in $PATH; do
-    [ -z "$dir" ] && continue
-    dir="\${dir%/}"
-    case "$dir" in
-      ${quotedBinDir}) continue ;;
-    esac
-    if [ -x "$dir/$name" ] && [ ! -d "$dir/$name" ]; then
-      printf "%s\\n" "$dir/$name"
-      return 0
-    fi
-  done
-  return 1
-}
-
-REAL_BIN="$(find_real_binary "codex")"
-if [ -z "$REAL_BIN" ]; then
-  echo "VSmux: codex not found in PATH." >&2
-  exit 127
-fi
-
-export VSMUX_AGENT="codex"
-export CODEX_TUI_RECORD_SESSION=1
-
-if [ -z "$CODEX_TUI_SESSION_LOG_PATH" ]; then
-  _vsmux_ts="$(date +%s 2>/dev/null || echo "$$")"
-  export CODEX_TUI_SESSION_LOG_PATH="\${TMPDIR:-/tmp}/VSmux-codex-$$_\${_vsmux_ts}.jsonl"
-fi
-
-_vsmux_write_title() {
-  _vsmux_state_file="\${VSMUX_SESSION_STATE_FILE:-}"
-  _vsmux_title="$1"
-  _vsmux_status="idle"
-  _vsmux_agent="\${VSMUX_AGENT:-}"
-
-  [ -n "$_vsmux_state_file" ] || return 0
-
-  if [ -r "$_vsmux_state_file" ]; then
-    while IFS='=' read -r _vsmux_key _vsmux_value; do
-      case "$_vsmux_key" in
-        status) _vsmux_status="$_vsmux_value" ;;
-        agent) _vsmux_agent="$_vsmux_value" ;;
-      esac
-    done < "$_vsmux_state_file"
-  fi
-
-  _vsmux_tmp_file="$_vsmux_state_file.tmp.$$"
-  printf 'status=%s\nagent=%s\ntitle=%s\n' "$_vsmux_status" "$_vsmux_agent" "$_vsmux_title" >"$_vsmux_tmp_file"
-  mv "$_vsmux_tmp_file" "$_vsmux_state_file" >/dev/null 2>&1 || true
-}
-
-_vsmux_write_title "Codex"
-
-if [ -f ${quotedNotifyPath} ]; then
-  (
-    _vsmux_log="$CODEX_TUI_SESSION_LOG_PATH"
-    _vsmux_notify=${quotedNotifyPath}
-    _vsmux_last_turn_id=""
-    _vsmux_last_completed_turn_id=""
-
-    _vsmux_emit_event() {
-      _vsmux_event="$1"
-      _vsmux_payload=$(printf '{"hook_event_name":"%s","agent":"codex"}' "$_vsmux_event")
-      sh "$_vsmux_notify" "$_vsmux_payload" || true
-    }
-
-    _vsmux_i=0
-    while [ ! -f "$_vsmux_log" ] && [ "$_vsmux_i" -lt 200 ]; do
-      _vsmux_i=$((_vsmux_i + 1))
-      sleep 0.05
-    done
-
-    if [ ! -f "$_vsmux_log" ]; then
-      exit 0
-    fi
-
-    tail -n +1 -F "$_vsmux_log" 2>/dev/null | while IFS= read -r _vsmux_line; do
-      if ${codexTaskStartedCheck}; then
-        _vsmux_turn_id=$(printf '%s\\n' "$_vsmux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
-        [ -n "$_vsmux_turn_id" ] || _vsmux_turn_id="task_started"
-        if [ "$_vsmux_turn_id" != "$_vsmux_last_turn_id" ]; then
-          _vsmux_last_turn_id="$_vsmux_turn_id"
-          _vsmux_emit_event "Start"
-        fi
-        continue
-      fi
-
-      if ${codexTaskCompleteCheck}; then
-        _vsmux_completed_turn_id=$(printf '%s\\n' "$_vsmux_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')
-        [ -n "$_vsmux_completed_turn_id" ] || _vsmux_completed_turn_id="task_complete"
-        if [ "$_vsmux_completed_turn_id" != "$_vsmux_last_completed_turn_id" ]; then
-          _vsmux_last_completed_turn_id="$_vsmux_completed_turn_id"
-          _vsmux_emit_event "Stop"
-        fi
-      fi
-    done
-  ) &
-  VSMUX_CODEX_WATCHER_PID=$!
-fi
-
-"$REAL_BIN" -c 'notify=${notifyConfigValue}' "$@"
-VSMUX_CODEX_STATUS=$?
-
-if [ -n "$VSMUX_CODEX_WATCHER_PID" ]; then
-  kill "$VSMUX_CODEX_WATCHER_PID" >/dev/null 2>&1 || true
-  wait "$VSMUX_CODEX_WATCHER_PID" 2>/dev/null || true
-fi
-
-exit "$VSMUX_CODEX_STATUS"
-`;
-}
-
-function getOpenCodeWrapperContent(binDir: string, opencodeConfigDir: string): string {
-  const quotedBinDir = quoteShellLiteral(binDir);
-  const quotedConfigDir = quoteShellLiteral(opencodeConfigDir);
-
-  return `#!/bin/bash
-# VSmux opencode wrapper
-
-find_real_binary() {
-  local name="$1"
-  local IFS=:
-  for dir in $PATH; do
-    [ -z "$dir" ] && continue
-    dir="\${dir%/}"
-    case "$dir" in
-      ${quotedBinDir}) continue ;;
-    esac
-    if [ -x "$dir/$name" ] && [ ! -d "$dir/$name" ]; then
-      printf "%s\\n" "$dir/$name"
-      return 0
-    fi
-  done
-  return 1
-}
-
-REAL_BIN="$(find_real_binary "opencode")"
-if [ -z "$REAL_BIN" ]; then
-  echo "VSmux: opencode not found in PATH." >&2
-  exit 127
-fi
-
-export VSMUX_AGENT="opencode"
-export OPENCODE_CONFIG_DIR=${quotedConfigDir}
-
-if [ -n "$VSMUX_SESSION_STATE_FILE" ]; then
-  _vsmux_tmp_file="$VSMUX_SESSION_STATE_FILE.tmp.$$"
-  printf 'status=idle\nagent=%s\ntitle=%s\n' "$VSMUX_AGENT" "OpenCode" >"$_vsmux_tmp_file"
-  mv "$_vsmux_tmp_file" "$VSMUX_SESSION_STATE_FILE" >/dev/null 2>&1 || true
-fi
-
-exec "$REAL_BIN" "$@"
-`;
-}
-
-function getOpenCodePluginContent(notifyPath: string): string {
+function getOpenCodePluginContent(notifyPath: string, nodePath: string): string {
   return `/**
  * VSmux notification plugin for OpenCode.
  */
-export const VSmuxNotifyPlugin = async ({ $, client }) => {
+export const VSmuxNotifyPlugin = async ({ client }) => {
   if (globalThis.__vsmuxNotifyPluginV1) return {};
   globalThis.__vsmuxNotifyPluginV1 = true;
 
   if (!process?.env?.VSMUX_SESSION_ID) return {};
 
   const notifyPath = ${JSON.stringify(notifyPath)};
+  const nodePath = ${JSON.stringify(nodePath)};
   let currentState = "idle";
   let rootSessionId = null;
   let stopSent = false;
@@ -761,7 +547,18 @@ export const VSmuxNotifyPlugin = async ({ $, client }) => {
     });
 
     try {
-      await $\`sh \${notifyPath} \${payload}\`;
+      const { spawn } = await import("node:child_process");
+      await new Promise((resolve) => {
+        const child = spawn(nodePath, [notifyPath, payload], {
+          env: {
+            ...process.env,
+            VSMUX_AGENT: "opencode",
+          },
+          stdio: "ignore",
+        });
+        child.once("error", () => resolve(undefined));
+        child.once("exit", () => resolve(undefined));
+      });
     } catch {
       // best effort only
     }

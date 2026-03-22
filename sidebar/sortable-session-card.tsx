@@ -16,7 +16,6 @@ import type { WebviewApi } from "./webview-api";
 const CONTEXT_MENU_HEIGHT_PX = 90;
 const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 156;
-const SINGLE_CLICK_FOCUS_DELAY_MS = 275;
 
 type ContextMenuPosition = {
   x: number;
@@ -58,7 +57,6 @@ export function SortableSessionCard({
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>();
   const menuRef = useRef<HTMLDivElement>(null);
   const aliasHeadingRef = useRef<HTMLDivElement>(null);
-  const pendingFocusTimeoutIdRef = useRef<number>();
   const sortable = useSortable({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
@@ -72,16 +70,6 @@ export function SortableSessionCard({
   useEffect(() => {
     setContextMenuPosition(undefined);
   }, [session.alias, session.sessionId]);
-
-  useEffect(() => {
-    return () => {
-      if (pendingFocusTimeoutIdRef.current === undefined) {
-        return;
-      }
-
-      window.clearTimeout(pendingFocusTimeoutIdRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (!contextMenuPosition) {
@@ -151,26 +139,6 @@ export function SortableSessionCard({
     });
   };
 
-  const clearPendingFocus = () => {
-    if (pendingFocusTimeoutIdRef.current === undefined) {
-      return;
-    }
-
-    window.clearTimeout(pendingFocusTimeoutIdRef.current);
-    pendingFocusTimeoutIdRef.current = undefined;
-  };
-
-  const scheduleFocus = () => {
-    clearPendingFocus();
-    pendingFocusTimeoutIdRef.current = window.setTimeout(() => {
-      pendingFocusTimeoutIdRef.current = undefined;
-      vscode.postMessage({
-        sessionId: session.sessionId,
-        type: "focusSession",
-      });
-    }, SINGLE_CLICK_FOCUS_DELAY_MS);
-  };
-
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
@@ -223,20 +191,15 @@ export function SortableSessionCard({
             event.stopPropagation();
 
             if (event.metaKey) {
-              clearPendingFocus();
               event.preventDefault();
               requestClose();
               return;
             }
 
-            if (event.detail === 2) {
-              clearPendingFocus();
-              event.preventDefault();
-              requestRename();
-              return;
-            }
-
-            scheduleFocus();
+            vscode.postMessage({
+              sessionId: session.sessionId,
+              type: "focusSession",
+            });
           }}
           onContextMenu={(event: ReactMouseEvent<HTMLElement>) => {
             event.preventDefault();
@@ -251,6 +214,7 @@ export function SortableSessionCard({
           <SessionCardContent
             aliasHeadingRef={aliasHeadingRef}
             onClose={requestClose}
+            onRename={requestRename}
             session={session}
             showDebugSessionNumbers={showDebugSessionNumbers}
             showCloseButton={showCloseButton}

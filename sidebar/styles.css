@@ -555,6 +555,26 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   white-space: nowrap;
 }
 
+.command-button-kind-badge {
+  align-items: center;
+  background: color-mix(in srgb, var(--app-button-background) 18%, var(--app-card-active) 82%);
+  border: 1px solid color-mix(in srgb, var(--app-button-background) 34%, var(--app-border));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--app-foreground) 88%, var(--app-muted) 12%);
+  display: inline-flex;
+  flex: none;
+  height: 20px;
+  justify-content: center;
+  padding: 0;
+  width: 20px;
+}
+
+.command-button-kind-icon {
+  display: block;
+  height: 12px;
+  width: 12px;
+}
+
 .session-groups-panel {
   display: grid;
   gap: 10px;
@@ -635,6 +655,7 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   cursor: pointer;
   display: grid;
   gap: 10px;
+  overflow: visible;
   padding: 12px;
   transition:
     border-color 140ms ease,
@@ -662,6 +683,8 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 
 .group-head {
   min-width: 0;
+  position: relative;
+  z-index: 4;
 }
 
 .group-title-wrap {
@@ -733,6 +756,55 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   outline: none;
 }
 
+.group-layout-controls {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.group-control-anchor {
+  position: relative;
+}
+
+.group-control-button {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.group-control-button[data-open="true"] {
+  background: color-mix(in srgb, var(--app-button-background) 12%, var(--app-card-active) 88%);
+  border-color: color-mix(in srgb, var(--app-button-background) 54%, var(--app-border));
+  color: var(--app-button-background);
+}
+
+.group-control-menu {
+  min-width: 156px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+}
+
+.group-control-count-menu {
+  min-width: 72px;
+}
+
+.group-control-menu-item {
+  align-items: center;
+  gap: 8px;
+}
+
+.group-control-count-menu .group-control-menu-item {
+  justify-content: center;
+}
+
+.group-control-menu-item[data-selected="true"] {
+  background: color-mix(in srgb, var(--app-button-background) 20%, transparent);
+  color: color-mix(in srgb, var(--app-button-background) 78%, var(--app-foreground) 22%);
+}
+
 .group-add-icon {
   display: block;
   flex: none;
@@ -791,6 +863,7 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   font-size: 14px;
   font-weight: 700;
   opacity: 0.92;
+  transform: translateY(1px);
 }
 
 .group-title-input {
@@ -1284,6 +1357,7 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   mask-position: center;
   mask-repeat: no-repeat;
   mask-size: contain;
+  transition: opacity 120ms ease;
 }
 
 .session-agent-watermark[data-agent-icon="codex"] {
@@ -1397,10 +1471,6 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   z-index: 1;
 }
 
-.session[data-has-agent-icon="true"] .session-head-actions {
-  padding-right: 22px;
-}
-
 .session-meta {
   color: var(--app-muted);
   font-size: 11px;
@@ -1442,6 +1512,12 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 .session:hover .session-meta[data-visible="false"],
 .session:focus-visible .session-meta[data-visible="false"] {
   opacity: 1;
+}
+
+.session:hover .session-agent-watermark,
+.session:focus-visible .session-agent-watermark,
+.session:focus-within .session-agent-watermark {
+  opacity: 0;
 }
 
 .session-context-menu {
@@ -1547,6 +1623,38 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 .session:focus-within .close-button {
   opacity: 1;
   pointer-events: auto;
+}
+
+.session-rename-button {
+  width: 18px;
+  height: 18px;
+  margin-right: -2px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--app-muted);
+  flex: none;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.session:hover .session-rename-button,
+.session:focus-visible .session-rename-button,
+.session:focus-within .session-rename-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-rename-button:hover {
+  background: color-mix(in srgb, var(--app-button-background) 18%, transparent);
+  color: var(--app-foreground);
 }
 
 .close-button:hover {

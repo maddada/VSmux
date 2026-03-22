@@ -13,6 +13,7 @@ Local patch overlay:
 - `forks/t3code-embed/overlay/apps/web/src/store.ts`
 - `forks/t3code-embed/overlay/apps/web/src/wsTransport.ts`
 - `forks/t3code-embed/overlay/apps/web/src/hooks/useMediaQuery.ts`
+- `forks/t3code-embed/overlay/apps/web/src/components/ChatView.tsx`
 - `forks/t3code-embed/overlay/apps/web/src/vsmuxEmbed.ts`
 
 Patch intent:
@@ -41,11 +42,11 @@ Behavior changes:
   - Installs a VS Code webview message bridge.
   - Sends a `vsmuxReady` message back to the extension once the embed runtime is ready.
   - Listens for `focusComposer` messages from VSmux.
-  - Focuses the composer using T3's stable DOM hooks:
-    - preferred selector: `[data-testid="composer-editor"]`
-    - fallback selector: `[contenteditable="true"]`
-    - final fallback: `textarea, input`
-  - When focusing a contenteditable composer, moves the caret to the end so the next keystroke appends to the current prompt.
+  - Dispatches a custom browser event into the T3 app instead of focusing DOM nodes directly.
+- `components/ChatView.tsx`
+  - Listens for the VSmux custom focus event in embed mode.
+  - Routes that event through T3's own `focusComposer()` callback, which already calls `composerEditorRef.current?.focusAtEnd()`.
+  - This avoids the earlier VSmux-side DOM scraping path and keeps composer focus logic inside T3's own editor flow.
 
 Extension-side dependency on these patches:
 
@@ -61,14 +62,15 @@ Reapply checklist when updating upstream T3:
 2. Reapply hash-history boot and bridge installation in `main.tsx`.
 3. Reapply forced-mobile behavior in `hooks/useMediaQuery.ts`.
 4. Reapply backend origin overrides in `store.ts` and `wsTransport.ts`.
-5. Verify the composer selector still exists:
-   - first check `[data-testid="composer-editor"]`
-   - if upstream changed it, update the fallback selector in `vsmuxEmbed.ts`
+5. Reapply the embed focus bridge:
+   - keep the `vsmuxEmbed.ts` custom event dispatch
+   - keep the `components/ChatView.tsx` listener that routes the event through `focusComposer()`
 6. Rebuild with `node ./scripts/build-t3-embed.mjs`.
 7. Manually verify:
    - T3 opens directly into the injected thread
    - the sidebar uses mobile behavior at wide widths
    - clicking a T3 session in VSmux focuses the composer without reloading the panel
+   - focusing a visible T3 session does not jump because of direct DOM composer targeting
 
 Rebuild flow:
 

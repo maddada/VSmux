@@ -568,6 +568,18 @@ function normalizeSessionRecord(session: SessionRecord): SessionRecord {
     };
   }
 
+  if (session.kind === "browser" && typeof session.browser.url === "string") {
+    return {
+      ...session,
+      alias,
+      browser: {
+        url: session.browser.url,
+      },
+      kind: "browser",
+      title,
+    };
+  }
+
   return {
     ...session,
     alias,

@@ -91,7 +91,7 @@ describe("getClaudeHookSettingsContent", () => {
       {
         hooks: [
           {
-            command: "VSMUX_AGENT=claude sh '/tmp/vsmux-notify.sh'",
+            command: "'/tmp/vsmux-notify.sh'",
             type: "command",
           },
         ],
@@ -101,7 +101,7 @@ describe("getClaudeHookSettingsContent", () => {
       {
         hooks: [
           {
-            command: "VSMUX_AGENT=claude sh '/tmp/vsmux-notify.sh'",
+            command: "'/tmp/vsmux-notify.sh'",
             type: "command",
           },
         ],
@@ -111,7 +111,7 @@ describe("getClaudeHookSettingsContent", () => {
       {
         hooks: [
           {
-            command: "VSMUX_AGENT=claude sh '/tmp/vsmux-notify.sh'",
+            command: "'/tmp/vsmux-notify.sh'",
             type: "command",
           },
         ],
@@ -121,11 +121,33 @@ describe("getClaudeHookSettingsContent", () => {
       {
         hooks: [
           {
-            command: "VSMUX_AGENT=claude sh '/tmp/vsmux-notify.sh'",
+            command: "'/tmp/vsmux-notify.sh'",
             type: "command",
           },
         ],
         matcher: "permission_prompt|idle_prompt",
+      },
+    ]);
+  });
+
+  test("should emit a Windows-safe command when requested", () => {
+    const settings = JSON.parse(
+      getClaudeHookSettingsContent("C:\\temp\\vsmux-notify.cmd", "win32"),
+    ) as {
+      hooks: Record<
+        string,
+        Array<{ hooks: Array<{ command: string; type: string }>; matcher?: string }>
+      >;
+    };
+
+    expect(settings.hooks.UserPromptSubmit).toEqual([
+      {
+        hooks: [
+          {
+            command: '"C:\\temp\\vsmux-notify.cmd"',
+            type: "command",
+          },
+        ],
       },
     ]);
   });
