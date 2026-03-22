@@ -200,6 +200,9 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
     case "closeSession":
       return typeof message.sessionId === "string" && message.sessionId.length > 0;
 
+    case "restorePreviousSession":
+      return typeof message.historyId === "string" && message.historyId.length > 0;
+
     case "renameSession":
       return (
         typeof message.sessionId === "string" &&

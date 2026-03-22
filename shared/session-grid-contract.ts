@@ -134,6 +134,12 @@ export type SidebarSessionItem = {
   detail?: string;
 };
 
+export type SidebarPreviousSessionItem = SidebarSessionItem & {
+  closedAt: string;
+  historyId: string;
+  isRestorable: boolean;
+};
+
 export type SidebarSessionGroup = {
   groupId: string;
   isActive: boolean;
@@ -164,12 +170,14 @@ export type SidebarHudState = {
 
 export type SidebarHydrateMessage = {
   groups: SidebarSessionGroup[];
+  previousSessions: SidebarPreviousSessionItem[];
   type: "hydrate";
   hud: SidebarHudState;
 };
 
 export type SidebarSessionStateMessage = {
   groups: SidebarSessionGroup[];
+  previousSessions: SidebarPreviousSessionItem[];
   type: "sessionState";
   hud: SidebarHudState;
 };
@@ -241,6 +249,10 @@ export type SidebarToExtensionMessage =
   | {
       type: "closeSession";
       sessionId: string;
+    }
+  | {
+      historyId: string;
+      type: "restorePreviousSession";
     }
   | {
       type: "moveSessionToGroup";

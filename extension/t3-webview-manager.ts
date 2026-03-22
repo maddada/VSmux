@@ -15,6 +15,7 @@ type T3WebviewManagerOptions = {
 
 type ManagedPanel = {
   panel: vscode.WebviewPanel;
+  renderKey: string;
   sessionId: string;
 };
 
@@ -96,13 +97,23 @@ export class T3WebviewManager implements vscode.Disposable {
 
     const managedPanel = this.panelsBySessionId.get(sessionRecord.sessionId);
     const viewColumn = getViewColumn(visibleIndex);
+    const nextRenderKey = getRenderKey(sessionRecord);
     if (managedPanel) {
       managedPanel.panel.title = getPanelTitle(sessionRecord);
-      managedPanel.panel.webview.html = await this.createPanelHtml(
-        managedPanel.panel.webview,
-        sessionRecord,
-      );
-      managedPanel.panel.reveal(viewColumn, preserveFocus);
+      if (managedPanel.renderKey !== nextRenderKey) {
+        managedPanel.panel.webview.html = await this.createPanelHtml(
+          managedPanel.panel.webview,
+          sessionRecord,
+        );
+        managedPanel.renderKey = nextRenderKey;
+      }
+      if (
+        !preserveFocus ||
+        managedPanel.panel.viewColumn !== viewColumn ||
+        !managedPanel.panel.visible
+      ) {
+        managedPanel.panel.reveal(viewColumn, preserveFocus);
+      }
       return;
     }
 
@@ -121,6 +132,7 @@ export class T3WebviewManager implements vscode.Disposable {
     );
     const nextManagedPanel = {
       panel,
+      renderKey: nextRenderKey,
       sessionId: sessionRecord.sessionId,
     } satisfies ManagedPanel;
     this.panelsBySessionId.set(sessionRecord.sessionId, nextManagedPanel);
@@ -194,6 +206,16 @@ function getEmbeddedT3Root(context: vscode.ExtensionContext): vscode.Uri {
 
 function getPanelTitle(sessionRecord: T3SessionRecord): string {
   return `T3 Code: ${sessionRecord.alias}`;
+}
+
+function getRenderKey(sessionRecord: T3SessionRecord): string {
+  return [
+    sessionRecord.alias,
+    sessionRecord.t3.projectId,
+    sessionRecord.t3.serverOrigin,
+    sessionRecord.t3.threadId,
+    sessionRecord.t3.workspaceRoot,
+  ].join("|");
 }
 
 function toWebSocketOrigin(serverOrigin: string): string {

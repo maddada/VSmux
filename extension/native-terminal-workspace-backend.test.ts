@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { createSessionRecord } from "../shared/session-grid-contract";
 
 const testState = vi.hoisted(() => ({
   activeTerminal: undefined as unknown,
@@ -192,6 +193,37 @@ describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
       type: "editor",
       visibleIndex: 1,
     });
+  });
+
+  test("should skip creating terminal projections for T3 sessions", async () => {
+    const backend = new NativeTerminalWorkspaceBackend({
+      context: {
+        globalStorageUri: {
+          fsPath: "/extension-storage",
+        },
+      } as never,
+      ensureShellSpawnAllowed: async () => true,
+      workspaceId: "workspace-1",
+    });
+    const createProjectionSpy = vi
+      .spyOn(backend as never, "createProjection")
+      .mockResolvedValue(undefined as never);
+    const terminalSession = createSessionRecord(1, 0);
+    const t3Session = createSessionRecord(2, 1, {
+      kind: "t3",
+      t3: {
+        projectId: "project-1",
+        serverOrigin: "http://127.0.0.1:3773",
+        threadId: "thread-1",
+        workspaceRoot: "/workspace",
+      },
+      title: "T3 Code",
+    });
+
+    await (backend as any).ensureParkedProjections([terminalSession, t3Session]);
+
+    expect(createProjectionSpy).toHaveBeenCalledTimes(1);
+    expect(createProjectionSpy).toHaveBeenCalledWith(terminalSession, "panel");
   });
 
   test("should temporarily unlock a locked destination group before moving a panel terminal into it", async () => {

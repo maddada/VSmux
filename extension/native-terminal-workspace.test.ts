@@ -77,6 +77,7 @@ const testState = vi.hoisted(() => ({
     ensureRunning: ReturnType<typeof vi.fn>;
     getServerOrigin: ReturnType<typeof vi.fn>;
     getWebSocketUrl: ReturnType<typeof vi.fn>;
+    setLeaseActive: ReturnType<typeof vi.fn>;
   }>,
   t3Runtime: undefined as
     | {
@@ -85,6 +86,25 @@ const testState = vi.hoisted(() => ({
         ensureRunning: ReturnType<typeof vi.fn>;
         getServerOrigin: ReturnType<typeof vi.fn>;
         getWebSocketUrl: ReturnType<typeof vi.fn>;
+        setLeaseActive: ReturnType<typeof vi.fn>;
+      }
+    | undefined,
+  t3ActivityMonitorInstances: [] as Array<{
+    acknowledgeThread: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+    getThreadActivity: ReturnType<typeof vi.fn>;
+    onDidChange: ReturnType<typeof vi.fn>;
+    refreshSnapshot: ReturnType<typeof vi.fn>;
+    setEnabled: ReturnType<typeof vi.fn>;
+  }>,
+  t3ActivityMonitor: undefined as
+    | {
+        acknowledgeThread: ReturnType<typeof vi.fn>;
+        dispose: ReturnType<typeof vi.fn>;
+        getThreadActivity: ReturnType<typeof vi.fn>;
+        onDidChange: ReturnType<typeof vi.fn>;
+        refreshSnapshot: ReturnType<typeof vi.fn>;
+        setEnabled: ReturnType<typeof vi.fn>;
       }
     | undefined,
   t3WebviewManagers: [] as Array<{
@@ -244,9 +264,27 @@ vi.mock("./t3-runtime-manager", () => ({
         ensureRunning: vi.fn(async () => "http://127.0.0.1:3773"),
         getServerOrigin: vi.fn(() => "http://127.0.0.1:3773"),
         getWebSocketUrl: vi.fn(() => "ws://127.0.0.1:3773"),
+        setLeaseActive: vi.fn(async () => {}),
       };
       testState.t3RuntimeInstances.push(testState.t3Runtime);
       return testState.t3Runtime;
+    }
+  },
+}));
+
+vi.mock("./t3-activity-monitor", () => ({
+  T3ActivityMonitor: class T3ActivityMonitor {
+    public constructor() {
+      testState.t3ActivityMonitor = {
+        acknowledgeThread: vi.fn(() => false),
+        dispose: vi.fn(),
+        getThreadActivity: vi.fn(() => undefined),
+        onDidChange: vi.fn(() => ({ dispose: vi.fn() })),
+        refreshSnapshot: vi.fn(async () => {}),
+        setEnabled: vi.fn(async () => {}),
+      };
+      testState.t3ActivityMonitorInstances.push(testState.t3ActivityMonitor);
+      return testState.t3ActivityMonitor;
     }
   },
 }));
@@ -273,6 +311,7 @@ import {
   createDefaultSessionGridSnapshot,
   createSessionRecord,
 } from "../shared/session-grid-contract";
+import type { PreviousSessionHistoryEntry } from "./previous-session-history";
 import { getWorkspaceId, getWorkspaceStorageKey } from "./terminal-workspace-helpers";
 import { NativeTerminalWorkspaceController } from "./native-terminal-workspace";
 
@@ -313,6 +352,8 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     testState.sidebarPostMessage.mockResolvedValue(undefined);
     testState.t3RuntimeInstances.length = 0;
     testState.t3Runtime = undefined;
+    testState.t3ActivityMonitorInstances.length = 0;
+    testState.t3ActivityMonitor = undefined;
     testState.t3WebviewManagers.length = 0;
     testState.t3WebviewManager = undefined;
   });
@@ -761,6 +802,123 @@ describe("NativeTerminalWorkspaceController rename session", () => {
       }),
       expect.any(Object),
       false,
+    );
+  });
+
+  test("should surface T3 sidebar activity from the T3 activity monitor", async () => {
+    const session = createSessionRecord(3, 0, {
+      kind: "t3",
+      t3: {
+        projectId: "project-1",
+        serverOrigin: "http://127.0.0.1:3773",
+        threadId: "thread-1",
+        workspaceRoot: "/workspace",
+      },
+      title: "T3 Code",
+    });
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const controller = new NativeTerminalWorkspaceController(createContext(workspaceSnapshot));
+
+    testState.t3ActivityMonitor?.getThreadActivity.mockReturnValue({
+      activity: "working",
+      isRunning: true,
+    });
+
+    await controller.initialize();
+
+    expect(testState.sidebarPostMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        groups: expect.arrayContaining([
+          expect.objectContaining({
+            sessions: expect.arrayContaining([
+              expect.objectContaining({
+                activity: "working",
+                activityLabel: "T3 active",
+                isRunning: true,
+                sessionId: session.sessionId,
+              }),
+            ]),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  test("should surface closed sessions in previous session history", async () => {
+    vi.setSystemTime(new Date("2026-03-22T08:15:00.000Z"));
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const controller = new NativeTerminalWorkspaceController(createContext(workspaceSnapshot));
+
+    await controller.closeSession(session.sessionId);
+
+    expect(testState.sidebarPostMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        previousSessions: expect.arrayContaining([
+          expect.objectContaining({
+            alias: session.alias,
+            closedAt: "2026-03-22T08:15:00.000Z",
+            isFocused: false,
+            isRunning: false,
+            isVisible: false,
+            sessionId: session.sessionId,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  test("should restore a previous session with its agent-specific resume command", async () => {
+    const archivedSession = createSessionRecord(3, 0);
+    const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
+    const historyEntry: PreviousSessionHistoryEntry = {
+      agentIcon: "codex",
+      agentLaunch: {
+        agentId: "codex",
+        command: "codex",
+      },
+      closedAt: "2026-03-22T08:15:00.000Z",
+      historyId: "history-1",
+      sessionRecord: archivedSession,
+      sidebarItem: {
+        activity: "idle",
+        activityLabel: "Codex session",
+        agentIcon: "codex",
+        alias: archivedSession.alias,
+        column: archivedSession.column,
+        detail: undefined,
+        isFocused: false,
+        isRunning: false,
+        isVisible: false,
+        primaryTitle: archivedSession.title,
+        row: archivedSession.row,
+        sessionId: archivedSession.sessionId,
+        sessionNumber: 3,
+        shortcutLabel: "⌃⌥1",
+        terminalTitle: undefined,
+      },
+    };
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [["VSmux.previousSessionHistory", [historyEntry]]]),
+    );
+
+    await controller.restorePreviousSession("history-1");
+
+    expect(testState.backend?.createOrAttachSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        alias: archivedSession.alias,
+        sessionId: "session-1",
+      }),
+    );
+    expect(testState.backend?.writeText).toHaveBeenCalledWith(
+      "session-1",
+      `codex resume '${archivedSession.alias}'`,
+      true,
+    );
+    expect(testState.sidebarPostMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        previousSessions: [],
+      }),
     );
   });
 });

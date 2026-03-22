@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -27,6 +27,7 @@ run("bun", ["run", "build"], { cwd: vendorWebRoot });
 rmSync(distRoot, { force: true, recursive: true });
 mkdirSync(distRoot, { recursive: true });
 copyTree(vendorWebDistRoot, distRoot);
+pruneEmbedArtifacts(distRoot);
 
 function copyTree(source, destination) {
   cpSync(source, destination, {
@@ -43,5 +44,20 @@ function run(command, args, options) {
 
   if (result.status !== 0) {
     throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+  }
+}
+
+function pruneEmbedArtifacts(root) {
+  for (const entry of readdirSync(root)) {
+    const entryPath = resolve(root, entry);
+    const stats = statSync(entryPath);
+    if (stats.isDirectory()) {
+      pruneEmbedArtifacts(entryPath);
+      continue;
+    }
+
+    if (entry.endsWith(".map") || entry === "mockServiceWorker.js") {
+      rmSync(entryPath, { force: true });
+    }
   }
 }

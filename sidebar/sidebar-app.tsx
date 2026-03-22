@@ -7,6 +7,7 @@ import {
   IconBellOff,
   IconBug,
   IconFocusCentered,
+  IconHistory,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
@@ -25,6 +26,7 @@ import {
   type ExtensionToSidebarMessage,
   type SidebarHydrateMessage,
   type SidebarHudState,
+  type SidebarPreviousSessionItem,
   type SidebarSessionGroup,
   type SidebarSessionItem,
   type SidebarSessionStateMessage,
@@ -36,6 +38,7 @@ import { playCompletionSound } from "./completion-sound-player";
 import { AgentsPanel } from "./agents-panel";
 import { CommandsPanel } from "./commands-panel";
 import { CreateGroupDropTarget } from "./create-group-drop-target";
+import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { getSidebarDropData } from "./sidebar-dnd";
 import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
@@ -48,6 +51,7 @@ export type SidebarAppProps = {
 type SidebarState = {
   groups: SidebarSessionGroup[];
   hud: SidebarHudState;
+  previousSessions: SidebarPreviousSessionItem[];
 };
 
 type SessionIdsByGroup = Record<string, string[]>;
@@ -78,6 +82,7 @@ const INITIAL_STATE: SidebarState = {
     visibleCount: 1,
     visibleSlotLabels: [],
   },
+  previousSessions: [],
 };
 
 const SIDEBAR_EMPTY_SPACE_BLOCKER_SELECTOR = [
@@ -121,6 +126,7 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   const [agentCreateRequestId, setAgentCreateRequestId] = useState(0);
   const [commandCreateRequestId, setCommandCreateRequestId] = useState(0);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
+  const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const pendingCreateGroupRef = useRef(false);
   const floatingControlsRef = useRef<HTMLDivElement>(null);
   const draggedSessionIdRef = useRef<string>();
@@ -143,6 +149,7 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
         return {
           groups: message.groups,
           hud: message.hud,
+          previousSessions: message.previousSessions ?? [],
         };
       });
       setGroupIds(message.groups.map((group) => group.groupId));
@@ -608,7 +615,20 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
           <div className="section-titlebar" data-empty-space-blocking="true">
             <div aria-hidden="true" className="section-titlebar-line" />
             <span className="section-titlebar-label">Sessions</span>
-            <div aria-hidden="true" className="section-titlebar-line" />
+            <div className="section-titlebar-actions">
+              <div aria-hidden="true" className="section-titlebar-line" />
+              <ToolbarIconButton
+                ariaExpanded={isPreviousSessionsOpen}
+                ariaHasPopup="dialog"
+                ariaLabel="Show previous sessions"
+                className="floating-toolbar-button section-titlebar-action-button"
+                isSelected={isPreviousSessionsOpen}
+                onClick={() => setIsPreviousSessionsOpen((previous) => !previous)}
+                tooltip="Previous Sessions"
+              >
+                <IconHistory aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+              </ToolbarIconButton>
+            </div>
           </div>
           <DragDropProvider
             onDragEnd={handleDragEnd}
@@ -643,6 +663,14 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
             </div>
           ) : null}
         </section>
+        <PreviousSessionsModal
+          isOpen={isPreviousSessionsOpen}
+          onClose={() => setIsPreviousSessionsOpen(false)}
+          previousSessions={serverState.previousSessions}
+          showDebugSessionNumbers={serverState.hud.debuggingMode}
+          showHotkeys={serverState.hud.showHotkeysOnSessionCards}
+          vscode={vscode}
+        />
       </div>
     </Tooltip.Provider>
   );
@@ -669,7 +697,7 @@ function isEmptySidebarDoubleClick(
 type ToolbarIconButtonProps = {
   ariaControls?: string;
   ariaExpanded?: boolean;
-  ariaHasPopup?: "menu";
+  ariaHasPopup?: "dialog" | "menu";
   ariaLabel: string;
   children: React.ReactNode;
   className?: string;

@@ -1,5 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { basename } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import type { T3SessionMetadata } from "../shared/session-grid-contract";
@@ -11,6 +12,22 @@ const T3_HOST = "127.0.0.1";
 const T3_PORT = 3773;
 const START_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 30_000;
+const LEASE_HEARTBEAT_MS = 30_000;
+const LEASE_GRACE_MS = 180_000;
+const RUNTIME_STORAGE_DIR_NAME = "t3-runtime";
+const LEASES_DIR_NAME = "leases";
+const SUPERVISOR_STATE_FILE = "supervisor.json";
+const SUPERVISOR_LAUNCH_LOCK_FILE = "supervisor-launch.lock";
+
+type SupervisorState = {
+  childPid?: number;
+  command: string;
+  cwd: string;
+  host: string;
+  pid: number;
+  port: number;
+  startedAt: string;
+};
 
 type T3Snapshot = {
   projects: Array<{
@@ -43,19 +60,21 @@ type PendingRequest = {
 
 export class T3RuntimeManager implements vscode.Disposable {
   private readonly pendingRequests = new Map<string, PendingRequest>();
-  private process: ChildProcessWithoutNullStreams | undefined;
+  private readonly leaseId = randomUUID();
   private socket: WebSocket | undefined;
   private ensureRunningPromise: Promise<string> | undefined;
   private connectPromise: Promise<WebSocket> | undefined;
+  private leaseHeartbeatTimer: NodeJS.Timeout | undefined;
   private output: vscode.OutputChannel | undefined;
+
+  public constructor(private readonly context: vscode.ExtensionContext) {}
 
   public dispose(): void {
     this.ensureRunningPromise = undefined;
     this.connectPromise = undefined;
     this.socket?.close();
     this.socket = undefined;
-    this.process?.kill();
-    this.process = undefined;
+    this.stopLeaseHeartbeat();
     for (const pending of this.pendingRequests.values()) {
       clearTimeout(pending.timeout);
       pending.reject(new Error("T3 runtime disposed."));
@@ -71,6 +90,15 @@ export class T3RuntimeManager implements vscode.Disposable {
 
   public getWebSocketUrl(): string {
     return getT3WebSocketUrl();
+  }
+
+  public async setLeaseActive(active: boolean): Promise<void> {
+    if (active) {
+      await this.startLeaseHeartbeat();
+      return;
+    }
+
+    await this.stopLeaseHeartbeat(true);
   }
 
   public async createThreadSession(
@@ -124,12 +152,18 @@ export class T3RuntimeManager implements vscode.Disposable {
     startupCommand: string,
   ): Promise<string> {
     const origin = getT3Origin();
+    await this.ensureRuntimeStorage();
+    const hasManagedSupervisor = await this.hasActiveManagedSupervisor();
     if (await isOriginResponsive(origin)) {
+      if (hasManagedSupervisor) {
+        await this.startLeaseHeartbeat();
+      }
       return origin;
     }
 
-    if (!this.process || this.process.exitCode !== null) {
-      this.startProcess(workspaceRoot, startupCommand);
+    await this.startLeaseHeartbeat();
+    if (!hasManagedSupervisor) {
+      await this.startSupervisorIfNeeded(workspaceRoot, startupCommand);
     }
 
     const deadline = Date.now() + START_TIMEOUT_MS;
@@ -141,37 +175,6 @@ export class T3RuntimeManager implements vscode.Disposable {
     }
 
     throw new Error("Timed out waiting for T3 Code to start on http://127.0.0.1:3773.");
-  }
-
-  private startProcess(workspaceRoot: string, startupCommand: string): void {
-    const shellPath = getDefaultShell();
-    const shellArgs = getShellCommandArgs(shellPath, startupCommand);
-    this.writeOutputLine(`[start] ${startupCommand}`);
-    this.process = spawn(shellPath, shellArgs, {
-      cwd: workspaceRoot,
-      env: {
-        ...process.env,
-        T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-        T3CODE_HOST: T3_HOST,
-        T3CODE_NO_BROWSER: "true",
-        T3CODE_PORT: String(T3_PORT),
-      },
-      stdio: "pipe",
-    });
-
-    this.process.stdout.on("data", (chunk) => {
-      this.writeOutput(chunk.toString());
-    });
-    this.process.stderr.on("data", (chunk) => {
-      this.writeOutput(chunk.toString());
-    });
-    this.process.once("exit", (code, signal) => {
-      this.writeOutputLine(`[exit] code=${String(code)} signal=${String(signal)}`);
-      this.process = undefined;
-      this.connectPromise = undefined;
-      this.socket?.close();
-      this.socket = undefined;
-    });
   }
 
   private async createProject(workspaceRoot: string): Promise<T3Project> {
@@ -325,12 +328,182 @@ export class T3RuntimeManager implements vscode.Disposable {
     return this.output;
   }
 
-  private writeOutput(value: string): void {
-    this.getOutputChannel()?.append(value);
-  }
-
   private writeOutputLine(value: string): void {
     this.getOutputChannel()?.appendLine(value);
+  }
+
+  private async startSupervisorIfNeeded(
+    workspaceRoot: string,
+    startupCommand: string,
+  ): Promise<void> {
+    if (await this.hasActiveManagedSupervisor()) {
+      return;
+    }
+
+    const releaseLock = await this.acquireSupervisorLaunchLock();
+    if (!releaseLock) {
+      return;
+    }
+
+    try {
+      if (await this.hasActiveManagedSupervisor()) {
+        return;
+      }
+
+      const supervisorScriptPath = join(__dirname, "t3-runtime-supervisor.js");
+      const shellPath = getDefaultShell();
+      const child = spawn(
+        process.execPath,
+        [
+          supervisorScriptPath,
+          "--command",
+          startupCommand,
+          "--cwd",
+          workspaceRoot,
+          "--grace-ms",
+          String(LEASE_GRACE_MS),
+          "--host",
+          T3_HOST,
+          "--lease-dir",
+          this.getLeaseDirectoryPath(),
+          "--port",
+          String(T3_PORT),
+          "--shell-path",
+          shellPath,
+          "--state-file",
+          this.getSupervisorStatePath(),
+        ],
+        {
+          detached: true,
+          stdio: "ignore",
+        },
+      );
+      child.unref();
+      this.writeOutputLine(`[start] ${startupCommand}`);
+    } finally {
+      await releaseLock();
+    }
+  }
+
+  private async startLeaseHeartbeat(): Promise<void> {
+    await this.ensureRuntimeStorage();
+    await this.writeLeaseFile();
+    if (this.leaseHeartbeatTimer) {
+      return;
+    }
+
+    this.leaseHeartbeatTimer = setInterval(() => {
+      void this.writeLeaseFile();
+    }, LEASE_HEARTBEAT_MS);
+    this.leaseHeartbeatTimer.unref?.();
+  }
+
+  private async stopLeaseHeartbeat(removeLeaseFile = false): Promise<void> {
+    if (this.leaseHeartbeatTimer) {
+      clearInterval(this.leaseHeartbeatTimer);
+      this.leaseHeartbeatTimer = undefined;
+    }
+
+    if (!removeLeaseFile) {
+      return;
+    }
+
+    await rm(this.getLeaseFilePath(), { force: true });
+  }
+
+  private async writeLeaseFile(): Promise<void> {
+    await writeFile(
+      this.getLeaseFilePath(),
+      JSON.stringify(
+        {
+          leaseId: this.leaseId,
+          updatedAt: Date.now(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  }
+
+  private async ensureRuntimeStorage(): Promise<void> {
+    await mkdir(this.getLeaseDirectoryPath(), { recursive: true });
+  }
+
+  private getRuntimeStoragePath(): string {
+    return join(this.context.globalStorageUri.fsPath, RUNTIME_STORAGE_DIR_NAME);
+  }
+
+  private getLeaseDirectoryPath(): string {
+    return join(this.getRuntimeStoragePath(), LEASES_DIR_NAME);
+  }
+
+  private getLeaseFilePath(): string {
+    return join(this.getLeaseDirectoryPath(), `${this.leaseId}.json`);
+  }
+
+  private getSupervisorStatePath(): string {
+    return join(this.getRuntimeStoragePath(), SUPERVISOR_STATE_FILE);
+  }
+
+  private getSupervisorLaunchLockPath(): string {
+    return join(this.getRuntimeStoragePath(), SUPERVISOR_LAUNCH_LOCK_FILE);
+  }
+
+  private async hasActiveManagedSupervisor(): Promise<boolean> {
+    const state = await this.readSupervisorState();
+    if (!state) {
+      return false;
+    }
+
+    const alive = isProcessAlive(state.pid);
+    if (alive) {
+      return true;
+    }
+
+    await rm(this.getSupervisorStatePath(), { force: true });
+    return false;
+  }
+
+  private async readSupervisorState(): Promise<SupervisorState | undefined> {
+    try {
+      const raw = await readFile(this.getSupervisorStatePath(), "utf8");
+      return JSON.parse(raw) as SupervisorState;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async acquireSupervisorLaunchLock(): Promise<(() => Promise<void>) | undefined> {
+    await this.ensureRuntimeStorage();
+    const lockPath = this.getSupervisorLaunchLockPath();
+
+    try {
+      await writeFile(
+        lockPath,
+        JSON.stringify({
+          createdAt: Date.now(),
+          leaseId: this.leaseId,
+        }),
+        { encoding: "utf8", flag: "wx" },
+      );
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "EEXIST")) {
+        throw error;
+      }
+
+      const lockStats = await stat(lockPath).catch(() => undefined);
+      if (!lockStats || Date.now() - lockStats.mtimeMs <= START_TIMEOUT_MS) {
+        return undefined;
+      }
+
+      await rm(lockPath, { force: true });
+      return this.acquireSupervisorLaunchLock();
+    }
+
+    return async () => {
+      await rm(lockPath, { force: true });
+    };
   }
 }
 
@@ -360,16 +533,15 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-function getShellCommandArgs(shellPath: string, command: string): string[] {
-  const shellName = basename(shellPath).toLowerCase();
-
-  if (process.platform === "win32") {
-    if (shellName === "cmd.exe" || shellName === "cmd") {
-      return ["/d", "/c", command];
-    }
-
-    return ["-NoLogo", "-NoProfile", "-Command", command];
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
+}
 
-  return ["-l", "-c", command];
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

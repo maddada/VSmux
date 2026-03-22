@@ -508,8 +508,10 @@ button:disabled {
 
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="codex"],
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="opencode"],
+body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="t3"],
 body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="codex"],
-body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"] {
+body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"],
+body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   filter: brightness(0) invert(1);
 }
 
@@ -597,6 +599,22 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
     color-mix(in srgb, #8a8a8a 22%, transparent),
     color-mix(in srgb, #8a8a8a 5%, transparent)
   );
+}
+
+.section-titlebar-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.section-titlebar-actions .section-titlebar-line {
+  min-width: 20px;
+  width: 100%;
+}
+
+.section-titlebar-action-button {
+  flex: none;
 }
 
 .primary,
@@ -902,6 +920,42 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   max-width: min(480px, calc(100vw - 24px));
 }
 
+.previous-sessions-modal {
+  gap: 14px;
+  inset: 12px;
+  left: auto;
+  max-height: calc(100vh - 24px);
+  max-width: none;
+  top: auto;
+  transform: none;
+  width: auto;
+}
+
+.previous-sessions-modal-body {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.previous-sessions-day-group {
+  display: grid;
+  gap: 8px;
+}
+
+.previous-sessions-day-label {
+  color: color-mix(in srgb, var(--app-foreground) 76%, var(--app-muted) 24%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.previous-sessions-empty-state {
+  min-height: 96px;
+}
+
 .command-config-fields {
   display: grid;
   gap: 12px;
@@ -1011,7 +1065,7 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   );
   --session-glow: transparent;
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 1px solid var(--app-border);
   outline: 2px solid transparent;
   outline-offset: -3px;
@@ -1020,7 +1074,6 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   color: inherit;
   text-align: left;
   display: grid;
-  gap: 2px;
   cursor: pointer;
   isolation: isolate;
   overflow: hidden;
@@ -1078,6 +1131,11 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   opacity: 0.5;
 }
 
+.session-history-frame,
+.session-history-frame[data-running="false"] {
+  opacity: 1;
+}
+
 .session[data-visible="true"] {
   --session-surface: linear-gradient(
     160deg,
@@ -1110,6 +1168,14 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
 
 .session:focus-visible {
   outline-color: color-mix(in srgb, var(--app-button-background) 72%, #ffffff 28%);
+}
+
+.session-history-card {
+  cursor: default;
+}
+
+.session-history-card[data-restorable="true"] {
+  cursor: pointer;
 }
 
 .session-status-dot {
@@ -1150,14 +1216,8 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
 .session-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-}
-
-.session-heading {
-  display: grid;
-  gap: 5px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -1178,11 +1238,11 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   position: absolute;
   right: 10px;
   top: 50%;
-  width: 23px;
-  height: 23px;
+  width: 18px;
+  height: 18px;
   translate: 0 -50%;
-  background: color-mix(in srgb, var(--app-button-background) 54%, var(--app-foreground) 46%);
-  opacity: 0.16;
+  background: var(--session-agent-watermark-color, var(--app-foreground));
+  opacity: 0.7;
   pointer-events: none;
   z-index: 0;
   -webkit-mask-image: var(--session-agent-logo);
@@ -1195,8 +1255,29 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   mask-size: contain;
 }
 
-.session-head,
-.session-footer {
+.session-agent-watermark[data-agent-icon="codex"] {
+  --session-agent-watermark-color: #ffffff;
+}
+
+.session-agent-watermark[data-agent-icon="t3"] {
+  --session-agent-watermark-color: #ffa6fb;
+  width: 22px;
+  height: 22px;
+}
+
+.session-agent-watermark[data-agent-icon="claude"] {
+  --session-agent-watermark-color: #d97757;
+}
+
+.session-agent-watermark[data-agent-icon="gemini"] {
+  --session-agent-watermark-color: #8b9aff;
+}
+
+.session-agent-watermark[data-agent-icon="opencode"] {
+  --session-agent-watermark-color: #6d96c0;
+}
+
+.session-head {
   position: relative;
   z-index: 1;
 }
@@ -1232,14 +1313,6 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.session-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
 }
 
 .session-activity-badge {
@@ -1284,19 +1357,26 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   color: color-mix(in srgb, var(--attention-secondary) 86%, var(--app-foreground) 14%);
 }
 
-.session-meta,
-.session-detail,
-.session-secondary {
+.session-head-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.session[data-has-agent-icon="true"] .session-head-actions {
+  padding-right: 22px;
+}
+
+.session-meta {
   color: var(--app-muted);
   font-size: 11px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.session-secondary {
-  min-width: 0;
 }
 
 .session-meta {
@@ -1415,14 +1495,15 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
 }
 
 .close-button {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--app-muted);
   flex: none;
+  line-height: 1;
   opacity: 0;
   pointer-events: none;
   transition:
@@ -1474,7 +1555,8 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"]
   background: var(--app-tooltip-background);
   color: var(--app-tooltip-foreground);
   font-size: 14px;
-  line-height: 1;
+  line-height: 1.3;
+  white-space: pre-line;
   box-shadow: 0 10px 24px color-mix(in srgb, black 22%, transparent);
 }
 

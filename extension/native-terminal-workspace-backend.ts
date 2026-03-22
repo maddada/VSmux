@@ -9,6 +9,7 @@ import type {
 } from "../shared/native-terminal-debug-contract";
 import {
   isT3Session,
+  isTerminalSession,
   type SessionGridSnapshot,
   type SessionRecord,
 } from "../shared/session-grid-contract";
@@ -350,14 +351,17 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   public canReuseVisibleLayout(snapshot: SessionGridSnapshot): boolean {
     const reconcileSnapshot = this.getReconcileSnapshot(snapshot);
+    const visibleTerminalEntries = this.getVisibleTerminalEntries(reconcileSnapshot);
     const editorProjections = this.getEditorProjections();
-    if (editorProjections.size !== reconcileSnapshot.visibleSessionIds.length) {
+    if (editorProjections.size !== visibleTerminalEntries.length) {
       return false;
     }
 
-    return reconcileSnapshot.visibleSessionIds.every((sessionId, index) => {
+    return visibleTerminalEntries.every(({ sessionId, visibleIndex }) => {
       const projection = editorProjections.get(sessionId);
-      return projection?.location.type === "editor" && projection.location.visibleIndex === index;
+      return (
+        projection?.location.type === "editor" && projection.location.visibleIndex === visibleIndex
+      );
     });
   }
 
@@ -676,11 +680,15 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     let changed = false;
 
     for (const sessionRecord of sessionRecords) {
+      if (!isTerminalSession(sessionRecord)) {
+        continue;
+      }
+
       if (this.projections.has(sessionRecord.sessionId)) {
         continue;
       }
 
-      if (!isT3Session(sessionRecord) && !(await this.options.ensureShellSpawnAllowed())) {
+      if (!(await this.options.ensureShellSpawnAllowed())) {
         this.sessions.set(
           sessionRecord.sessionId,
           createBlockedSessionSnapshot(sessionRecord.sessionId, this.options.workspaceId),
@@ -709,12 +717,17 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return false;
     }
 
-    const editorProjections = this.getEditorProjections();
-    if (editorProjections.size !== snapshot.visibleSessionIds.length) {
+    if (this.hasVisibleT3Sessions(snapshot)) {
       return false;
     }
 
-    if (snapshot.visibleSessionIds.some((sessionId) => !editorProjections.has(sessionId))) {
+    const visibleTerminalEntries = this.getVisibleTerminalEntries(snapshot);
+    const editorProjections = this.getEditorProjections();
+    if (editorProjections.size !== visibleTerminalEntries.length) {
+      return false;
+    }
+
+    if (visibleTerminalEntries.some(({ sessionId }) => !editorProjections.has(sessionId))) {
       return false;
     }
 
@@ -900,7 +913,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     for (let index = 0; index < snapshot.visibleSessionIds.length; index += 1) {
-      await this.moveProjectionToEditor(snapshot.visibleSessionIds[index], index);
+      const sessionId = snapshot.visibleSessionIds[index];
+      if (!this.isTerminalSessionId(snapshot, sessionId)) {
+        continue;
+      }
+
+      await this.moveProjectionToEditor(sessionId, index);
     }
 
     await this.ensureDesiredEditorLayoutShape(snapshot);
@@ -1221,7 +1239,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     await this.applyVisibleEditorLayout(snapshot);
     this.refreshProjectionLocations();
     for (let index = 0; index < snapshot.visibleSessionIds.length; index += 1) {
-      await this.moveProjectionToEditor(snapshot.visibleSessionIds[index], index);
+      const sessionId = snapshot.visibleSessionIds[index];
+      if (!this.isTerminalSessionId(snapshot, sessionId)) {
+        continue;
+      }
+
+      await this.moveProjectionToEditor(sessionId, index);
     }
     this.refreshProjectionLocations();
     void this.trace.log("LAYOUT", "reapplyDesiredShape", {
@@ -1247,21 +1270,14 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
             preserveFocus: true,
             viewColumn: getViewColumn(location.visibleIndex),
           };
-    const terminal = isT3Session(sessionRecord)
-      ? vscode.window.createTerminal({
-          iconPath: new vscode.ThemeIcon("globe"),
-          location: terminalLocation,
-          name: this.getDisplayNameForSession(sessionRecord.sessionId, sessionRecord.alias),
-          pty: createPlaceholderTerminalPty(`T3 session ${sessionRecord.t3.threadId}`),
-        })
-      : vscode.window.createTerminal({
-          cwd: getDefaultWorkspaceCwd(),
-          env: this.createTerminalEnvironment(sessionRecord.sessionId),
-          iconPath: new vscode.ThemeIcon("terminal"),
-          location: terminalLocation,
-          name: this.getDisplayNameForSession(sessionRecord.sessionId, sessionRecord.alias),
-          shellPath: getDefaultShell(),
-        });
+    const terminal = vscode.window.createTerminal({
+      cwd: getDefaultWorkspaceCwd(),
+      env: this.createTerminalEnvironment(sessionRecord.sessionId),
+      iconPath: new vscode.ThemeIcon("terminal"),
+      location: terminalLocation,
+      name: this.getDisplayNameForSession(sessionRecord.sessionId, sessionRecord.alias),
+      shellPath: getDefaultShell(),
+    });
 
     this.createdTerminals.add(terminal);
     const projection = {
@@ -1304,12 +1320,13 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   private hasExpectedVisibleLayout(snapshot: SessionGridSnapshot): boolean {
+    const visibleTerminalEntries = this.getVisibleTerminalEntries(snapshot);
     const editorProjections = this.getEditorProjections();
-    if (editorProjections.size !== snapshot.visibleSessionIds.length) {
+    if (editorProjections.size !== visibleTerminalEntries.length) {
       return false;
     }
 
-    return snapshot.visibleSessionIds.every((sessionId, visibleIndex) => {
+    return visibleTerminalEntries.every(({ sessionId, visibleIndex }) => {
       const projection = this.projections.get(sessionId);
       return (
         projection?.location.type === "editor" && projection.location.visibleIndex === visibleIndex
@@ -1318,7 +1335,11 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   private getReconcileSnapshot(snapshot: SessionGridSnapshot): SessionGridSnapshot {
-    if (this.matchVisibleTerminalOrder || snapshot.visibleSessionIds.length <= 1) {
+    if (
+      this.matchVisibleTerminalOrder ||
+      snapshot.visibleSessionIds.length <= 1 ||
+      this.hasVisibleT3Sessions(snapshot)
+    ) {
       return cloneSnapshot(snapshot);
     }
 
@@ -1366,6 +1387,38 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     for (const projection of this.projections.values()) {
       projection.location = this.resolveProjectionLocation(projection.terminal);
     }
+  }
+
+  private getVisibleTerminalEntries(
+    snapshot: SessionGridSnapshot,
+  ): Array<{ sessionId: string; visibleIndex: number }> {
+    return snapshot.visibleSessionIds.flatMap((sessionId, visibleIndex) => {
+      const sessionRecord = this.getSnapshotSession(snapshot, sessionId);
+      if (sessionRecord && !isTerminalSession(sessionRecord)) {
+        return [];
+      }
+
+      return [{ sessionId, visibleIndex }];
+    });
+  }
+
+  private hasVisibleT3Sessions(snapshot: SessionGridSnapshot): boolean {
+    return snapshot.visibleSessionIds.some((sessionId) => {
+      const sessionRecord = this.getSnapshotSession(snapshot, sessionId);
+      return Boolean(sessionRecord && isT3Session(sessionRecord));
+    });
+  }
+
+  private isTerminalSessionId(snapshot: SessionGridSnapshot, sessionId: string): boolean {
+    const sessionRecord = this.getSnapshotSession(snapshot, sessionId);
+    return !sessionRecord || isTerminalSession(sessionRecord);
+  }
+
+  private getSnapshotSession(
+    snapshot: SessionGridSnapshot,
+    sessionId: string,
+  ): SessionRecord | undefined {
+    return snapshot.sessions.find((candidate) => candidate.sessionId === sessionId);
   }
 
   private emitDebugStateChange(): void {
@@ -2061,21 +2114,6 @@ async function delay(durationMs: number): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, durationMs);
   });
-}
-
-function createPlaceholderTerminalPty(message: string): vscode.Pseudoterminal {
-  const writeEmitter = new vscode.EventEmitter<string>();
-
-  return {
-    close: () => {
-      writeEmitter.dispose();
-    },
-    handleInput: () => {},
-    onDidWrite: writeEmitter.event,
-    open: () => {
-      writeEmitter.fire(`\u001b[90m${message}\u001b[0m\r\n`);
-    },
-  };
 }
 
 class NativeTerminalTrace {

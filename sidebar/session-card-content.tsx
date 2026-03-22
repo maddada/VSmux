@@ -16,7 +16,6 @@ const AGENT_SECONDARY_LABELS: Record<SidebarAgentIcon, readonly string[]> = {
 export type SessionCardContentProps = {
   aliasHeadingRef?: RefObject<HTMLDivElement | null>;
   onClose?: () => void;
-  secondaryRef?: RefObject<HTMLDivElement | null>;
   session: SidebarSessionItem;
   showDebugSessionNumbers: boolean;
   showCloseButton: boolean;
@@ -26,7 +25,6 @@ export type SessionCardContentProps = {
 export function SessionCardContent({
   aliasHeadingRef,
   onClose,
-  secondaryRef,
   session,
   showDebugSessionNumbers,
   showCloseButton,
@@ -40,9 +38,7 @@ export function SessionCardContent({
     primaryTitle ??
     session.activityLabel ??
     getSidebarAgentNameByIcon(session.agentIcon);
-  const secondaryTitle = [terminalTitle, primaryTitle, session.detail]
-    .filter((value) => value && value.length > 0)
-    .join("\n");
+  const titleTooltip = [session.alias, secondaryText].filter(Boolean).join("\n");
   const showDebugSessionNumber = showDebugSessionNumbers && session.sessionNumber !== undefined;
   const showMeta = showHotkeys || showDebugSessionNumber;
 
@@ -52,6 +48,7 @@ export function SessionCardContent({
         <span
           aria-hidden="true"
           className="session-agent-watermark"
+          data-agent-icon={session.agentIcon}
           style={
             {
               "--session-agent-logo": `url("${AGENT_LOGOS[session.agentIcon]}")`,
@@ -64,39 +61,31 @@ export function SessionCardContent({
           className="session-alias-heading"
           textRef={aliasHeadingRef}
           text={session.alias}
+          tooltip={titleTooltip}
+          tooltipWhen={secondaryText ? "always" : "overflow"}
         />
-        {showCloseButton && onClose ? (
-          <button
-            aria-label="Close session"
-            className="close-button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onClose();
-            }}
-            type="button"
-          >
-            ×
-          </button>
-        ) : null}
-      </div>
-      <div className="session-footer">
-        {secondaryText ? (
-          <OverflowTooltipText
-            className="session-secondary"
-            textRef={secondaryRef}
-            text={secondaryText}
-            tooltip={secondaryTitle}
-          />
-        ) : (
-          <div />
-        )}
-        <div className="session-meta" data-visible={String(showMeta)}>
-          {showDebugSessionNumber ? (
-            <span className="session-debug-number">{session.sessionNumber}</span>
-          ) : null}
-          {showHotkeys ? (
-            <span className="session-shortcut-label">{session.shortcutLabel}</span>
+        <div className="session-head-actions">
+          <div className="session-meta" data-visible={String(showMeta)}>
+            {showDebugSessionNumber ? (
+              <span className="session-debug-number">{session.sessionNumber}</span>
+            ) : null}
+            {showHotkeys ? (
+              <span className="session-shortcut-label">{session.shortcutLabel}</span>
+            ) : null}
+          </div>
+          {showCloseButton && onClose ? (
+            <button
+              aria-label="Close session"
+              className="close-button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onClose();
+              }}
+              type="button"
+            >
+              ×
+            </button>
           ) : null}
         </div>
       </div>
@@ -132,9 +121,16 @@ type OverflowTooltipTextProps = {
   text: string;
   textRef?: RefObject<HTMLDivElement | null>;
   tooltip?: string;
+  tooltipWhen?: "always" | "overflow";
 };
 
-function OverflowTooltipText({ className, text, textRef, tooltip }: OverflowTooltipTextProps) {
+function OverflowTooltipText({
+  className,
+  text,
+  textRef,
+  tooltip,
+  tooltipWhen = "overflow",
+}: OverflowTooltipTextProps) {
   const [isOpen, setIsOpen] = useState(false);
   const openTimeoutIdRef = useRef<number>();
 
@@ -167,7 +163,8 @@ function OverflowTooltipText({ className, text, textRef, tooltip }: OverflowTool
 
   const openTooltip = () => {
     clearOpenTimeout();
-    if (!hasOverflow()) {
+    const shouldOpen = tooltipWhen === "always" ? Boolean(tooltip ?? text) : hasOverflow();
+    if (!shouldOpen) {
       setIsOpen(false);
       return;
     }
