@@ -143,6 +143,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private sidebarWelcomeHandled = false;
   private readonly debugPanel: NativeTerminalDebugPanel;
   private readonly previousSessionHistory: PreviousSessionHistory;
+  private readonly startupSidebarRefreshTimeouts = new Set<NodeJS.Timeout>();
   private readonly store: SessionGridStore;
   private t3Runtime: T3RuntimeManager | undefined;
   private t3RuntimeLoad: Promise<T3RuntimeManager | undefined> | undefined;
@@ -268,16 +269,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       await this.ensureT3RuntimeForStoredSessions(this.getAllSessionRecords());
     }
     if (this.ownsNativeTerminalControl) {
+      const disconnectedVisibleAgentSessionIds = this.isVsMuxDisabled()
+        ? []
+        : this.getDisconnectedAgentSessionIds(this.getActiveSnapshot().visibleSessionIds);
       await this.reconcileProjectedSessions();
       if (!this.isVsMuxDisabled()) {
-        const disconnectedVisibleAgentSessionIds = this.getDisconnectedAgentSessionIds(
-          this.getActiveSnapshot().visibleSessionIds,
-        );
         for (const sessionId of disconnectedVisibleAgentSessionIds) {
           await this.resumeAgentSessionIfConfigured(sessionId);
         }
       }
     }
+    this.scheduleStartupSidebarRefreshes();
     await this.refreshSidebar("hydrate");
   }
 
@@ -292,6 +294,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   public dispose(): void {
     this.stopControlOwnerHeartbeat();
     this.stopDebugStatePolling();
+    this.clearStartupSidebarRefreshes();
     void this.releaseNativeTerminalControl();
     this.t3Runtime?.dispose();
     while (this.disposables.length > 0) {
@@ -389,6 +392,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     if (this.isVsMuxDisabled()) {
       await this.reconcileProjectedSessions();
+      this.scheduleStartupSidebarRefreshes();
       await this.refreshSidebar();
       return;
     }
@@ -400,6 +404,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     for (const sessionId of disconnectedVisibleAgentSessionIds) {
       await this.resumeAgentSessionIfConfigured(sessionId);
     }
+    this.scheduleStartupSidebarRefreshes();
     await this.refreshSidebar();
   }
 
@@ -1649,6 +1654,32 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshDebugInspector();
   }
 
+  private scheduleStartupSidebarRefreshes(): void {
+    this.clearStartupSidebarRefreshes();
+
+    for (const delayMs of [300, 1200, 3000]) {
+      const timeout = setTimeout(() => {
+        this.startupSidebarRefreshTimeouts.delete(timeout);
+        void this.refreshSidebar();
+      }, delayMs);
+      this.startupSidebarRefreshTimeouts.add(timeout);
+    }
+
+    const reselectTimeout = setTimeout(() => {
+      this.startupSidebarRefreshTimeouts.delete(reselectTimeout);
+      void this.rerunAlreadyActiveSessionClickAfterStartup();
+    }, 5000);
+    this.startupSidebarRefreshTimeouts.add(reselectTimeout);
+  }
+
+  private clearStartupSidebarRefreshes(): void {
+    for (const timeout of this.startupSidebarRefreshTimeouts) {
+      clearTimeout(timeout);
+    }
+
+    this.startupSidebarRefreshTimeouts.clear();
+  }
+
   private async refreshDebugInspector(): Promise<void> {
     if (this.ownsNativeTerminalControl) {
       const message = this.createDebugInspectorMessage();
@@ -1955,6 +1986,31 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     await this.reconcileProjectedSessions(preserveFocus);
+  }
+
+  private async rerunAlreadyActiveSessionClickAfterStartup(): Promise<void> {
+    const snapshot = this.getActiveSnapshot();
+    const activeSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
+    if (!activeSessionId) {
+      return;
+    }
+
+    const shouldResumeAgentSession =
+      this.sessionAgentLaunchBySessionId.has(activeSessionId) &&
+      !this.backend.hasLiveTerminal(activeSessionId);
+
+    await this.restoreSessionProjectionIfNeeded(activeSessionId, false);
+
+    if (shouldResumeAgentSession) {
+      await this.resumeAgentSessionIfConfigured(activeSessionId);
+    }
+
+    this.focusT3ComposerIfPossible(activeSessionId);
+
+    const acknowledgedAttention = await this.acknowledgeSessionAttention(activeSessionId);
+    if (!acknowledgedAttention) {
+      await this.refreshSidebar();
+    }
   }
 
   private async restoreSessionProjectionIfNeeded(

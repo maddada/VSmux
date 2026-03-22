@@ -902,6 +902,83 @@ describe("NativeTerminalWorkspaceBackend mixed visible layout reconcile", () => 
     expect(callOrder).toEqual(["layout", "refresh", "move:1"]);
   });
 
+  test("should park a misaligned visible terminal before rebuilding a mixed T3 layout", async () => {
+    const backend = new NativeTerminalWorkspaceBackend({
+      context: {
+        globalStorageUri: {
+          fsPath: "/extension-storage",
+        },
+      } as never,
+      ensureShellSpawnAllowed: async () => true,
+      workspaceId: "workspace-1",
+    });
+    const terminalSession = createSessionRecord(93, 0);
+    const t3Session = createSessionRecord(96, 1, {
+      kind: "t3",
+      t3: {
+        projectId: "project-1",
+        serverOrigin: "http://127.0.0.1:3773",
+        threadId: "thread-1",
+        workspaceRoot: "/workspace",
+      },
+      title: "Adding t3 code",
+    });
+    const terminal = {
+      creationOptions: {
+        name: "Adding t3 code",
+      },
+      dispose: vi.fn(),
+      exitStatus: undefined,
+      name: "Adding t3 code",
+      sendText: vi.fn(),
+      show: vi.fn(),
+    };
+    (backend as any).projections.set(terminalSession.sessionId, {
+      location: { type: "editor", visibleIndex: 0 },
+      sessionId: terminalSession.sessionId,
+      terminal,
+    });
+    const snapshot = {
+      focusedSessionId: t3Session.sessionId,
+      sessions: [terminalSession, t3Session],
+      viewMode: "vertical" as const,
+      visibleCount: 2 as const,
+      visibleSessionIds: [t3Session.sessionId, terminalSession.sessionId],
+    };
+    const callOrder: string[] = [];
+
+    vi.spyOn(backend as never, "promoteFocusedVisibleProjection").mockResolvedValue(
+      undefined as never,
+    );
+    vi.spyOn(backend as never, "parkHiddenEditorProjections").mockResolvedValue(true as never);
+    vi.spyOn(backend as never, "moveProjectionToPanel").mockImplementation(async () => {
+      callOrder.push("panel");
+      const projection = (backend as any).projections.get(terminalSession.sessionId);
+      if (projection) {
+        projection.location = { type: "panel" };
+      }
+    });
+    vi.spyOn(backend as never, "applyVisibleEditorLayout").mockImplementation(async () => {
+      callOrder.push("layout");
+    });
+    vi.spyOn(backend as never, "refreshProjectionLocations").mockImplementation(() => {
+      callOrder.push("refresh");
+    });
+    vi.spyOn(backend as never, "moveProjectionToEditor").mockImplementation(
+      async (_sessionId: string, visibleIndex: number) => {
+        callOrder.push(`move:${visibleIndex}`);
+      },
+    );
+    vi.spyOn(backend as never, "ensureDesiredEditorLayoutShape").mockResolvedValue(
+      undefined as never,
+    );
+    vi.spyOn(backend as never, "showTerminal").mockResolvedValue(undefined as never);
+
+    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(snapshot, true);
+
+    expect(callOrder).toEqual(["panel", "layout", "refresh", "move:1"]);
+  });
+
   test("should still skip early editor layout creation for all-terminal layouts when hidden projections are not fully parked", async () => {
     const backend = new NativeTerminalWorkspaceBackend({
       context: {

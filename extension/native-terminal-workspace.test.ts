@@ -971,6 +971,119 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     );
   });
 
+  test("should resume disconnected visible agent sessions during initialize", async () => {
+    const session = {
+      ...createSessionRecord(3, 0),
+      alias: "Code mode",
+    };
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    workspaceSnapshot.groups[0]!.snapshot.focusedSessionId = session.sessionId;
+    const workspaceId = getWorkspaceId();
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [
+        [
+          getWorkspaceStorageKey("VSmux.sessionAgentCommands", workspaceId),
+          {
+            [session.sessionId]: {
+              agentId: "codex",
+              command: "codex",
+            },
+          },
+        ],
+      ]),
+    );
+
+    testState.backend?.hasLiveTerminal.mockReturnValue(false);
+
+    await controller.initialize();
+
+    expect(testState.backend?.writeText).toHaveBeenCalledWith(
+      session.sessionId,
+      "codex resume 'Code mode'",
+      true,
+    );
+  });
+
+  test("should refresh the sidebar again after startup settle delays", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const controller = new NativeTerminalWorkspaceController(createContext(workspaceSnapshot));
+
+    await controller.initialize();
+
+    const initialPostCount = testState.sidebarPostMessage.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(testState.sidebarPostMessage.mock.calls.length).toBeGreaterThan(initialPostCount);
+  });
+
+  test("should re-run the active session click path after startup delay", async () => {
+    vi.useFakeTimers();
+    const session = {
+      ...createSessionRecord(3, 0),
+      alias: "Code mode",
+    };
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const workspaceId = getWorkspaceId();
+    workspaceSnapshot.groups[0]!.snapshot.focusedSessionId = session.sessionId;
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [
+        [
+          getWorkspaceStorageKey("VSmux.sessionAgentCommands", workspaceId),
+          {
+            [session.sessionId]: {
+              agentId: "codex",
+              command: "codex",
+            },
+          },
+        ],
+      ]),
+    );
+
+    await controller.initialize();
+    testState.backend?.writeText.mockClear();
+    testState.backend?.getSessionSnapshot.mockReturnValue({
+      status: "running",
+    });
+    testState.backend?.hasLiveTerminal.mockReturnValue(false);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(testState.backend?.writeText).toHaveBeenCalledWith(
+      session.sessionId,
+      "codex resume 'Code mode'",
+      true,
+    );
+  });
+
+  test("should re-activate the focused T3 session once after startup settles", async () => {
+    vi.useFakeTimers();
+
+    const session = createSessionRecord(3, 0, {
+      kind: "t3",
+      t3: {
+        projectId: "project-1",
+        serverOrigin: "http://127.0.0.1:3773",
+        threadId: "thread-1",
+        workspaceRoot: "/workspace",
+      },
+      title: "T3 Code",
+    });
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    workspaceSnapshot.groups[0]!.snapshot.focusedSessionId = session.sessionId;
+    const controller = new NativeTerminalWorkspaceController(createContext(workspaceSnapshot));
+    testState.t3ActivityMonitor?.getThreadActivity.mockReturnValue({
+      activity: "attention",
+      isRunning: true,
+    });
+    testState.t3ActivityMonitor?.acknowledgeThread.mockReturnValue(true);
+
+    await controller.initialize();
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(testState.t3ActivityMonitor?.acknowledgeThread).toHaveBeenCalledWith("thread-1");
+  });
+
   test("should ensure the T3 runtime is running before restoring visible T3 sessions on initialize", async () => {
     const session = createSessionRecord(3, 0, {
       kind: "t3",

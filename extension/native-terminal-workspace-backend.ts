@@ -595,22 +595,35 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
     const deadline = Date.now() + RESTORE_SETTLE_TIMEOUT_MS;
     let observedDiscoveryVersion = this.managedTerminalDiscoveryVersion;
+    let observedTerminalCount = vscode.window.terminals.length;
+    let sawRestoreChange = observedTerminalCount > 0;
 
     while (Date.now() < deadline) {
       await delay(RESTORE_SETTLE_INTERVAL_MS);
-      if (this.managedTerminalDiscoveryVersion === observedDiscoveryVersion) {
+      const terminalCount = vscode.window.terminals.length;
+      const discoveryChanged = this.managedTerminalDiscoveryVersion !== observedDiscoveryVersion;
+      const terminalCountChanged = terminalCount !== observedTerminalCount;
+
+      if (discoveryChanged || terminalCountChanged) {
+        sawRestoreChange = true;
+        observedDiscoveryVersion = this.managedTerminalDiscoveryVersion;
+        observedTerminalCount = terminalCount;
+        continue;
+      }
+
+      if (sawRestoreChange) {
         void this.trace.log("RESTORE", "settled", {
           discoveryVersion: this.managedTerminalDiscoveryVersion,
+          terminalCount,
           state: this.captureLayoutState(),
         });
         return;
       }
-
-      observedDiscoveryVersion = this.managedTerminalDiscoveryVersion;
     }
 
     void this.trace.log("RESTORE", "settleTimeout", {
       discoveryVersion: this.managedTerminalDiscoveryVersion,
+      terminalCount: vscode.window.terminals.length,
       state: this.captureLayoutState(),
     });
   }
@@ -906,6 +919,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     if (hasVisibleNonTerminalSessions && snapshot.visibleSessionIds.length > 1) {
+      await this.demoteMisalignedVisibleTerminalProjectionsForMixedLayouts(snapshot);
       await this.applyVisibleEditorLayout(snapshot);
       this.refreshProjectionLocations();
     } else if (fullyParked) {
@@ -930,6 +944,28 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
     if (focusedSessionId) {
       await this.showTerminal(this.projections.get(focusedSessionId)?.terminal, preserveFocus);
+    }
+  }
+
+  private async demoteMisalignedVisibleTerminalProjectionsForMixedLayouts(
+    snapshot: SessionGridSnapshot,
+  ): Promise<void> {
+    for (let index = 0; index < snapshot.visibleSessionIds.length; index += 1) {
+      const sessionId = snapshot.visibleSessionIds[index];
+      if (!this.isTerminalSessionId(snapshot, sessionId)) {
+        continue;
+      }
+
+      const projection = this.projections.get(sessionId);
+      if (!projection || projection.location.type !== "editor") {
+        continue;
+      }
+
+      if (projection.location.visibleIndex === index) {
+        continue;
+      }
+
+      await this.moveProjectionToPanel(sessionId);
     }
   }
 

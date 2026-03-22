@@ -561,7 +561,10 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
           isVsMuxDisabled={serverState.hud.isVsMuxDisabled}
           vscode={vscode}
         />
-        <section className="session-groups-panel">
+        <section
+          className="session-groups-panel"
+          data-dimmed={String(serverState.hud.isVsMuxDisabled)}
+        >
           <div className="section-titlebar" data-empty-space-blocking="true">
             <div aria-hidden="true" className="section-titlebar-line" />
             <span className="section-titlebar-label">Sessions</span>
