@@ -8,6 +8,7 @@ import type {
 const EXTENSION_ID = "maddada.VSmux";
 
 type SessionSidebarViewOptions = {
+  onDidResolveView?: () => void | Promise<void>;
   onMessage: (message: SidebarToExtensionMessage) => void | Promise<void>;
 };
 
@@ -74,6 +75,8 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
         void this.options.onMessage(message);
       }),
     );
+
+    void this.options.onDidResolveView?.();
 
     if (this.latestMessage) {
       void webviewView.webview.postMessage(this.latestMessage);

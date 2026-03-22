@@ -95,14 +95,20 @@ const COMPLETION_BELL_ENABLED_KEY = "VSmux.completionBellEnabled";
 const SESSION_AGENT_COMMANDS_KEY = "VSmux.sessionAgentCommands";
 const NATIVE_TERMINAL_CONTROL_OWNER_KEY = "VSmux.nativeTerminalControlOwner";
 const NATIVE_TERMINAL_DEBUG_STATE_KEY = "VSmux.nativeTerminalDebugState";
+const SIDEBAR_WELCOME_DISMISSED_KEY = "VSmux.sidebarWelcomeDismissed";
+const SIDEBAR_LOCATION_IN_SECONDARY_KEY = "VSmux.sidebarLocationInSecondary";
 const NATIVE_TERMINAL_CONTROL_OWNER_FILE = "native-terminal-control-owner.json";
 export const SESSIONS_VIEW_ID = "VSmux.sessions";
+export const PRIMARY_SESSIONS_CONTAINER_ID = "VSmuxSessions";
+export const SECONDARY_SESSIONS_CONTAINER_ID = "VSmuxSessionsSecondary";
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const WORKING_ACTIVITY_STALE_TIMEOUT_MS = 10_000;
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
 const DEBUG_STATE_POLL_INTERVAL_MS = 500;
 const CONTROL_OWNER_STALE_MS = 5_000;
 const CONTROL_OWNER_HEARTBEAT_MS = 1_000;
+const SIDEBAR_WELCOME_OK_LABEL = "OK";
+const SIDEBAR_WELCOME_MOVE_LABEL = "Move to Secondary Sidebar";
 
 type NativeTerminalWorkspaceBackendKind = "native";
 
@@ -134,6 +140,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private ownsNativeTerminalControl = false;
   private readonly sessionAgentLaunchBySessionId = new Map<string, StoredSessionAgentLaunch>();
   private readonly sidebarAgentIconBySessionId = new Map<string, SidebarAgentIcon>();
+  private sidebarWelcomeHandled = false;
   private readonly debugPanel: NativeTerminalDebugPanel;
   private readonly previousSessionHistory: PreviousSessionHistory;
   private readonly store: SessionGridStore;
@@ -199,6 +206,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       },
     });
     this.sidebarProvider = new SessionSidebarViewProvider({
+      onDidResolveView: async () => {
+        await this.maybeShowSidebarWelcome();
+      },
       onMessage: async (message) => this.handleSidebarMessage(message),
     });
 
@@ -362,7 +372,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async openWorkspace(): Promise<void> {
-    await vscode.commands.executeCommand("workbench.view.extension.VSmuxSessions");
+    await this.revealSidebar();
 
     if (!(await this.ensureNativeTerminalControl())) {
       return;
@@ -381,6 +391,20 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       await this.resumeAgentSessionIfConfigured(sessionId);
     }
     await this.refreshSidebar();
+  }
+
+  public async moveSidebarToSecondarySidebar(): Promise<void> {
+    await vscode.commands.executeCommand("vscode.moveViews", {
+      destinationId: SECONDARY_SESSIONS_CONTAINER_ID,
+      viewIds: [SESSIONS_VIEW_ID],
+    });
+    await this.context.globalState.update(SIDEBAR_LOCATION_IN_SECONDARY_KEY, true);
+  }
+
+  public async revealSidebar(): Promise<void> {
+    await vscode.commands.executeCommand(
+      `workbench.view.extension.${this.getSidebarContainerId()}`,
+    );
   }
 
   public async openDebugInspector(): Promise<void> {
@@ -1612,6 +1636,45 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.debugPanel.postMessage(
       this.getSharedDebugInspectorMessage() ?? this.createDebugInspectorMessage(),
     );
+  }
+
+  private getSidebarContainerId(): string {
+    return this.context.globalState.get<boolean>(SIDEBAR_LOCATION_IN_SECONDARY_KEY, false)
+      ? SECONDARY_SESSIONS_CONTAINER_ID
+      : PRIMARY_SESSIONS_CONTAINER_ID;
+  }
+
+  private async maybeShowSidebarWelcome(): Promise<void> {
+    if (this.sidebarWelcomeHandled) {
+      return;
+    }
+
+    this.sidebarWelcomeHandled = true;
+    if (this.context.globalState.get<boolean>(SIDEBAR_WELCOME_DISMISSED_KEY, false)) {
+      return;
+    }
+
+    const selection = await vscode.window.showInformationMessage(
+      "Welcome to VSmux",
+      {
+        detail:
+          'VSmux keeps your sessions organized with quick switching, layout controls, grouped workspaces, and resume-friendly terminal state.\n\nBy default it lives in the main sidebar on the left. If you would rather keep Explorer or Source Control there, you can run "VSmux: Move to Secondary Sidebar" and keep VSmux docked on the other side of the editor.',
+        modal: true,
+      },
+      SIDEBAR_WELCOME_OK_LABEL,
+      SIDEBAR_WELCOME_MOVE_LABEL,
+    );
+
+    if (!selection) {
+      this.sidebarWelcomeHandled = false;
+      return;
+    }
+
+    await this.context.globalState.update(SIDEBAR_WELCOME_DISMISSED_KEY, true);
+
+    if (selection === SIDEBAR_WELCOME_MOVE_LABEL) {
+      await this.moveSidebarToSecondarySidebar();
+    }
   }
 
   private async acknowledgeSessionAttention(sessionId: string): Promise<boolean> {

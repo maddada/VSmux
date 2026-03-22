@@ -66,6 +66,7 @@ const testState = vi.hoisted(() => ({
   showInputBox: vi.fn(),
   showQuickPick: vi.fn(),
   showWarningMessage: vi.fn(),
+  sidebarResolveView: undefined as (() => Promise<void>) | undefined,
   terminals: [] as unknown[],
   debugPanelPostMessage: vi.fn(async () => {}),
   debugPanelReveal: vi.fn(async () => {}),
@@ -189,6 +190,12 @@ vi.mock("vscode", () => ({
 
 vi.mock("./session-sidebar-view", () => ({
   SessionSidebarViewProvider: class SessionSidebarViewProvider {
+    public constructor(options: { onDidResolveView?: () => void | Promise<void> }) {
+      testState.sidebarResolveView = async () => {
+        await options.onDidResolveView?.();
+      };
+    }
+
     public async postMessage(message: unknown): Promise<void> {
       await testState.sidebarPostMessage(message);
     }
@@ -376,6 +383,7 @@ describe("NativeTerminalWorkspaceController rename session", () => {
     testState.showInputBox.mockReset();
     testState.showQuickPick.mockReset();
     testState.showWarningMessage.mockReset();
+    testState.sidebarResolveView = undefined;
     testState.terminals = [];
     testState.debugPanelPostMessage.mockReset();
     testState.debugPanelPostMessage.mockResolvedValue(undefined);
@@ -704,6 +712,63 @@ describe("NativeTerminalWorkspaceController rename session", () => {
         ]),
       }),
     );
+  });
+
+  test("should show the sidebar welcome only once after the view is first resolved", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const sharedGlobalValues = new Map<string, unknown>();
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [], sharedGlobalValues),
+    );
+
+    testState.showInformationMessage.mockResolvedValue("OK");
+
+    await testState.sidebarResolveView?.();
+    await testState.sidebarResolveView?.();
+
+    expect(testState.showInformationMessage).toHaveBeenCalledTimes(1);
+    expect(sharedGlobalValues.get("VSmux.sidebarWelcomeDismissed")).toBe(true);
+    controller.dispose();
+  });
+
+  test("should move the sidebar to the secondary sidebar from the welcome action", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const sharedGlobalValues = new Map<string, unknown>();
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [], sharedGlobalValues),
+    );
+
+    testState.showInformationMessage.mockResolvedValue("Move to Secondary Sidebar");
+
+    await testState.sidebarResolveView?.();
+
+    expect(testState.executeCommand).toHaveBeenCalledWith("vscode.moveViews", {
+      destinationId: "VSmuxSessionsSecondary",
+      viewIds: ["VSmux.sessions"],
+    });
+    expect(sharedGlobalValues.get("VSmux.sidebarLocationInSecondary")).toBe(true);
+    controller.dispose();
+  });
+
+  test("should reveal the secondary sidebar container after VSmux has been moved there", async () => {
+    const session = createSessionRecord(3, 0);
+    const workspaceSnapshot = createWorkspaceSnapshot(session);
+    const sharedGlobalValues = new Map<string, unknown>([
+      ["VSmux.sidebarLocationInSecondary", true],
+      ["VSmux.sidebarWelcomeDismissed", true],
+    ]);
+    const controller = new NativeTerminalWorkspaceController(
+      createContext(workspaceSnapshot, [], sharedGlobalValues),
+    );
+
+    await controller.openWorkspace();
+
+    expect(testState.executeCommand).toHaveBeenCalledWith(
+      "workbench.view.extension.VSmuxSessionsSecondary",
+    );
+    controller.dispose();
   });
 
   test("should describe sessions as managed by another window when this window is not the owner", async () => {

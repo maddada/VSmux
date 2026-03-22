@@ -788,7 +788,11 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 }
 
 .group-control-count-menu {
-  min-width: max-content;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, 18px);
+  justify-content: center;
+  min-width: 0;
 }
 
 .group-control-menu-item {
@@ -800,6 +804,10 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 }
 
 .group-control-count-menu .group-control-menu-item {
+  height: 24px;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
   justify-content: center;
 }
 

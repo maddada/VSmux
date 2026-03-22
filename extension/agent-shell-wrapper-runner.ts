@@ -152,7 +152,7 @@ function getCandidateExecutableNames(agent: AgentName): string[] {
     .split(";")
     .filter((entry) => entry.length > 0);
 
-  return [agent, ...pathExtensions.map((extension) => `${agent}${extension.toLowerCase()}`)];
+  return [...pathExtensions.map((extension) => `${agent}${extension.toLowerCase()}`), agent];
 }
 
 async function writeInitialSessionState(agent: AgentName, title: string): Promise<void> {

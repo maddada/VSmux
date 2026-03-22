@@ -58,6 +58,7 @@ const SETTINGS_SECTION = "VSmux";
 const MATCH_VISIBLE_TERMINAL_ORDER_SETTING = "matchVisibleTerminalOrderInSessionsArea";
 const NATIVE_TERMINAL_ACTION_DELAY_MS_SETTING = "nativeTerminalActionDelayMs";
 const KEEP_SESSION_GROUPS_UNLOCKED_SETTING = "keepSessionGroupsUnlocked";
+const DEBUGGING_MODE_SETTING = "debuggingMode";
 const LEGACY_DO_NOT_CHANGE_EDITOR_GROUP_LOCKS_SETTING = "nativeTerminalDoNotChangeEditorGroupLocks";
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
 const POLL_INTERVAL_MS = 750;
@@ -141,6 +142,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   public constructor(private readonly options: NativeTerminalWorkspaceBackendOptions) {
     this.trace = new NativeTerminalTrace(
       path.join(getDefaultWorkspaceCwd(), TRACE_DIRECTORY_NAME, TRACE_FILE_NAME),
+      getDebuggingModeEnabled(),
     );
   }
 
@@ -158,7 +160,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.agentShellIntegration = await ensureAgentShellIntegration(
       path.join(this.options.context.globalStorageUri.fsPath, "terminal-host-daemon"),
     );
-    await this.syncConfiguration();
     this.loadStoredProcessAssociations();
 
     this.disposables.push(
@@ -222,6 +223,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         this.emitDebugStateChange();
       }),
     );
+    await this.syncConfiguration();
 
     for (const sessionRecord of sessionRecords) {
       this.trackedSessionIds.add(sessionRecord.sessionId);
@@ -516,6 +518,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         KEEP_SESSION_GROUPS_UNLOCKED_SETTING,
         configuration.get<boolean>(LEGACY_DO_NOT_CHANGE_EDITOR_GROUP_LOCKS_SETTING, true) ?? true,
       ) ?? true;
+    this.trace.setEnabled(configuration.get<boolean>(DEBUGGING_MODE_SETTING, false) ?? false);
     this.emitDebugStateChange();
   }
 
@@ -2120,13 +2123,39 @@ async function delay(durationMs: number): Promise<void> {
 }
 
 class NativeTerminalTrace {
+  private enabled: boolean;
   private pendingWrite: Promise<void> = Promise.resolve();
 
-  public constructor(private readonly filePath: string) {}
+  public constructor(
+    private readonly filePath: string,
+    enabled = false,
+  ) {
+    this.enabled = enabled;
+  }
+
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (enabled) {
+      return;
+    }
+
+    this.pendingWrite = this.pendingWrite.then(async () => {
+      try {
+        await rm(this.filePath, { force: true });
+      } catch {
+        // Tracing is best-effort only.
+      }
+    });
+  }
 
   public reset(): Promise<void> {
     this.pendingWrite = this.pendingWrite.then(async () => {
       try {
+        if (!this.enabled) {
+          await rm(this.filePath, { force: true });
+          return;
+        }
+
         await mkdir(path.dirname(this.filePath), { recursive: true });
         await writeFile(this.filePath, "", "utf8");
       } catch {
@@ -2138,6 +2167,10 @@ class NativeTerminalTrace {
   }
 
   public log(tag: string, message: string, details?: unknown): Promise<void> {
+    if (!this.enabled) {
+      return this.pendingWrite;
+    }
+
     const timestamp = new Date().toISOString();
     const serializedDetails = details === undefined ? "" : ` ${safeSerializeTraceDetails(details)}`;
     const line = `[${timestamp}] [${tag}] ${message}${serializedDetails}\n`;
@@ -2163,4 +2196,11 @@ function safeSerializeTraceDetails(details: unknown): string {
       unserializable: true,
     });
   }
+}
+
+function getDebuggingModeEnabled(): boolean {
+  return (
+    vscode.workspace.getConfiguration(SETTINGS_SECTION).get<boolean>(DEBUGGING_MODE_SETTING) ??
+    false
+  );
 }
