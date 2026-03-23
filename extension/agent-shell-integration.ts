@@ -423,6 +423,13 @@ if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
     __vsmux_read_state_value title
   }
 
+  __vsmux_restore_session_title() {
+    emulate -L zsh
+    local title="$(__vsmux_read_session_title)"
+    [ -n "$title" ] || return 0
+    __vsmux_emit_session_title "$title"
+  }
+
   __vsmux_write_session_title() {
     emulate -L zsh
     local state_file="\${VSMUX_SESSION_STATE_FILE:-}"
@@ -462,6 +469,12 @@ if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
   }
 
   alias vam-title='vsmux_set_title'
+
+  autoload -Uz add-zsh-hook 2>/dev/null || true
+  if typeset -f add-zsh-hook >/dev/null 2>&1; then
+    add-zsh-hook preexec __vsmux_restore_session_title
+    add-zsh-hook precmd __vsmux_restore_session_title
+  fi
 fi
 
 claude() {

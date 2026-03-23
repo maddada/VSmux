@@ -33,6 +33,10 @@ export class RuntimeTrace {
     });
   }
 
+  public isEnabled(): boolean {
+    return this.enabled;
+  }
+
   public reset(): Promise<void> {
     this.pendingWrite = this.pendingWrite.then(async () => {
       try {

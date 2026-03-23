@@ -46,6 +46,7 @@ Behavior changes:
 - `components/ChatView.tsx`
   - Listens for the VSmux custom focus event in embed mode.
   - Routes that event through T3's own `focusComposer()` callback, which already calls `composerEditorRef.current?.focusAtEnd()`.
+  - Skips refocusing when the composer already contains the active DOM focus, so repeated clicks on an already active T3 session do not scroll the thread.
   - This avoids the earlier VSmux-side DOM scraping path and keeps composer focus logic inside T3's own editor flow.
 
 Extension-side dependency on these patches:
@@ -70,6 +71,7 @@ Reapply checklist when updating upstream T3:
    - T3 opens directly into the injected thread
    - the sidebar uses mobile behavior at wide widths
    - clicking a T3 session in VSmux focuses the composer without reloading the panel
+   - repeated clicks on an already active T3 session do not scroll the thread
    - focusing a visible T3 session does not jump because of direct DOM composer targeting
 
 Rebuild flow:

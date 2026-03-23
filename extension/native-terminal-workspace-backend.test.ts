@@ -1,2743 +1,535 @@
-import { access, mkdtemp, rm } from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import {
-  createSessionRecord,
-  getTerminalSessionSurfaceTitle,
-} from "../shared/session-grid-contract";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { createSessionRecord } from "../shared/session-grid-contract";
+import { NativeTerminalWorkspaceBackend } from "./native-terminal-workspace-backend";
 
 const testState = vi.hoisted(() => ({
-  activeTerminal: undefined as unknown,
-  activeViewColumn: 1,
-  activeTerminalChangeListeners: [] as Array<(terminal: unknown) => void>,
-  closeTerminalListeners: [] as Array<(terminal: unknown) => void>,
-  configurationValues: {} as Record<string, unknown>,
-  executeCommand: vi.fn(async () => undefined),
-  openTerminalListeners: [] as Array<(terminal: unknown) => void>,
-  processIdentityByPid: vi.fn(
-    async () => undefined as { sessionId: string; workspaceId: string } | undefined,
-  ),
+  activeTerminal: undefined as MockTerminal | undefined,
+  activeTabGroupIndex: 0,
+  createTerminal: vi.fn((options: Record<string, unknown>) => {
+    const terminal = createTerminal(options);
+    testState.terminals.push(terminal);
+    testState.tabGroupsAll[0] ??= createTabGroup(1);
+    testState.tabGroupsAll[0].tabs.push(createTerminalTab(terminal, testState.tabGroupsAll[0]));
+    return terminal;
+  }),
+  executeCommand: vi.fn(async (command: string, args?: { name: string }) => {
+    if (command === "workbench.action.terminal.renameWithArg" && args) {
+      if (testState.activeTerminal) {
+        testState.activeTerminal.name = args.name;
+        syncTerminalTabLabels(testState.activeTerminal);
+      }
+      return undefined;
+    }
+
+    const match = /^workbench\.action\.openEditorAtIndex(\d+)$/.exec(command);
+    if (match) {
+      const tabIndex = Number.parseInt(match[1] ?? "", 10) - 1;
+      activateTabAtIndex(testState.activeTabGroupIndex, tabIndex);
+    }
+
+    return undefined;
+  }),
+  focusEditorGroupByIndex: vi.fn(async (index: number) => {
+    setActiveGroup(index);
+    return true;
+  }),
+  moveActiveEditorToNextGroup: vi.fn(async () => {
+    moveActiveEditor(1);
+  }),
+  moveActiveEditorToPreviousGroup: vi.fn(async () => {
+    moveActiveEditor(-1);
+  }),
+  moveActiveTerminalToEditor: vi.fn(async () => {
+    const terminal = testState.activeTerminal;
+    if (!terminal) {
+      return;
+    }
+
+    const group =
+      testState.tabGroupsAll[testState.activeTabGroupIndex] ??
+      createTabGroup(testState.activeTabGroupIndex + 1);
+    testState.tabGroupsAll[testState.activeTabGroupIndex] = group;
+    removeTerminalTabs(terminal);
+    group.tabs.push(createTerminalTab(terminal, group));
+    activateTabByLabel(group.viewColumn - 1, terminal.name);
+  }),
+  onDidChangeActiveTerminal: vi.fn(() => ({ dispose: vi.fn() })),
+  onDidChangeTerminalState: vi.fn(() => ({ dispose: vi.fn() })),
+  onDidCloseTerminal: vi.fn(() => ({ dispose: vi.fn() })),
+  onDidOpenTerminal: vi.fn(() => ({ dispose: vi.fn() })),
+  tabGroupsAll: [] as MockTabGroup[],
   TabInputTerminalClass: class MockTabInputTerminal {},
-  terminalStateChangeListeners: [] as Array<(terminal: unknown) => void>,
-  tabGroupsAll: [] as Array<{
-    isLocked?: boolean;
-    tabs: Array<{ input: unknown; label: string }>;
-    viewColumn?: number;
-  }>,
-  terminals: [] as unknown[],
-  windowFocused: true,
-  workspaceFolders: [
-    {
-      uri: {
-        fsPath: "/workspace",
-      },
-    },
-  ],
+  terminals: [] as MockTerminal[],
+  workspaceState: {
+    get: vi.fn(() => ({})),
+    update: vi.fn(async () => undefined),
+  },
 }));
 
-vi.mock("./agent-shell-integration", () => ({
-  ensureAgentShellIntegration: vi.fn(async () => ({
-    binDir: "/mock-bin",
-    notifyPath: "/mock-notify",
-    opencodeConfigDir: "/mock-opencode",
-    zshDotDir: "/mock-zsh",
-  })),
-}));
+type MockTab = {
+  group: MockTabGroup;
+  isActive: boolean;
+  input: unknown;
+  label: string;
+  terminal?: MockTerminal;
+};
 
-vi.mock("./native-terminal-process-identity", () => ({
-  readManagedTerminalIdentityFromProcessId: testState.processIdentityByPid,
-}));
+type MockTabGroup = {
+  isActive: boolean;
+  tabs: MockTab[];
+  viewColumn: number;
+};
+
+type MockTerminal = {
+  creationOptions: Record<string, unknown>;
+  dispose: ReturnType<typeof vi.fn>;
+  exitStatus: undefined | { code: number };
+  name: string;
+  processId: Promise<number>;
+  sendText: ReturnType<typeof vi.fn>;
+  show: ReturnType<typeof vi.fn>;
+};
 
 vi.mock("vscode", () => ({
-  EventEmitter: class MockEventEmitter<T> {
-    public readonly event = vi.fn(() => ({ dispose: vi.fn() }));
+  EventEmitter: class EventEmitter<T> {
+    private listeners: Array<(value: T) => void> = [];
 
-    public dispose(): void {}
+    public readonly event = (listener: (value: T) => void) => {
+      this.listeners.push(listener);
+      return { dispose: vi.fn() };
+    };
 
-    public fire(_value: T): void {}
+    public fire(value: T): void {
+      for (const listener of this.listeners) {
+        listener(value);
+      }
+    }
+
+    public dispose(): void {
+      this.listeners = [];
+    }
   },
   TabInputTerminal: testState.TabInputTerminalClass,
   ThemeIcon: class ThemeIcon {},
   ViewColumn: {
-    Eight: 8,
-    Five: 5,
-    Four: 4,
-    Nine: 9,
     One: 1,
-    Seven: 7,
-    Six: 6,
-    Three: 3,
     Two: 2,
-  },
-  commands: {
-    executeCommand: testState.executeCommand,
+    Three: 3,
   },
   window: {
     get activeTerminal() {
       return testState.activeTerminal;
     },
+    createTerminal: testState.createTerminal,
+    onDidChangeActiveTerminal: testState.onDidChangeActiveTerminal,
+    onDidChangeTerminalState: testState.onDidChangeTerminalState,
+    onDidCloseTerminal: testState.onDidCloseTerminal,
+    onDidOpenTerminal: testState.onDidOpenTerminal,
+    get tabGroups() {
+      return {
+        activeTabGroup: testState.tabGroupsAll[testState.activeTabGroupIndex],
+        all: testState.tabGroupsAll,
+      };
+    },
     get terminals() {
       return testState.terminals;
-    },
-    onDidChangeActiveTerminal: vi.fn((listener: (terminal: unknown) => void) => {
-      testState.activeTerminalChangeListeners.push(listener);
-      return { dispose: vi.fn() };
-    }),
-    onDidChangeTerminalState: vi.fn((listener: (terminal: unknown) => void) => {
-      testState.terminalStateChangeListeners.push(listener);
-      return { dispose: vi.fn() };
-    }),
-    onDidCloseTerminal: vi.fn((listener: (terminal: unknown) => void) => {
-      testState.closeTerminalListeners.push(listener);
-      return { dispose: vi.fn() };
-    }),
-    onDidOpenTerminal: vi.fn((listener: (terminal: unknown) => void) => {
-      testState.openTerminalListeners.push(listener);
-      return { dispose: vi.fn() };
-    }),
-    state: {
-      get focused() {
-        return testState.windowFocused;
-      },
-    },
-    tabGroups: {
-      get all() {
-        return testState.tabGroupsAll;
-      },
-      get activeTabGroup() {
-        return {
-          viewColumn: testState.activeViewColumn,
-        };
-      },
     },
   },
   workspace: {
     getConfiguration: vi.fn(() => ({
-      get: vi.fn((key: string, defaultValue?: unknown) =>
-        key in testState.configurationValues ? testState.configurationValues[key] : defaultValue,
-      ),
+      get: (_key: string, defaultValue?: unknown) => defaultValue,
     })),
-    get workspaceFolders() {
-      return testState.workspaceFolders;
-    },
-  },
-}));
-
-import { NativeTerminalWorkspaceBackend } from "./native-terminal-workspace-backend";
-
-describe("NativeTerminalWorkspaceBackend moveProjectionToEditor", () => {
-  beforeEach(() => {
-    testState.activeTerminal = undefined;
-    testState.activeViewColumn = 1;
-    testState.activeTerminalChangeListeners = [];
-    testState.closeTerminalListeners = [];
-    testState.configurationValues = {};
-    testState.executeCommand.mockReset();
-    testState.executeCommand.mockResolvedValue(undefined);
-    testState.openTerminalListeners = [];
-    testState.processIdentityByPid.mockReset();
-    testState.processIdentityByPid.mockResolvedValue(undefined);
-    testState.tabGroupsAll = [];
-    testState.terminalStateChangeListeners = [];
-    testState.terminals = [];
-    testState.windowFocused = true;
-    testState.workspaceFolders = [
+    workspaceFolders: [
       {
         uri: {
           fsPath: "/workspace",
+          toString: () => "file:///workspace",
         },
       },
-    ];
-    vi.useRealTimers();
-  });
-
-  test("should preserve the target group focus when moving a panel terminal into the editor", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Vale",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    vi.spyOn(backend as any, "runUiAction").mockImplementation(
-      async (callback: () => Promise<unknown> | unknown) => await callback(),
-    );
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "panel" },
-      sessionId: "session-1",
-      terminal,
-    });
-
-    await backend.syncConfiguration();
-    await (backend as any).moveProjectionToEditor("session-1", 1);
-
-    expect(callOrder).toEqual([
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusSecondEditorGroup",
-    ]);
-    expect((backend as any).projections.get("session-1")?.location).toEqual({
-      type: "editor",
-      visibleIndex: 1,
-    });
-  });
-
-  test("should skip creating terminal projections for T3 sessions", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const createProjectionSpy = vi
-      .spyOn(backend as never, "createProjection")
-      .mockResolvedValue(undefined as never);
-    const terminalSession = createSessionRecord(1, 0);
-    const t3Session = createSessionRecord(2, 1, {
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-1",
-        workspaceRoot: "/workspace",
-      },
-      title: "T3 Code",
-    });
-
-    await (backend as any).ensureParkedProjections([terminalSession, t3Session]);
-
-    expect(createProjectionSpy).toHaveBeenCalledTimes(1);
-    expect(createProjectionSpy).toHaveBeenCalledWith(terminalSession, "panel");
-  });
-
-  test("should temporarily unlock a locked destination group before moving a panel terminal into it", async () => {
-    const callOrder: string[] = [];
-    testState.configurationValues.keepSessionGroupsUnlocked = false;
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.tabGroupsAll = [
-      {
-        isLocked: true,
-        tabs: [
-          {
-            input: new testState.TabInputTerminalClass(),
-            label: "Grove",
-          },
-        ],
-        viewColumn: 2,
-      },
-    ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.unlockEditorGroup") {
-        testState.tabGroupsAll = [
-          {
-            isLocked: false,
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            isLocked: false,
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Vale",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      if (command === "workbench.action.lockEditorGroup") {
-        testState.tabGroupsAll = [
-          {
-            isLocked: true,
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Vale",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "panel" },
-      sessionId: "session-1",
-      terminal,
-    });
-
-    await backend.syncConfiguration();
-    await (backend as any).moveProjectionToEditor("session-1", 1);
-
-    expect(callOrder).toEqual([
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.unlockEditorGroup",
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.lockEditorGroup",
-      "workbench.action.focusSecondEditorGroup",
-    ]);
-  });
-
-  test("should unlock and relock the destination group even when the lock state is unavailable", async () => {
-    const callOrder: string[] = [];
-    testState.configurationValues.keepSessionGroupsUnlocked = false;
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.tabGroupsAll = [
-      {
-        tabs: [
-          {
-            input: new testState.TabInputTerminalClass(),
-            label: "Grove",
-          },
-        ],
-        viewColumn: 2,
-      },
-    ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Vale",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "panel" },
-      sessionId: "session-1",
-      terminal,
-    });
-
-    await backend.syncConfiguration();
-    await (backend as any).moveProjectionToEditor("session-1", 1);
-
-    expect(callOrder).toEqual([
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.unlockEditorGroup",
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.lockEditorGroup",
-      "workbench.action.focusSecondEditorGroup",
-    ]);
-  });
-
-  test("should not change editor group locks during moves when keepSessionGroupsUnlocked is enabled", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.tabGroupsAll = [
-      {
-        isLocked: true,
-        tabs: [
-          {
-            input: new testState.TabInputTerminalClass(),
-            label: "Grove",
-          },
-        ],
-        viewColumn: 2,
-      },
-    ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            isLocked: true,
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Vale",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "panel" },
-      sessionId: "session-1",
-      terminal,
-    });
-
-    await backend.syncConfiguration();
-    await (backend as any).moveProjectionToEditor("session-1", 1);
-
-    expect(callOrder).toEqual([
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusSecondEditorGroup",
-    ]);
-    expect(callOrder).not.toContain("workbench.action.unlockEditorGroup");
-    expect(callOrder).not.toContain("workbench.action.lockEditorGroup");
-  });
-
-  test("should wait for the owner window to be focused before running UI actions", async () => {
-    vi.useFakeTimers();
-    testState.windowFocused = false;
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const callback = vi.fn(async () => "done");
-
-    const resultPromise = (backend as any).runUiAction(callback);
-    await vi.advanceTimersByTimeAsync(200);
-    expect(callback).not.toHaveBeenCalled();
-
-    testState.windowFocused = true;
-    await vi.advanceTimersByTimeAsync(100);
-
-    await expect(resultPromise).resolves.toBe("done");
-    expect(callback).toHaveBeenCalledTimes(1);
-  });
-
-  test("should move the active editor back into the requested slot when moveToEditor creates a new group", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Beacon",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 3;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Beacon",
-              },
-            ],
-            viewColumn: 3,
-          },
-        ];
-      }
-      if (command === "workbench.action.moveEditorToPreviousGroup") {
-        testState.activeViewColumn = Math.max(1, testState.activeViewColumn - 1);
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Beacon",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-2", {
-      location: { type: "panel" },
-      sessionId: "session-2",
-      terminal,
-    });
-
-    await (backend as any).moveProjectionToEditor("session-2", 1);
-
-    expect(callOrder).toEqual([
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusThirdEditorGroup",
-      "workbench.action.moveEditorToPreviousGroup",
-    ]);
-    expect(testState.activeViewColumn).toBe(2);
-  });
-
-  test("should refocus the landed editor group before aligning when moveToEditor leaves another group active", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Drift",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToEditor") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Drift",
-              },
-            ],
-            viewColumn: 3,
-          },
-        ];
-      }
-      if (command === "workbench.action.focusThirdEditorGroup") {
-        testState.activeViewColumn = 3;
-      }
-      if (command === "workbench.action.moveEditorToPreviousGroup") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Drift",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-drift", {
-      location: { type: "panel" },
-      sessionId: "session-drift",
-      terminal,
-    });
-
-    await (backend as any).moveProjectionToEditor("session-drift", 1);
-
-    expect(callOrder).toEqual([
-      "show:true",
-      "workbench.action.focusSecondEditorGroup",
-      "workbench.action.terminal.moveToEditor",
-      "workbench.action.focusThirdEditorGroup",
-      "workbench.action.moveEditorToPreviousGroup",
-    ]);
-    expect((backend as any).projections.get("session-drift")?.location).toEqual({
-      type: "editor",
-      visibleIndex: 1,
-    });
-  });
-
-  test("should only reposition the editor group when the terminal is already visible", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Grove",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        testState.activeViewColumn = 3;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.tabGroupsAll = [
-      {
-        tabs: [
-          {
-            input: new testState.TabInputTerminalClass(),
-            label: "Grove",
-          },
-        ],
-        viewColumn: 3,
-      },
-    ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.moveEditorToPreviousGroup") {
-        testState.activeViewColumn = 2;
-        testState.tabGroupsAll = [
-          {
-            tabs: [
-              {
-                input: new testState.TabInputTerminalClass(),
-                label: "Grove",
-              },
-            ],
-            viewColumn: 2,
-          },
-        ];
-      }
-
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-3", {
-      location: { type: "editor", visibleIndex: 2 },
-      sessionId: "session-3",
-      terminal,
-    });
-
-    await (backend as any).moveProjectionToEditor("session-3", 1);
-
-    expect(callOrder).toEqual([
-      "show:false",
-      "workbench.action.focusThirdEditorGroup",
-      "workbench.action.moveEditorToPreviousGroup",
-    ]);
-    expect((backend as any).projections.get("session-3")?.location).toEqual({
-      type: "editor",
-      visibleIndex: 1,
-    });
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend debugging trace", () => {
-  let workspaceDirectory: string | undefined;
-
-  afterEach(async () => {
-    if (workspaceDirectory) {
-      await rm(workspaceDirectory, { force: true, recursive: true });
-      workspaceDirectory = undefined;
-    }
-  });
-
-  test("should not create the reconcile trace file when debugging mode is disabled", async () => {
-    workspaceDirectory = await mkdtemp(path.join(os.tmpdir(), "agent-tiler-trace-off-"));
-    testState.workspaceFolders = [
-      {
-        uri: {
-          fsPath: workspaceDirectory,
-        },
-      },
-    ];
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    await backend.initialize([]);
-
-    await expect(
-      access(path.join(workspaceDirectory, "logs", "native-terminal-reconcile.log")),
-    ).rejects.toThrow();
-
-    backend.dispose();
-  });
-
-  test("should remove the reconcile trace file when debugging mode is turned off", async () => {
-    workspaceDirectory = await mkdtemp(path.join(os.tmpdir(), "agent-tiler-trace-on-"));
-    testState.workspaceFolders = [
-      {
-        uri: {
-          fsPath: workspaceDirectory,
-        },
-      },
-    ];
-    testState.configurationValues.debuggingMode = true;
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const traceFilePath = path.join(workspaceDirectory, "logs", "native-terminal-reconcile.log");
-
-    await backend.initialize([]);
-    await backend.clearDebugArtifacts();
-    await expect(access(traceFilePath)).resolves.toBeUndefined();
-
-    testState.configurationValues.debuggingMode = false;
-    await backend.syncConfiguration();
-
-    await waitForFileToBeRemoved(traceFilePath);
-
-    backend.dispose();
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend mixed visible layout reconcile", () => {
-  test("should create the editor split before moving a visible terminal when a T3 session occupies another slot", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const terminalSession = createSessionRecord(93, 0);
-    const t3Session = createSessionRecord(96, 1, {
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-1",
-        workspaceRoot: "/workspace",
-      },
-      title: "Adding t3 code",
-    });
-    const snapshot = {
-      focusedSessionId: t3Session.sessionId,
-      sessions: [terminalSession, t3Session],
-      viewMode: "vertical" as const,
-      visibleCount: 2 as const,
-      visibleSessionIds: [t3Session.sessionId, terminalSession.sessionId],
-    };
-    const callOrder: string[] = [];
-
-    vi.spyOn(backend as never, "promoteFocusedVisibleProjection").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "parkHiddenEditorProjections").mockResolvedValue(false as never);
-    vi.spyOn(backend as never, "applyVisibleEditorLayout").mockImplementation(async () => {
-      callOrder.push("layout");
-    });
-    vi.spyOn(backend as never, "refreshProjectionLocations").mockImplementation(() => {
-      callOrder.push("refresh");
-    });
-    vi.spyOn(backend as never, "moveProjectionToEditor").mockImplementation(
-      async (_sessionId: string, visibleIndex: number) => {
-        callOrder.push(`move:${visibleIndex}`);
-      },
-    );
-    vi.spyOn(backend as never, "ensureDesiredEditorLayoutShape").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "showTerminal").mockResolvedValue(undefined as never);
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(snapshot, true);
-
-    expect(callOrder).toEqual(["layout", "refresh", "move:1"]);
-  });
-
-  test("should park a misaligned visible terminal before rebuilding a mixed T3 layout", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const terminalSession = createSessionRecord(93, 0);
-    const t3Session = createSessionRecord(96, 1, {
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-1",
-        workspaceRoot: "/workspace",
-      },
-      title: "Adding t3 code",
-    });
-    const terminal = {
-      creationOptions: {
-        name: "Adding t3 code",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Adding t3 code",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    (backend as any).projections.set(terminalSession.sessionId, {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: terminalSession.sessionId,
-      terminal,
-    });
-    const snapshot = {
-      focusedSessionId: t3Session.sessionId,
-      sessions: [terminalSession, t3Session],
-      viewMode: "vertical" as const,
-      visibleCount: 2 as const,
-      visibleSessionIds: [t3Session.sessionId, terminalSession.sessionId],
-    };
-    const callOrder: string[] = [];
-
-    vi.spyOn(backend as never, "promoteFocusedVisibleProjection").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "parkHiddenEditorProjections").mockResolvedValue(true as never);
-    vi.spyOn(backend as never, "moveProjectionToPanel").mockImplementation(async () => {
-      callOrder.push("panel");
-      const projection = (backend as any).projections.get(terminalSession.sessionId);
-      if (projection) {
-        projection.location = { type: "panel" };
-      }
-    });
-    vi.spyOn(backend as never, "applyVisibleEditorLayout").mockImplementation(async () => {
-      callOrder.push("layout");
-    });
-    vi.spyOn(backend as never, "refreshProjectionLocations").mockImplementation(() => {
-      callOrder.push("refresh");
-    });
-    vi.spyOn(backend as never, "moveProjectionToEditor").mockImplementation(
-      async (_sessionId: string, visibleIndex: number) => {
-        callOrder.push(`move:${visibleIndex}`);
-      },
-    );
-    vi.spyOn(backend as never, "ensureDesiredEditorLayoutShape").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "showTerminal").mockResolvedValue(undefined as never);
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(snapshot, true);
-
-    expect(callOrder).toEqual(["panel", "layout", "refresh", "move:1"]);
-  });
-
-  test("should still skip early editor layout creation for all-terminal layouts when hidden projections are not fully parked", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-    const sessionA = createSessionRecord(1, 0);
-    const sessionB = createSessionRecord(2, 1);
-    const snapshot = {
-      focusedSessionId: sessionA.sessionId,
-      sessions: [sessionA, sessionB],
-      viewMode: "vertical" as const,
-      visibleCount: 2 as const,
-      visibleSessionIds: [sessionA.sessionId, sessionB.sessionId],
-    };
-    const callOrder: string[] = [];
-
-    vi.spyOn(backend as never, "promoteFocusedVisibleProjection").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "parkHiddenEditorProjections").mockResolvedValue(false as never);
-    vi.spyOn(backend as never, "applyVisibleEditorLayout").mockImplementation(async () => {
-      callOrder.push("layout");
-    });
-    vi.spyOn(backend as never, "moveProjectionToEditor").mockImplementation(
-      async (_sessionId: string, visibleIndex: number) => {
-        callOrder.push(`move:${visibleIndex}`);
-      },
-    );
-    vi.spyOn(backend as never, "ensureDesiredEditorLayoutShape").mockResolvedValue(
-      undefined as never,
-    );
-    vi.spyOn(backend as never, "showTerminal").mockResolvedValue(undefined as never);
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(snapshot, true);
-
-    expect(callOrder).toEqual(["move:0", "move:1"]);
-  });
-});
-
-async function waitForFileToBeRemoved(filePath: string): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await access(filePath);
-    } catch {
-      return;
-    }
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 25);
-    });
-  }
-
-  await expect(access(filePath)).rejects.toThrow();
-}
-
-describe("NativeTerminalWorkspaceBackend moveProjectionToPanel", () => {
+    ],
+  },
+  commands: {
+    executeCommand: testState.executeCommand,
+  },
+}));
+
+vi.mock("./agent-shell-integration", () => ({
+  ensureAgentShellIntegration: vi.fn(async () => ({
+    binDir: "/bin",
+    claudeSettingsPath: "/claude.json",
+    notifyPath: "/notify.js",
+    opencodeConfigDir: "/opencode",
+    zshDotDir: "/zsh",
+  })),
+}));
+
+vi.mock("./native-terminal-process-identity", () => ({
+  readManagedTerminalIdentityFromProcessId: vi.fn(async () => undefined),
+}));
+
+vi.mock("./terminal-workspace-helpers", () => ({
+  createDisconnectedSessionSnapshot: (
+    sessionId: string,
+    workspaceId: string,
+    status = "disconnected",
+  ) => ({
+    agentName: undefined,
+    agentStatus: "idle",
+    cols: 120,
+    cwd: "/workspace",
+    restoreState: "live",
+    rows: 34,
+    sessionId,
+    shell: "/bin/zsh",
+    startedAt: new Date(0).toISOString(),
+    status,
+    workspaceId,
+  }),
+  focusEditorGroupByIndex: testState.focusEditorGroupByIndex,
+  getDefaultShell: () => "/bin/zsh",
+  getDefaultWorkspaceCwd: () => "/workspace",
+  getViewColumn: (index: number) => index + 1,
+  getWorkspaceStorageKey: (key: string, workspaceId: string) => `${key}:${workspaceId}`,
+  moveActiveEditorToNextGroup: testState.moveActiveEditorToNextGroup,
+  moveActiveEditorToPreviousGroup: testState.moveActiveEditorToPreviousGroup,
+  moveActiveTerminalToEditor: testState.moveActiveTerminalToEditor,
+  parsePersistedSessionState: () => ({
+    agentName: "codex",
+    agentStatus: "working",
+    title: "Codex",
+  }),
+}));
+
+describe("NativeTerminalWorkspaceBackend", () => {
   beforeEach(() => {
     testState.activeTerminal = undefined;
-    testState.activeViewColumn = 1;
-    testState.activeTerminalChangeListeners = [];
-    testState.closeTerminalListeners = [];
-    testState.configurationValues = {};
-    testState.executeCommand.mockReset();
-    testState.executeCommand.mockResolvedValue(undefined);
-    testState.openTerminalListeners = [];
+    testState.activeTabGroupIndex = 0;
+    testState.createTerminal.mockClear();
+    testState.executeCommand.mockClear();
+    testState.focusEditorGroupByIndex.mockClear();
+    testState.moveActiveEditorToNextGroup.mockClear();
+    testState.moveActiveEditorToPreviousGroup.mockClear();
+    testState.moveActiveTerminalToEditor.mockClear();
     testState.tabGroupsAll = [];
-    testState.terminalStateChangeListeners = [];
     testState.terminals = [];
-    vi.useRealTimers();
+    testState.workspaceState.get.mockClear();
+    testState.workspaceState.get.mockReturnValue({});
+    testState.workspaceState.update.mockClear();
   });
 
-  test("should focus the terminal's editor group before moving it to the panel", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "layout native",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
+  test("should attach an existing terminal by its canonical title", async () => {
+    const session = createTerminalSession(1, 0, "Adding t3 code");
+    const existingTerminal = createTerminal({
+      env: {},
+      name: "[000] Adding t3 code",
+    });
+    testState.terminals.push(existingTerminal);
+    testState.tabGroupsAll = [createTabGroup(1, existingTerminal)];
+
+    const backend = createBackend();
+    await backend.initialize([session]);
+
+    expect(backend.hasLiveTerminal(session.sessionId)).toBe(true);
+    expect(backend.getSessionSnapshot(session.sessionId)?.status).toBe("running");
+  });
+
+  test("should create a missing managed terminal in editor group one", async () => {
+    const session = createTerminalSession(1, 0, "Adding t3 code");
+    const backend = createBackend();
+    await backend.initialize([session]);
+
+    await backend.createOrAttachSession(session);
+
+    expect(testState.createTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        location: {
+          preserveFocus: true,
+          viewColumn: 1,
+        },
+        name: "[000] Adding t3 code",
       }),
-    };
+    );
+    expect(backend.hasLiveTerminal(session.sessionId)).toBe(true);
+  });
+
+  test("should activate the terminal tab before moving it between mixed editor groups", async () => {
+    const terminalSession = createTerminalSession(24, 2, "Fixing layout issues");
+    const terminal = createTerminal({ env: {}, name: "[023] Fixing layout issues" });
+    testState.terminals.push(terminal);
     testState.tabGroupsAll = [
-      {
-        tabs: [
-          {
-            input: new testState.TabInputTerminalClass(),
-            label: "layout native",
-          },
-        ],
-        viewColumn: 2,
-      },
+      createTabGroup(
+        1,
+        createWebviewTab("[111] T3: Indicators for Claude"),
+        createWebviewTab("[095] T3: Adding prev sessions"),
+        terminal,
+      ),
+      createTabGroup(2),
     ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToTerminalPanel") {
-        testState.tabGroupsAll = [];
-      }
-      callOrder.push(command);
-      return undefined;
-    });
+    activateTabAtIndex(0, 0);
 
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
+    const backend = createBackend();
+    await backend.initialize([terminalSession]);
 
-    (backend as any).projections.set("session-83", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-83",
-      terminal,
-    });
-
-    await (backend as any).moveProjectionToPanel("session-83");
-
-    expect(callOrder).toEqual([
-      "workbench.action.focusSecondEditorGroup",
-      "show:false",
-      "workbench.action.terminal.moveToTerminalPanel",
-    ]);
-    expect((backend as any).projections.get("session-83")?.location).toEqual({
-      type: "panel",
-    });
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend focusSession", () => {
-  beforeEach(() => {
-    testState.activeTerminal = undefined;
-    testState.activeViewColumn = 1;
-    testState.activeTerminalChangeListeners = [];
-    testState.closeTerminalListeners = [];
-    testState.configurationValues = {};
-    testState.executeCommand.mockReset();
-    testState.executeCommand.mockResolvedValue(undefined);
-    testState.openTerminalListeners = [];
-    testState.tabGroupsAll = [];
-    testState.terminalStateChangeListeners = [];
-    testState.terminals = [];
-    vi.useRealTimers();
-  });
-
-  test("should explicitly re-show a visible editor terminal after focusing its editor group", async () => {
-    const callOrder: string[] = [];
-    const terminal = {
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "[092] Adding t3 code",
-      sendText: vi.fn(),
-      show: vi.fn((preserveFocus: boolean) => {
-        testState.activeTerminal = terminal;
-        callOrder.push(`show:${String(preserveFocus)}`);
-      }),
-    };
-    testState.terminals = [terminal];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      callOrder.push(command);
-      return undefined;
-    });
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-93", {
-      identityRank: 100,
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-93",
-      terminal,
-    });
-    (backend as any).lastVisibleSnapshot = {
-      focusedSessionId: "session-93",
-      sessions: [],
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: terminalSession.sessionId,
+      fullscreenRestoreVisibleCount: undefined,
+      sessions: [terminalSession],
       viewMode: "horizontal",
       visibleCount: 2,
-      visibleSessionIds: ["session-96", "session-93"],
-    };
-
-    await backend.focusSession("session-93", false);
-
-    expect(callOrder).toEqual(["workbench.action.focusSecondEditorGroup", "show:false"]);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend initialize", () => {
-  test("should wait for late revived terminals and attach them by exact display title", async () => {
-    vi.useFakeTimers();
-
-    const sessionRecord = {
-      ...createSessionRecord(3, 0),
-      alias: "Harbor Vale",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
+      visibleSessionIds: ["session-111", terminalSession.sessionId],
     });
 
-    let initialized = false;
-    const initializePromise = backend.initialize([sessionRecord] as never).then(() => {
-      initialized = true;
-    });
-
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(testState.openTerminalListeners).toHaveLength(1);
-    expect(initialized).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(100);
-    expect(initialized).toBe(false);
-
-    const revivedTerminal = {
-      creationOptions: {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: getTerminalSessionSurfaceTitle(sessionRecord),
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
-    testState.openTerminalListeners[0]?.(revivedTerminal);
-
-    await vi.advanceTimersByTimeAsync(100);
-    expect(initialized).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(150);
-    await initializePromise;
-
-    expect((backend as any).projections.get("session-3")?.terminal).toBe(revivedTerminal);
-    backend.dispose();
-    vi.useRealTimers();
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.action.openEditorAtIndex3");
+    expect(testState.moveActiveEditorToNextGroup).toHaveBeenCalledTimes(1);
+    expect(testState.tabGroupsAll[0]?.tabs.map((tab) => tab.label)).toEqual([
+      "[111] T3: Indicators for Claude",
+      "[095] T3: Adding prev sessions",
+    ]);
+    expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
+      "[023] Fixing layout issues",
+    ]);
   });
 
-  test("should rescan revived terminals that gain their alias after the first restore scan", async () => {
-    vi.useFakeTimers();
+  test("should focus an attached terminal session", async () => {
+    const session = createTerminalSession(1, 0, "Adding t3 code");
+    const terminal = createTerminal({ env: {}, name: "[000] Adding t3 code" });
+    testState.terminals.push(terminal);
+    testState.tabGroupsAll = [createTabGroup(1, terminal)];
 
-    const sessionRecord = {
-      ...createSessionRecord(9, 0),
-      alias: "Atlas",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
+    const backend = createBackend();
+    await backend.initialize([session]);
 
-    const revivedTerminal = {
-      creationOptions: {
-        name: "",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
+    const changed = await backend.focusSession(session.sessionId, false);
 
-    const initializePromise = backend.initialize([sessionRecord] as never);
-
-    await Promise.resolve();
-    revivedTerminal.name = getTerminalSessionSurfaceTitle(sessionRecord);
-    revivedTerminal.creationOptions.name = getTerminalSessionSurfaceTitle(sessionRecord);
-    testState.terminalStateChangeListeners[0]?.(revivedTerminal);
-
-    await vi.advanceTimersByTimeAsync(200);
-    await initializePromise;
-
-    expect((backend as any).projections.get("session-9")?.terminal).toBe(revivedTerminal);
-    backend.dispose();
-    vi.useRealTimers();
+    expect(changed).toBe(true);
+    expect(terminal.show).toHaveBeenCalledWith(false);
   });
 
-  test("should restore a revived terminal by exact display title", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(10, 0),
-      alias: "Atlas",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
+  test("should keep a hidden terminal in its current editor group", async () => {
+    const firstSession = createTerminalSession(1, 0, "Adding t3 code");
+    const secondSession = createTerminalSession(2, 1, "Publish to Store");
+    const firstTerminal = createTerminal({ env: {}, name: "[000] Adding t3 code" });
+    const secondTerminal = createTerminal({ env: {}, name: "[001] Publish to Store" });
+    testState.terminals.push(firstTerminal, secondTerminal);
+    testState.tabGroupsAll = [createTabGroup(1, firstTerminal), createTabGroup(2, secondTerminal)];
+    activateTabAtIndex(0, 0);
 
-    const revivedTerminal = {
-      creationOptions: {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: getTerminalSessionSurfaceTitle(sessionRecord),
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
+    const backend = createBackend();
+    await backend.initialize([firstSession, secondSession]);
 
-    await backend.initialize([sessionRecord] as never);
-
-    expect((backend as any).projections.get("session-10")?.terminal).toBe(revivedTerminal);
-  });
-
-  test("should restore a revived terminal by titled alias suffix when the display id differs", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(137, 0),
-      alias: "Publish to Store",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const revivedTerminal = {
-      creationOptions: {
-        name: "[138] Publish to Store",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "[138] Publish to Store",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
-
-    await backend.initialize([sessionRecord] as never);
-    await Promise.resolve();
-
-    expect((backend as any).projections.get("session-137")?.terminal).toBe(revivedTerminal);
-    expect(testState.executeCommand).toHaveBeenCalledWith(
-      "workbench.action.terminal.renameWithArg",
-      {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-    );
-  });
-
-  test("should restore a revived terminal by display id when only the bracketed prefix remains", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(93, 0),
-      alias: "Adding t3 code",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const revivedTerminal = {
-      creationOptions: {
-        name: "[092]",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "[092]",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
-
-    await backend.initialize([sessionRecord] as never);
-    await Promise.resolve();
-
-    expect((backend as any).projections.get("session-93")?.terminal).toBe(revivedTerminal);
-    expect(testState.executeCommand).toHaveBeenCalledWith(
-      "workbench.action.terminal.renameWithArg",
-      {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-    );
-  });
-
-  test("should ignore a revived terminal whose title does not match any session", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(11, 0),
-      alias: "Adding t3 code",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const revivedTerminal = {
-      creationOptions: {
-        name: "Code",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Code",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    testState.terminals = [revivedTerminal];
-
-    await backend.initialize([sessionRecord] as never);
-
-    expect((backend as any).projections.has("session-11")).toBe(false);
-  });
-
-  test("should keep the first restored terminal when a duplicate with the same title is discovered later", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(12, 0),
-      alias: "Adding t3 code",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const restoredTerminal = {
-      creationOptions: {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: getTerminalSessionSurfaceTitle(sessionRecord),
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    const duplicateTerminal = {
-      creationOptions: {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: getTerminalSessionSurfaceTitle(sessionRecord),
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    (backend as any).trackedSessionIds.add("session-12");
-    (backend as any).sessionAliases.set(
-      "session-12",
-      getTerminalSessionSurfaceTitle(sessionRecord),
-    );
-    testState.terminals = [restoredTerminal, duplicateTerminal];
-
-    await expect(
-      (backend as any).resolveManagedTerminalIdentity(restoredTerminal),
-    ).resolves.toEqual({
-      identityRank: 100,
-      sessionId: "session-12",
-      workspaceId: "workspace-1",
-    });
-    await (backend as any).attachManagedTerminal(restoredTerminal);
-    await (backend as any).attachManagedTerminal(duplicateTerminal);
-
-    expect((backend as any).projections.get("session-12")?.terminal).toBe(restoredTerminal);
-  });
-
-  test("should move a prefix-only duplicate terminal to the panel when an exact restored terminal already exists", async () => {
-    const sessionRecord = {
-      ...createSessionRecord(93, 0),
-      alias: "Adding t3 code",
-    };
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const restoredTerminal = {
-      creationOptions: {
-        name: getTerminalSessionSurfaceTitle(sessionRecord),
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: getTerminalSessionSurfaceTitle(sessionRecord),
-      sendText: vi.fn(),
-      show: vi.fn(() => {
-        testState.activeTerminal = prefixOnlyTerminal;
-      }),
-    };
-    const prefixOnlyTerminal = {
-      creationOptions: {
-        name: "[092]",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "[092]",
-      sendText: vi.fn(),
-      show: vi.fn(() => {
-        testState.activeTerminal = prefixOnlyTerminal;
-      }),
-    };
-    testState.tabGroupsAll = [
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "[092]" }],
-        viewColumn: 2,
-      },
-    ];
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "workbench.action.focusSecondEditorGroup") {
-        testState.activeViewColumn = 2;
-      }
-      if (command === "workbench.action.terminal.moveToTerminalPanel") {
-        testState.tabGroupsAll = [];
-      }
-      return undefined;
-    });
-
-    (backend as any).trackedSessionIds.add("session-93");
-    (backend as any).sessionAliases.set(
-      "session-93",
-      getTerminalSessionSurfaceTitle(sessionRecord),
-    );
-    (backend as any).projections.set("session-93", {
-      identityRank: 100,
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-93",
-      terminal: restoredTerminal,
-    });
-    (backend as any).terminalToSessionId.set(restoredTerminal, "session-93");
-
-    await (backend as any).attachManagedTerminal(prefixOnlyTerminal);
-
-    expect((backend as any).projections.get("session-93")?.terminal).toBe(restoredTerminal);
-    expect(testState.executeCommand).toHaveBeenCalledWith(
-      "workbench.action.terminal.moveToTerminalPanel",
-    );
-  });
-
-  test("should dispose a created placeholder when a revived terminal replaces it", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const placeholderTerminal = {
-      creationOptions: {
-        env: {
-          VSMUX_SESSION_ID: "session-8",
-          VSMUX_WORKSPACE_ID: "workspace-1",
-        },
-        name: "Harbor Vale",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Harbor Vale",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    const revivedTerminal = {
-      creationOptions: {
-        name: "Harbor Vale",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Harbor Vale",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-
-    (backend as any).trackedSessionIds.add("session-8");
-    (backend as any).sessionAliases.set("session-8", "Harbor Vale");
-    (backend as any).createdTerminals.add(placeholderTerminal);
-    (backend as any).projections.set("session-8", {
-      location: { type: "panel" },
-      sessionId: "session-8",
-      terminal: placeholderTerminal,
-    });
-    (backend as any).terminalToSessionId.set(placeholderTerminal, "session-8");
-
-    await (backend as any).attachManagedTerminal(revivedTerminal);
-
-    expect(placeholderTerminal.dispose).toHaveBeenCalledTimes(1);
-    expect((backend as any).projections.get("session-8")?.terminal).toBe(revivedTerminal);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend reconcileVisibleTerminalsByMovingParkedProjections", () => {
-  test("should promote the focused parked terminal before demoting the outgoing editor terminal", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const callOrder: string[] = [];
-    (backend as any).projections.set("session-1", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-1",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "VSmux session-1",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-2", {
-      location: { type: "panel" },
-      sessionId: "session-2",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "VSmux session-2",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    (backend as any).moveProjectionToEditor = vi.fn(
-      async (sessionId: string, visibleIndex: number) => {
-        const projection = (backend as any).projections.get(sessionId);
-        if (
-          projection?.location.type === "editor" &&
-          projection.location.visibleIndex === visibleIndex
-        ) {
-          return;
-        }
-
-        callOrder.push(`editor:${sessionId}:${String(visibleIndex)}`);
-        if (projection) {
-          projection.location = { type: "editor", visibleIndex };
-        }
-      },
-    );
-    (backend as any).moveProjectionToPanel = vi.fn(async (sessionId: string) => {
-      const projection = (backend as any).projections.get(sessionId);
-      if (projection?.location.type === "panel") {
-        return;
-      }
-
-      callOrder.push(`panel:${sessionId}`);
-      if (projection) {
-        projection.location = { type: "panel" };
-      }
-    });
-    (backend as any).showTerminal = vi.fn(async () => undefined);
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(
-      {
-        focusedSessionId: "session-2",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 1,
-        visibleSessionIds: ["session-2"],
-      },
-      false,
-    );
-
-    expect(callOrder.slice(0, 2)).toEqual(["editor:session-2:0", "panel:session-1"]);
-  });
-
-  test("should skip the layout reset when hidden editor terminals cannot be parked", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const applyVisibleEditorLayout = vi
-      .spyOn(backend as any, "applyVisibleEditorLayout")
-      .mockImplementation(async () => undefined);
-    (backend as any).parkHiddenEditorProjections = vi.fn(async () => false);
-    (backend as any).moveProjectionToEditor = vi.fn(async () => undefined);
-    (backend as any).showTerminal = vi.fn(async () => undefined);
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(
-      {
-        focusedSessionId: "session-4",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 2,
-        visibleSessionIds: ["session-4", "session-5"],
-      },
-      false,
-    );
-
-    expect(applyVisibleEditorLayout).not.toHaveBeenCalled();
-    expect((backend as any).moveProjectionToEditor).toHaveBeenNthCalledWith(1, "session-4", 0);
-    expect((backend as any).moveProjectionToEditor).toHaveBeenNthCalledWith(2, "session-5", 1);
-  });
-
-  test("should reapply the selected layout shape after moving visible terminals", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const callOrder: string[] = [];
-    (backend as any).parkHiddenEditorProjections = vi.fn(async () => false);
-    (backend as any).ensureDesiredEditorLayoutShape = vi.fn(async () => {
-      callOrder.push("ensure-shape");
-    });
-    (backend as any).moveProjectionToEditor = vi.fn(async (sessionId: string) => {
-      callOrder.push(`move:${sessionId}`);
-    });
-    (backend as any).showTerminal = vi.fn(async () => {
-      callOrder.push("show");
-    });
-
-    await (backend as any).reconcileVisibleTerminalsByMovingParkedProjections(
-      {
-        focusedSessionId: "session-4",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 2,
-        visibleSessionIds: ["session-4", "session-5"],
-      },
-      false,
-    );
-
-    expect(callOrder).toEqual(["move:session-4", "move:session-5", "ensure-shape", "show"]);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend ensureDesiredEditorLayoutShape", () => {
-  test("should re-seat visible terminals after reapplying the layout shape", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const callOrder: string[] = [];
-    const visibleSessionIds = ["session-1", "session-2", "session-3", "session-4"];
-
-    visibleSessionIds.forEach((sessionId, visibleIndex) => {
-      (backend as any).projections.set(sessionId, {
-        location: { type: "editor", visibleIndex },
-        sessionId,
-        terminal: {
-          creationOptions: {
-            name: `Terminal ${String(visibleIndex + 1)}`,
-          },
-          dispose: vi.fn(),
-          exitStatus: undefined,
-          name: `Terminal ${String(visibleIndex + 1)}`,
-          sendText: vi.fn(),
-          show: vi.fn(),
-        },
-      });
-    });
-
-    testState.executeCommand.mockReset();
-    testState.executeCommand.mockImplementation(async (command: string) => {
-      if (command === "vscode.getEditorLayout") {
-        return {
-          groups: [{}, {}, {}, {}],
-          orientation: 0,
-        };
-      }
-
-      return undefined;
-    });
-
-    vi.spyOn(backend as any, "applyVisibleEditorLayout").mockImplementation(async () => {
-      callOrder.push("apply-layout");
-    });
-    vi.spyOn(backend as any, "moveProjectionToEditor").mockImplementation(
-      async (sessionId: string, visibleIndex: number) => {
-        callOrder.push(`move:${sessionId}:${String(visibleIndex)}`);
-      },
-    );
-
-    await (backend as any).ensureDesiredEditorLayoutShape({
-      focusedSessionId: "session-1",
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: firstSession.sessionId,
       fullscreenRestoreVisibleCount: undefined,
-      sessions: [] as never,
-      viewMode: "grid",
-      visibleCount: 4,
-      visibleSessionIds,
-    });
-
-    expect(callOrder).toEqual([
-      "apply-layout",
-      "move:session-1:0",
-      "move:session-2:1",
-      "move:session-3:2",
-      "move:session-4:3",
-    ]);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend applyParkedTerminalTransferPlan", () => {
-  test("should demote outgoing sessions before promoting incoming ones", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const callOrder: string[] = [];
-    vi.spyOn(backend as any, "moveProjectionToPanel").mockImplementation(
-      async (sessionId: string) => {
-        callOrder.push(`panel:${sessionId}`);
-      },
-    );
-    vi.spyOn(backend as any, "moveProjectionToEditor").mockImplementation(
-      async (sessionId: string, slotIndex: number) => {
-        callOrder.push(`editor:${sessionId}:${String(slotIndex)}`);
-      },
-    );
-    vi.spyOn(backend as any, "ensureDesiredEditorLayoutShape").mockImplementation(async () => {
-      callOrder.push("ensure-shape");
-    });
-    vi.spyOn(backend as any, "refreshProjectionLocations").mockImplementation(() => {});
-    vi.spyOn(backend as any, "showTerminal").mockImplementation(async () => {
-      callOrder.push("show");
-    });
-
-    await (backend as any).applyParkedTerminalTransferPlan(
-      {
-        focusedSessionId: "session-2",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 2,
-        visibleSessionIds: ["session-2", "session-3"],
-      },
-      {
-        currentVisibleSessionIds: ["session-1", "session-2"],
-        demoteSteps: [
-          { sessionId: "session-2", slotIndex: 1, type: "demote" },
-          { sessionId: "session-1", slotIndex: 0, type: "demote" },
-        ],
-        hasChanges: true,
-        nextVisibleSessionIds: ["session-2", "session-3"],
-        promoteSteps: [{ sessionId: "session-3", slotIndex: 1, type: "promote" }],
-        steps: [
-          { sessionId: "session-2", slotIndex: 1, type: "demote" },
-          { sessionId: "session-1", slotIndex: 0, type: "demote" },
-          { sessionId: "session-3", slotIndex: 1, type: "promote" },
-        ],
-        strategy: "transfer",
-        unchangedSlots: [],
-      },
-      false,
-    );
-
-    expect(callOrder).toEqual([
-      "panel:session-2",
-      "panel:session-1",
-      "editor:session-3:1",
-      "ensure-shape",
-      "show",
-    ]);
-  });
-
-  test("should use an incoming-first single-slot swap in stable placement mode", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-83", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-83",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "layout native",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-82", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-82",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "restoring agents when closed",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-85", {
-      location: { type: "panel" },
-      sessionId: "session-85",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Lattice",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    const callOrder: string[] = [];
-    vi.spyOn(backend as any, "moveProjectionToPanel").mockImplementation(
-      async (sessionId: string) => {
-        callOrder.push(`panel:${sessionId}`);
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection) {
-          projection.location = { type: "panel" };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "moveProjectionToEditor").mockImplementation(
-      async (
-        sessionId: string,
-        slotIndex: number,
-        options?: { targetGroupVisibleIndex?: number },
-      ) => {
-        callOrder.push(
-          `editor:${sessionId}:${String(slotIndex)}:${String(options?.targetGroupVisibleIndex ?? slotIndex)}`,
-        );
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection) {
-          projection.location = { type: "editor", visibleIndex: slotIndex };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "ensureDesiredEditorLayoutShape").mockImplementation(async () => {
-      callOrder.push("ensure-shape");
-    });
-    vi.spyOn(backend as any, "refreshProjectionLocations").mockImplementation(() => {});
-    vi.spyOn(backend as any, "showTerminal").mockImplementation(async () => {
-      callOrder.push("show");
-    });
-
-    await (backend as any).applyParkedTerminalTransferPlan(
-      {
-        focusedSessionId: "session-85",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "horizontal",
-        visibleCount: 2,
-        visibleSessionIds: ["session-85", "session-82"],
-      },
-      {
-        currentVisibleSessionIds: ["session-83", "session-82"],
-        demoteSteps: [{ sessionId: "session-83", slotIndex: 0, type: "demote" }],
-        hasChanges: true,
-        nextVisibleSessionIds: ["session-85", "session-82"],
-        promoteSteps: [{ sessionId: "session-85", slotIndex: 0, type: "promote" }],
-        steps: [
-          { sessionId: "session-83", slotIndex: 0, type: "demote" },
-          { sessionId: "session-85", slotIndex: 0, type: "promote" },
-        ],
-        strategy: "transfer",
-        unchangedSlots: [{ sessionId: "session-82", slotIndex: 1 }],
-      },
-      false,
-    );
-
-    expect(callOrder).toEqual([
-      "editor:session-85:0:0",
-      "panel:session-83",
-      "ensure-shape",
-      "show",
-    ]);
-  });
-
-  test("should retry parking the outgoing session after promoting the incoming session", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-83", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-83",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "layout native",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-82", {
-      location: { type: "panel" },
-      sessionId: "session-82",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "restoring agents when closed",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-85", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-85",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Lattice",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    const callOrder: string[] = [];
-    let parkAttempts = 0;
-    vi.spyOn(backend as any, "moveProjectionToEditor").mockImplementation(
-      async (
-        sessionId: string,
-        slotIndex: number,
-        options?: { targetGroupVisibleIndex?: number },
-      ) => {
-        callOrder.push(
-          `editor:${sessionId}:${String(slotIndex)}:${String(options?.targetGroupVisibleIndex ?? slotIndex)}`,
-        );
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection) {
-          projection.location = { type: "editor", visibleIndex: slotIndex };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "moveProjectionToPanel").mockImplementation(
-      async (sessionId: string) => {
-        parkAttempts += 1;
-        callOrder.push(`panel:${sessionId}:${String(parkAttempts)}`);
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection && parkAttempts >= 2) {
-          projection.location = { type: "panel" };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "refreshProjectionLocations").mockImplementation(() => {});
-    vi.spyOn(backend as any, "ensureDesiredEditorLayoutShape").mockImplementation(async () => {
-      callOrder.push("ensure-shape");
-    });
-    vi.spyOn(backend as any, "showTerminal").mockImplementation(async () => {
-      callOrder.push("show");
-    });
-
-    await (backend as any).applyParkedTerminalTransferPlan(
-      {
-        focusedSessionId: "session-82",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "horizontal",
-        visibleCount: 2,
-        visibleSessionIds: ["session-82", "session-85"],
-      },
-      {
-        currentVisibleSessionIds: ["session-83", "session-85"],
-        demoteSteps: [{ sessionId: "session-83", slotIndex: 0, type: "demote" }],
-        hasChanges: true,
-        nextVisibleSessionIds: ["session-82", "session-85"],
-        promoteSteps: [{ sessionId: "session-82", slotIndex: 0, type: "promote" }],
-        steps: [
-          { sessionId: "session-82", slotIndex: 0, type: "promote" },
-          { sessionId: "session-83", slotIndex: 0, type: "demote" },
-        ],
-        strategy: "transfer",
-        unchangedSlots: [{ sessionId: "session-85", slotIndex: 1 }],
-      },
-      false,
-    );
-
-    expect(callOrder).toEqual([
-      "editor:session-82:0:0",
-      "panel:session-83:1",
-      "panel:session-83:2",
-      "ensure-shape",
-      "show",
-    ]);
-  });
-
-  test("should reuse the outgoing session's current group during a single-slot swap", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-83", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-83",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "layout native",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-82", {
-      location: { type: "panel" },
-      sessionId: "session-82",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "restoring agents when closed",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    const callOrder: string[] = [];
-    vi.spyOn(backend as any, "moveProjectionToPanel").mockImplementation(
-      async (sessionId: string) => {
-        callOrder.push(`panel:${sessionId}`);
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection) {
-          projection.location = { type: "panel" };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "moveProjectionToEditor").mockImplementation(
-      async (
-        sessionId: string,
-        slotIndex: number,
-        options?: { targetGroupVisibleIndex?: number },
-      ) => {
-        callOrder.push(
-          `editor:${sessionId}:${String(slotIndex)}:${String(options?.targetGroupVisibleIndex ?? slotIndex)}`,
-        );
-        const projection = (backend as any).projections.get(sessionId);
-        if (projection) {
-          projection.location = { type: "editor", visibleIndex: slotIndex };
-        }
-      },
-    );
-    vi.spyOn(backend as any, "refreshProjectionLocations").mockImplementation(() => {});
-    vi.spyOn(backend as any, "ensureDesiredEditorLayoutShape").mockImplementation(async () => {
-      callOrder.push("ensure-shape");
-    });
-    vi.spyOn(backend as any, "showTerminal").mockImplementation(async () => {
-      callOrder.push("show");
-    });
-
-    await (backend as any).applyParkedTerminalTransferPlan(
-      {
-        focusedSessionId: "session-82",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "horizontal",
-        visibleCount: 1,
-        visibleSessionIds: ["session-82"],
-      },
-      {
-        currentVisibleSessionIds: ["session-83"],
-        demoteSteps: [{ sessionId: "session-83", slotIndex: 0, type: "demote" }],
-        hasChanges: true,
-        nextVisibleSessionIds: ["session-82"],
-        promoteSteps: [{ sessionId: "session-82", slotIndex: 0, type: "promote" }],
-        steps: [
-          { sessionId: "session-82", slotIndex: 0, type: "promote" },
-          { sessionId: "session-83", slotIndex: 0, type: "demote" },
-        ],
-        strategy: "transfer",
-        unchangedSlots: [],
-      },
-      false,
-    );
-
-    expect(callOrder).toEqual([
-      "editor:session-82:0:1",
-      "panel:session-83",
-      "ensure-shape",
-      "show",
-    ]);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend parkHiddenEditorProjections", () => {
-  test("should only park hidden editor sessions", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-1",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Visible but misplaced",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-2", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-2",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Hidden",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    const moveProjectionToPanel = vi
-      .spyOn(backend as any, "moveProjectionToPanel")
-      .mockImplementation(async () => undefined);
-    vi.spyOn(backend as any, "refreshProjectionLocations").mockImplementation(() => {});
-
-    await (backend as any).parkHiddenEditorProjections({
-      focusedSessionId: "session-1",
-      fullscreenRestoreVisibleCount: undefined,
-      sessions: [] as never,
-      viewMode: "grid",
-      visibleCount: 1,
-      visibleSessionIds: ["session-1"],
-    });
-
-    expect(moveProjectionToPanel).toHaveBeenCalledTimes(1);
-    expect(moveProjectionToPanel).toHaveBeenCalledWith("session-2");
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend reconcile serialization", () => {
-  test("should run reconcile requests sequentially", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    let releaseFirstReconcile: (() => void) | undefined;
-    const firstReconcileBlocked = new Promise<void>((resolve) => {
-      releaseFirstReconcile = resolve;
-    });
-    const callOrder: string[] = [];
-    let activeReconcileCount = 0;
-    let maxConcurrentReconciles = 0;
-
-    vi.spyOn(backend as any, "reconcileVisibleTerminalsInternal").mockImplementation(
-      async (snapshot: { visibleSessionIds: string[] }) => {
-        activeReconcileCount += 1;
-        maxConcurrentReconciles = Math.max(maxConcurrentReconciles, activeReconcileCount);
-        callOrder.push(snapshot.visibleSessionIds.join(","));
-
-        if (callOrder.length === 1) {
-          await firstReconcileBlocked;
-        }
-
-        activeReconcileCount -= 1;
-      },
-    );
-
-    const firstPromise = backend.reconcileVisibleTerminals({
-      focusedSessionId: "session-1",
-      fullscreenRestoreVisibleCount: undefined,
-      sessions: [] as never,
+      sessions: [firstSession, secondSession],
       viewMode: "horizontal",
       visibleCount: 1,
-      visibleSessionIds: ["session-1"],
-    });
-    const secondPromise = backend.reconcileVisibleTerminals({
-      focusedSessionId: "session-2",
-      fullscreenRestoreVisibleCount: undefined,
-      sessions: [] as never,
-      viewMode: "horizontal",
-      visibleCount: 1,
-      visibleSessionIds: ["session-2"],
+      visibleSessionIds: [firstSession.sessionId],
     });
 
-    await Promise.resolve();
-    expect(callOrder).toEqual(["session-1"]);
-    expect(maxConcurrentReconciles).toBe(1);
-
-    releaseFirstReconcile?.();
-    await firstPromise;
-    await secondPromise;
-
-    expect(callOrder).toEqual(["session-1", "session-2"]);
-    expect(maxConcurrentReconciles).toBe(1);
+    expect(testState.moveActiveEditorToNextGroup).not.toHaveBeenCalled();
+    expect(testState.moveActiveEditorToPreviousGroup).not.toHaveBeenCalled();
+    expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
+      "[001] Publish to Store",
+    ]);
   });
-});
 
-describe("NativeTerminalWorkspaceBackend clearDebugArtifacts", () => {
-  test("should clear move history and reset the trace file", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
+  test("should not activate a hidden terminal that is already parked in the correct group", async () => {
+    const firstSession = createTerminalSession(24, 0, "Fixing layout issues");
+    const secondSession = createTerminalSession(25, 1, "Atlas");
+    const firstTerminal = createTerminal({ env: {}, name: "[023] Fixing layout issues" });
+    const secondTerminal = createTerminal({ env: {}, name: "[024] Atlas" });
+    testState.terminals.push(firstTerminal, secondTerminal);
+    testState.tabGroupsAll = [createTabGroup(1, secondTerminal), createTabGroup(2, firstTerminal)];
+    activateTabAtIndex(1, 0);
+    testState.activeTerminal = firstTerminal;
 
-    (backend as any).moveHistory.push({
-      event: "complete",
-      kind: "moveProjectionToEditor",
-      sessionId: "session-1",
-      startedAt: new Date().toISOString(),
-      terminalName: "Atlas",
-      timestamp: new Date().toISOString(),
-    });
-    const resetTrace = vi.spyOn((backend as any).trace, "reset").mockResolvedValue(undefined);
-
-    await backend.clearDebugArtifacts();
-
-    expect((backend as any).moveHistory).toEqual([]);
-    expect(resetTrace).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("NativeTerminalWorkspaceBackend reconcileVisibleTerminals", () => {
-  test("should run a cleanup rebuild when hidden terminals remain in editor groups", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const reconcileByMovingParkedProjections = vi
-      .spyOn(backend as any, "reconcileVisibleTerminalsByMovingParkedProjections")
-      .mockImplementation(async (_snapshot: unknown) => undefined);
-    vi.spyOn(backend as any, "ensureParkedProjections").mockImplementation(async () => undefined);
-    vi.spyOn(backend as any, "canIncrementallyReconcileWithParkedProjections").mockReturnValue(
-      false,
-    );
-
-    const session1Terminal = {
-      creationOptions: {
-        name: "Vale",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    const session2Terminal = {
-      creationOptions: {
-        name: "Beacon",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Beacon",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-1",
-      terminal: session1Terminal,
-    });
-    (backend as any).projections.set("session-2", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-2",
-      terminal: session2Terminal,
-    });
-    testState.terminals = [session1Terminal, session2Terminal];
-
-    testState.tabGroupsAll = [
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Vale" }],
-        viewColumn: 1,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Beacon" }],
-        viewColumn: 2,
-      },
-    ];
+    const backend = createBackend();
+    await backend.initialize([firstSession, secondSession]);
+    firstTerminal.show.mockClear();
+    secondTerminal.show.mockClear();
 
     await backend.reconcileVisibleTerminals(
       {
-        focusedSessionId: "session-1",
+        focusedSessionId: firstSession.sessionId,
         fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 1,
-        visibleSessionIds: ["session-1"],
-      },
-      false,
-    );
-
-    expect(reconcileByMovingParkedProjections).toHaveBeenCalledTimes(2);
-  });
-
-  test("should preserve the current editor order when sidebar order matching is disabled", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const reconcileByMovingParkedProjections = vi
-      .spyOn(backend as any, "reconcileVisibleTerminalsByMovingParkedProjections")
-      .mockImplementation(async (_snapshot: unknown) => undefined);
-    vi.spyOn(backend as any, "ensureParkedProjections").mockImplementation(async () => undefined);
-    vi.spyOn(backend as any, "canIncrementallyReconcileWithParkedProjections").mockReturnValue(
-      false,
-    );
-
-    const session1Terminal = {
-      creationOptions: {
-        name: "Vale",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Vale",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-    const session2Terminal = {
-      creationOptions: {
-        name: "Beacon",
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: "Beacon",
-      sendText: vi.fn(),
-      show: vi.fn(),
-    };
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-1",
-      terminal: session1Terminal,
-    });
-    (backend as any).projections.set("session-2", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-2",
-      terminal: session2Terminal,
-    });
-    testState.terminals = [session1Terminal, session2Terminal];
-
-    testState.tabGroupsAll = [
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Vale" }],
-        viewColumn: 1,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Beacon" }],
-        viewColumn: 2,
-      },
-    ];
-
-    await backend.reconcileVisibleTerminals(
-      {
-        focusedSessionId: "session-2",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
+        sessions: [firstSession, secondSession],
+        viewMode: "horizontal",
         visibleCount: 2,
-        visibleSessionIds: ["session-2", "session-1"],
+        visibleSessionIds: ["session-111", firstSession.sessionId],
       },
-      false,
+      true,
     );
 
-    expect(reconcileByMovingParkedProjections).toHaveBeenCalledWith(
-      expect.objectContaining({
-        visibleSessionIds: ["session-1", "session-2"],
-      }),
-      false,
-    );
-  });
-
-  test("should fill vacated visible slots before shifting still-visible terminals", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    const reconcileByMovingParkedProjections = vi
-      .spyOn(backend as any, "reconcileVisibleTerminalsByMovingParkedProjections")
-      .mockImplementation(async (_snapshot: unknown) => undefined);
-    vi.spyOn(backend as any, "ensureParkedProjections").mockImplementation(async () => undefined);
-    vi.spyOn(backend as any, "canIncrementallyReconcileWithParkedProjections").mockReturnValue(
-      false,
-    );
-
-    const terminals = ["session-1", "session-2", "session-3", "session-4"].map((sessionId) => ({
-      creationOptions: {
-        name: sessionId,
-      },
-      dispose: vi.fn(),
-      exitStatus: undefined,
-      name: sessionId,
-      sendText: vi.fn(),
-      show: vi.fn(),
-    }));
-
-    ["session-1", "session-2", "session-3", "session-4"].forEach((sessionId, visibleIndex) => {
-      (backend as any).projections.set(sessionId, {
-        location: { type: "editor", visibleIndex },
-        sessionId,
-        terminal: terminals[visibleIndex],
-      });
-    });
-    testState.terminals = terminals;
-
-    testState.tabGroupsAll = [
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "session-1" }],
-        viewColumn: 1,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "session-2" }],
-        viewColumn: 2,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "session-3" }],
-        viewColumn: 3,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "session-4" }],
-        viewColumn: 4,
-      },
-    ];
-
-    await backend.reconcileVisibleTerminals(
-      {
-        focusedSessionId: "session-5",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 4,
-        visibleSessionIds: ["session-4", "session-5", "session-1", "session-3"],
-      },
-      false,
-    );
-
-    expect(reconcileByMovingParkedProjections).toHaveBeenCalledWith(
-      expect.objectContaining({
-        visibleSessionIds: ["session-1", "session-5", "session-3", "session-4"],
-      }),
-      false,
-    );
-  });
-
-  test("should honor sidebar order when matching is enabled", async () => {
-    testState.configurationValues.matchVisibleTerminalOrderInSessionsArea = true;
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    await backend.syncConfiguration();
-
-    const reconcileByMovingParkedProjections = vi
-      .spyOn(backend as any, "reconcileVisibleTerminalsByMovingParkedProjections")
-      .mockImplementation(async (_snapshot: unknown) => undefined);
-    vi.spyOn(backend as any, "ensureParkedProjections").mockImplementation(async () => undefined);
-    vi.spyOn(backend as any, "canIncrementallyReconcileWithParkedProjections").mockReturnValue(
-      false,
-    );
-
-    (backend as any).projections.set("session-1", {
-      location: { type: "editor", visibleIndex: 0 },
-      sessionId: "session-1",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Vale",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-    (backend as any).projections.set("session-2", {
-      location: { type: "editor", visibleIndex: 1 },
-      sessionId: "session-2",
-      terminal: {
-        dispose: vi.fn(),
-        exitStatus: undefined,
-        name: "Beacon",
-        sendText: vi.fn(),
-        show: vi.fn(),
-      },
-    });
-
-    testState.tabGroupsAll = [
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Vale" }],
-        viewColumn: 1,
-      },
-      {
-        tabs: [{ input: new testState.TabInputTerminalClass(), label: "Beacon" }],
-        viewColumn: 2,
-      },
-    ];
-
-    await backend.reconcileVisibleTerminals(
-      {
-        focusedSessionId: "session-2",
-        fullscreenRestoreVisibleCount: undefined,
-        sessions: [] as never,
-        viewMode: "grid",
-        visibleCount: 2,
-        visibleSessionIds: ["session-2", "session-1"],
-      },
-      false,
-    );
-
-    expect(reconcileByMovingParkedProjections).toHaveBeenCalledWith(
-      expect.objectContaining({
-        visibleSessionIds: ["session-2", "session-1"],
-      }),
-      false,
-    );
-  });
-
-  test("should read the native terminal action delay from configuration", async () => {
-    testState.configurationValues.nativeTerminalActionDelayMs = 1000.8;
-
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    await backend.syncConfiguration();
-
-    expect((backend as any).nativeTerminalActionDelayMs).toBe(1000);
-  });
-
-  test("should default to keeping session groups unlocked", async () => {
-    const backend = new NativeTerminalWorkspaceBackend({
-      context: {
-        globalStorageUri: {
-          fsPath: "/extension-storage",
-        },
-      } as never,
-      ensureShellSpawnAllowed: async () => true,
-      workspaceId: "workspace-1",
-    });
-
-    await backend.syncConfiguration();
-
-    expect((backend as any).keepSessionGroupsUnlocked).toBe(true);
+    expect(firstTerminal.show).not.toHaveBeenCalled();
+    expect(secondTerminal.show).not.toHaveBeenCalled();
+    expect(testState.activeTerminal).toBe(firstTerminal);
+    expect(testState.tabGroupsAll[0]?.tabs.map((tab) => tab.label)).toEqual(["[024] Atlas"]);
+    expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
+      "[023] Fixing layout issues",
+    ]);
   });
 });
+
+function createBackend(): NativeTerminalWorkspaceBackend {
+  return new NativeTerminalWorkspaceBackend({
+    context: {
+      globalStorageUri: { fsPath: "/tmp/vsmux" },
+      workspaceState: testState.workspaceState,
+    } as never,
+    ensureShellSpawnAllowed: async () => true,
+    workspaceId: "workspace-1",
+  });
+}
+
+function createTerminal(options: Record<string, unknown>): MockTerminal {
+  const terminal: MockTerminal = {
+    creationOptions: options,
+    dispose: vi.fn(),
+    exitStatus: undefined,
+    name: String(options.name ?? ""),
+    processId: Promise.resolve(Math.floor(Math.random() * 10_000) + 1),
+    sendText: vi.fn(),
+    show: vi.fn(() => {
+      testState.activeTerminal = terminal;
+    }),
+  };
+  return terminal;
+}
+
+function createTabGroup(
+  viewColumn: number,
+  ...tabsOrTerminals: Array<MockTerminal | MockTab>
+): MockTabGroup {
+  const group: MockTabGroup = {
+    isActive: false,
+    tabs: [],
+    viewColumn,
+  };
+  for (const candidate of tabsOrTerminals) {
+    if ("creationOptions" in candidate) {
+      group.tabs.push(createTerminalTab(candidate, group));
+      continue;
+    }
+
+    const tab = {
+      ...candidate,
+      group,
+    };
+    group.tabs.push(tab);
+  }
+  return group;
+}
+
+function createTerminalTab(terminal: MockTerminal, group: MockTabGroup): MockTab {
+  return {
+    group,
+    isActive: false,
+    input: new testState.TabInputTerminalClass(),
+    label: terminal.name,
+    terminal,
+  };
+}
+
+function createWebviewTab(label: string): MockTab {
+  return {
+    group: undefined as never,
+    isActive: false,
+    input: { viewType: "mainThreadWebview-VSmux.t3Session" },
+    label,
+  };
+}
+
+function createTerminalSession(sessionNumber: number, slotIndex: number, alias: string) {
+  const session = createSessionRecord(sessionNumber, slotIndex);
+  return {
+    ...session,
+    alias,
+  };
+}
+
+function setActiveGroup(index: number): void {
+  testState.activeTabGroupIndex = index;
+  for (const [groupIndex, group] of testState.tabGroupsAll.entries()) {
+    group.isActive = groupIndex === index;
+  }
+}
+
+function activateTabAtIndex(groupIndex: number, tabIndex: number): void {
+  const group = testState.tabGroupsAll[groupIndex];
+  if (!group) {
+    return;
+  }
+
+  setActiveGroup(groupIndex);
+  for (const tab of group.tabs) {
+    tab.isActive = false;
+  }
+
+  const tab = group.tabs[tabIndex];
+  if (!tab) {
+    return;
+  }
+
+  tab.isActive = true;
+}
+
+function activateTabByLabel(groupIndex: number, label: string): void {
+  const group = testState.tabGroupsAll[groupIndex];
+  if (!group) {
+    return;
+  }
+
+  const tabIndex = group.tabs.findIndex((tab) => tab.label === label);
+  if (tabIndex >= 0) {
+    activateTabAtIndex(groupIndex, tabIndex);
+  }
+}
+
+function moveActiveEditor(direction: 1 | -1): void {
+  const sourceGroup = testState.tabGroupsAll[testState.activeTabGroupIndex];
+  if (!sourceGroup) {
+    return;
+  }
+
+  const activeTabIndex = sourceGroup.tabs.findIndex((tab) => tab.isActive);
+  if (activeTabIndex < 0) {
+    return;
+  }
+
+  const targetGroupIndex = testState.activeTabGroupIndex + direction;
+  if (targetGroupIndex < 0) {
+    return;
+  }
+
+  const targetGroup =
+    testState.tabGroupsAll[targetGroupIndex] ?? createTabGroup(targetGroupIndex + 1);
+  testState.tabGroupsAll[targetGroupIndex] = targetGroup;
+
+  const [activeTab] = sourceGroup.tabs.splice(activeTabIndex, 1);
+  if (!activeTab) {
+    return;
+  }
+
+  activeTab.group = targetGroup;
+  activeTab.isActive = false;
+  targetGroup.tabs.push(activeTab);
+  activateTabAtIndex(targetGroupIndex, targetGroup.tabs.length - 1);
+}
+
+function removeTerminalTabs(terminal: MockTerminal): void {
+  for (const group of testState.tabGroupsAll) {
+    group.tabs = group.tabs.filter((tab) => {
+      return tab.terminal !== terminal;
+    });
+  }
+}
+
+function syncTerminalTabLabels(terminal: MockTerminal): void {
+  for (const group of testState.tabGroupsAll) {
+    for (const tab of group.tabs) {
+      if (tab.terminal === terminal) {
+        tab.label = terminal.name;
+      }
+    }
+  }
+}

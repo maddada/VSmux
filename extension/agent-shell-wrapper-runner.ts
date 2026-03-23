@@ -21,6 +21,7 @@ type CodexWatcherHandle = {
 };
 
 const CODEX_LOG_POLL_INTERVAL_MS = 200;
+const CLAUDE_CODE_DISABLE_TERMINAL_TITLE_ENV_KEY = "CLAUDE_CODE_DISABLE_TERMINAL_TITLE";
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
     throw new Error(`VSmux: ${options.agent} not found in PATH.`);
   }
 
-  const environment: NodeJS.ProcessEnv = { ...process.env, VSMUX_AGENT: options.agent };
+  const environment = createAgentEnvironment(options.agent, process.env);
   const args = [...options.forwardedArgs];
 
   switch (options.agent) {
@@ -66,6 +67,19 @@ async function main(): Promise<void> {
   const exitCode = await spawnAgentProcess(options.agent, executablePath, args, environment);
   watcher?.stop();
   process.exit(exitCode);
+}
+
+export function createAgentEnvironment(
+  agent: AgentName,
+  baseEnvironment: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...baseEnvironment, VSMUX_AGENT: agent };
+
+  if (agent === "claude") {
+    environment[CLAUDE_CODE_DISABLE_TERMINAL_TITLE_ENV_KEY] = "1";
+  }
+
+  return environment;
 }
 
 function parseArgs(argv: readonly string[]): WrapperRunnerOptions {
