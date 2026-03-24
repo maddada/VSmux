@@ -72,7 +72,9 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           return;
         }
 
-        void this.options.onMessage(message);
+        void Promise.resolve(this.options.onMessage(message)).catch((error) => {
+          void vscode.window.showErrorMessage(getErrorMessage(error));
+        });
       }),
     );
 
@@ -138,6 +140,10 @@ function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri | unde
     <script nonce="${nonce}" src="${scriptUri}" type="module"></script>
   </body>
 </html>`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function getExtensionUri(): vscode.Uri | undefined {

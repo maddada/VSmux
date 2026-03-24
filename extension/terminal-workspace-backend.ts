@@ -15,6 +15,7 @@ export type TerminalWorkspaceBackend = vscode.Disposable & {
   readonly onDidChangeSessionTitle: vscode.Event<TerminalWorkspaceBackendTitleChange>;
   clearDebugArtifacts: () => Promise<void>;
   getDebugState: () => NativeTerminalBackendDebugState;
+  hasAttachedTerminal: (sessionId: string) => boolean;
   getLastTerminalActivityAt: (sessionId: string) => number | undefined;
   hasLiveTerminal: (sessionId: string) => boolean;
   initialize: (sessionRecords: readonly SessionRecord[]) => Promise<void>;

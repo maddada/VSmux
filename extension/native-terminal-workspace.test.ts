@@ -16,6 +16,7 @@ const testState = vi.hoisted(() => ({
         getDebugState: ReturnType<typeof vi.fn>;
         getLastTerminalActivityAt: ReturnType<typeof vi.fn>;
         getSessionSnapshot: ReturnType<typeof vi.fn>;
+        hasAttachedTerminal: ReturnType<typeof vi.fn>;
         hasLiveTerminal: ReturnType<typeof vi.fn>;
         initialize: ReturnType<typeof vi.fn>;
         killSession: ReturnType<typeof vi.fn>;
@@ -214,6 +215,7 @@ vi.mock("./native-terminal-workspace-backend", () => ({
     }));
     public readonly getLastTerminalActivityAt = vi.fn(() => undefined);
     public readonly getSessionSnapshot = vi.fn(() => undefined);
+    public readonly hasAttachedTerminal = vi.fn(() => true);
     public readonly hasLiveTerminal = vi.fn(() => true);
     public readonly initialize = vi.fn(async () => undefined);
     public readonly killSession = vi.fn(async () => undefined);
@@ -653,7 +655,7 @@ describe("NativeTerminalWorkspaceController", () => {
     expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
   });
 
-  test("should no-op when focusing the already active session", async () => {
+  test("should re-run backend focus when clicking the already active terminal session", async () => {
     const controller = createController();
     const session = await (controller as any).store.createSession();
 
@@ -665,8 +667,22 @@ describe("NativeTerminalWorkspaceController", () => {
     await controller.focusSession(session!.sessionId);
 
     expect(testState.backend?.reconcileVisibleTerminals).not.toHaveBeenCalled();
-    expect(testState.backend?.focusSession).not.toHaveBeenCalled();
-    expect(testState.t3WebviewManager?.focusComposer).not.toHaveBeenCalled();
+    expect(testState.backend?.focusSession).toHaveBeenCalledWith(session!.sessionId, false);
+  });
+
+  test("should reattach the focused session when the stored session is active but no terminal is attached", async () => {
+    const controller = createController();
+    const session = await (controller as any).store.createSession();
+
+    await controller.initialize();
+    testState.backend?.reconcileVisibleTerminals.mockClear();
+    testState.backend?.focusSession.mockClear();
+    testState.backend?.hasAttachedTerminal.mockReturnValue(false);
+
+    await controller.focusSession(session!.sessionId);
+
+    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
+    expect(testState.backend?.focusSession).toHaveBeenCalledWith(session!.sessionId, false);
   });
 
   test("should reproject from the stored snapshot when focusing a session in another group", async () => {
@@ -806,6 +822,35 @@ describe("NativeTerminalWorkspaceController", () => {
 
     expect(testState.backend?.createOrAttachSession).toHaveBeenCalled();
     expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
+  });
+
+  test("should roll back a failed sidebar agent launch instead of leaving a dead session", async () => {
+    const controller = createController();
+    testState.backend?.createOrAttachSession.mockRejectedValueOnce(new Error("boom"));
+
+    await controller.initialize();
+
+    await expect(controller.runSidebarAgent("codex")).rejects.toThrow("boom");
+
+    const sessions = (controller as any).store
+      .getSnapshot()
+      .groups.flatMap((group: any) => group.snapshot.sessions);
+    expect(sessions).toHaveLength(0);
+    expect(testState.backend?.killSession).toHaveBeenCalledWith("session-1");
+  });
+
+  test("should not create a sidebar agent session when shell startup is blocked", async () => {
+    const controller = createController();
+    (controller as any).ensureShellSpawnAllowed = vi.fn(async () => false);
+
+    await controller.initialize();
+    await controller.runSidebarAgent("codex");
+
+    const sessions = (controller as any).store
+      .getSnapshot()
+      .groups.flatMap((group: any) => group.snapshot.sessions);
+    expect(sessions).toHaveLength(0);
+    expect(testState.backend?.createOrAttachSession).not.toHaveBeenCalled();
   });
 
   test("should switch groups by re-running the single projection pass", async () => {

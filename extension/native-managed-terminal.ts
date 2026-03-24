@@ -9,15 +9,24 @@ export type ManagedTerminalIdentity = {
   workspaceId: string;
 };
 
+export function createManagedTerminalIdentityEnvironment(
+  workspaceId: string,
+  sessionId: string,
+): Record<string, string> {
+  return {
+    [SESSION_ID_ENV_KEY]: sessionId,
+    [WORKSPACE_ID_ENV_KEY]: workspaceId,
+  };
+}
+
 export function createManagedTerminalEnvironment(
   workspaceId: string,
   sessionId: string,
   sessionStateFilePath: string,
 ): Record<string, string> {
   return {
-    [SESSION_ID_ENV_KEY]: sessionId,
+    ...createManagedTerminalIdentityEnvironment(workspaceId, sessionId),
     [SESSION_STATE_FILE_ENV_KEY]: sessionStateFilePath,
-    [WORKSPACE_ID_ENV_KEY]: workspaceId,
   };
 }
 

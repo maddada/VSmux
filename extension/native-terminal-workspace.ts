@@ -325,7 +325,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return {
       backend: this.backendKind,
       platform: process.platform,
-      terminalUiPath: "VS Code native shell terminals",
+      terminalUiPath: "Bundled tsm daemons with ephemeral VS Code attach terminals",
     };
   }
 
@@ -347,6 +347,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         return;
       }
 
+      if (!(await this.ensureShellSpawnAllowed())) {
+        await operation.step("shell-spawn-blocked");
+        return;
+      }
+
       const sessionRecord = await this.store.createSession();
       if (!sessionRecord) {
         await operation.step("session-limit-reached");
@@ -358,7 +363,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         expected: this.captureSnapshotTraceState(this.getActiveSnapshot()),
         sessionId: sessionRecord.sessionId,
       });
-      await this.backend.createOrAttachSession(sessionRecord);
+      try {
+        await this.backend.createOrAttachSession(sessionRecord);
+      } catch (error) {
+        await this.rollbackFailedNewTerminalSession(sessionRecord.sessionId);
+        throw error;
+      }
       await operation.step("after-backend-create-or-attach");
       await this.reconcileProjectedSessions();
       await operation.step("after-reconcile");
@@ -905,22 +915,30 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
+    if (!(await this.ensureShellSpawnAllowed())) {
+      return;
+    }
+
     const sessionRecord = await this.store.createSession();
     if (!sessionRecord) {
       void vscode.window.showWarningMessage("The workspace already has 9 sessions.");
       return;
     }
 
-    if (agentButton.icon) {
-      this.sidebarAgentIconBySessionId.set(sessionRecord.sessionId, agentButton.icon);
+    try {
+      const nextSessionRecord = this.store.getSession(sessionRecord.sessionId) ?? sessionRecord;
+      await this.backend.createOrAttachSession(nextSessionRecord);
+      if (agentButton.icon) {
+        this.sidebarAgentIconBySessionId.set(nextSessionRecord.sessionId, agentButton.icon);
+      }
+      await this.setSessionAgentLaunch(nextSessionRecord.sessionId, agentId, command);
+      await this.reconcileProjectedSessions();
+      await this.refreshSidebar();
+      await this.backend.writeText(nextSessionRecord.sessionId, command, true);
+    } catch (error) {
+      await this.rollbackFailedNewTerminalSession(sessionRecord.sessionId);
+      throw error;
     }
-
-    const nextSessionRecord = this.store.getSession(sessionRecord.sessionId) ?? sessionRecord;
-    await this.setSessionAgentLaunch(nextSessionRecord.sessionId, agentId, command);
-    await this.backend.createOrAttachSession(nextSessionRecord);
-    await this.reconcileProjectedSessions();
-    await this.refreshSidebar();
-    await this.backend.writeText(nextSessionRecord.sessionId, command, true);
   }
 
   public async restorePreviousSession(historyId: string): Promise<void> {
@@ -954,33 +972,44 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    if (archivedSession.agentIcon) {
-      this.sidebarAgentIconBySessionId.set(restoredSession.sessionId, archivedSession.agentIcon);
+    if (isTerminalSession(restoredSession) && !(await this.ensureShellSpawnAllowed())) {
+      await this.store.removeSession(restoredSession.sessionId);
+      await this.refreshSidebar();
+      return;
     }
 
-    if (archivedSession.sessionRecord.alias !== restoredSession.alias) {
-      await this.store.renameSessionAlias(
-        restoredSession.sessionId,
-        archivedSession.sessionRecord.alias,
-      );
-    }
+    try {
+      if (archivedSession.agentIcon) {
+        this.sidebarAgentIconBySessionId.set(restoredSession.sessionId, archivedSession.agentIcon);
+      }
 
-    const nextSessionRecord = this.store.getSession(restoredSession.sessionId) ?? restoredSession;
-    if (archivedSession.agentLaunch) {
-      await this.setSessionAgentLaunch(
-        nextSessionRecord.sessionId,
-        archivedSession.agentLaunch.agentId,
-        archivedSession.agentLaunch.command,
-      );
-    }
+      if (archivedSession.sessionRecord.alias !== restoredSession.alias) {
+        await this.store.renameSessionAlias(
+          restoredSession.sessionId,
+          archivedSession.sessionRecord.alias,
+        );
+      }
 
-    await this.backend.createOrAttachSession(nextSessionRecord);
-    await this.reconcileProjectedSessions();
-    if (archivedSession.agentLaunch) {
-      await this.resumeAgentSessionIfConfigured(nextSessionRecord.sessionId);
+      const nextSessionRecord = this.store.getSession(restoredSession.sessionId) ?? restoredSession;
+      if (archivedSession.agentLaunch) {
+        await this.setSessionAgentLaunch(
+          nextSessionRecord.sessionId,
+          archivedSession.agentLaunch.agentId,
+          archivedSession.agentLaunch.command,
+        );
+      }
+
+      await this.backend.createOrAttachSession(nextSessionRecord);
+      await this.reconcileProjectedSessions();
+      if (archivedSession.agentLaunch) {
+        await this.resumeAgentSessionIfConfigured(nextSessionRecord.sessionId);
+      }
+      await this.previousSessionHistory.remove(historyId);
+      await this.refreshSidebar();
+    } catch (error) {
+      await this.rollbackFailedNewTerminalSession(restoredSession.sessionId);
+      throw error;
     }
-    await this.previousSessionHistory.remove(historyId);
-    await this.refreshSidebar();
   }
 
   public async deletePreviousSession(historyId: string): Promise<void> {
@@ -1262,6 +1291,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const previousVisibleSessionIds = this.getActiveSnapshot().visibleSessionIds;
     await this.store.focusGroup(groupId);
 
+    if (!(await this.ensureShellSpawnAllowed())) {
+      await this.updateFocusedTerminal(previousVisibleSessionIds, false);
+      await this.refreshSidebar();
+      return;
+    }
+
     const sessionRecord = await this.store.createSession();
     if (!sessionRecord) {
       void vscode.window.showWarningMessage("The workspace already has 9 sessions.");
@@ -1270,9 +1305,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    await this.backend.createOrAttachSession(sessionRecord);
-    await this.updateFocusedTerminal(previousVisibleSessionIds, false);
-    await this.refreshSidebar();
+    try {
+      await this.backend.createOrAttachSession(sessionRecord);
+      await this.updateFocusedTerminal(previousVisibleSessionIds, false);
+      await this.refreshSidebar();
+    } catch (error) {
+      await this.rollbackFailedNewTerminalSession(sessionRecord.sessionId, {
+        restoreUi: async () => {
+          await this.updateFocusedTerminal(previousVisibleSessionIds, false);
+          await this.refreshSidebar();
+        },
+      });
+      throw error;
+    }
   }
 
   public async closeGroup(groupId: string): Promise<void> {
@@ -1549,6 +1594,30 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     };
   }
 
+  private async rollbackFailedNewTerminalSession(
+    sessionId: string,
+    options?: {
+      restoreUi?: () => Promise<void>;
+    },
+  ): Promise<void> {
+    await this.t3Webviews.disposeSession(sessionId);
+    await this.browserSessions.disposeSession(sessionId);
+    await this.backend.killSession(sessionId).catch(() => undefined);
+    await this.store.removeSession(sessionId).catch(() => false);
+    await this.deleteSessionAgentCommand(sessionId);
+    this.terminalTitleBySessionId.delete(sessionId);
+    this.titleDerivedActivityBySessionId.delete(sessionId);
+    this.sidebarAgentIconBySessionId.delete(sessionId);
+
+    if (options?.restoreUi) {
+      await options.restoreUi();
+      return;
+    }
+
+    await this.reconcileProjectedSessions().catch(() => undefined);
+    await this.refreshSidebar().catch(() => undefined);
+  }
+
   private async ensureShellSpawnAllowed(): Promise<boolean> {
     if (vscode.workspace.isTrusted || this.hasApprovedUntrustedShells) {
       this.hasApprovedUntrustedShells = true;
@@ -1745,7 +1814,20 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private isAlreadyActiveSession(sessionId: string): boolean {
-    return this.getObservedActiveSidebarSnapshot().focusedSessionId === sessionId;
+    if (this.getObservedActiveSidebarSnapshot().focusedSessionId !== sessionId) {
+      return false;
+    }
+
+    const sessionRecord = this.store.getSession(sessionId);
+    if (!sessionRecord) {
+      return false;
+    }
+
+    if (isTerminalSession(sessionRecord)) {
+      return false;
+    }
+
+    return true;
   }
 
   private async focusSessionInObservedWorkbenchIfPossible(
@@ -1810,10 +1892,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     if (isTerminalSession(sessionRecord)) {
-      if (this.backend.hasLiveTerminal(sessionId)) {
+      if (this.backend.hasAttachedTerminal(sessionId)) {
         await this.backend.focusSession(sessionId, false);
+        return "focused";
       }
-      return "focused";
+
+      return "none";
     }
 
     if (isT3Session(sessionRecord)) {

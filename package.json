@@ -16,6 +16,7 @@
   "publisher": "maddada",
   "files": [
     "media/**",
+    "extension/vendor/**",
     "forks/t3code-embed/dist/**",
     "out/**"
   ],
@@ -24,6 +25,7 @@
     "vscode:prepublish": "vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
     "sidebar:build": "vp build --config vite.sidebar.config.ts",
     "debug-panel:build": "vp build --config vite.debug-panel.config.ts",
+    "tsm:bundle:rebuild": "node ./scripts/rebuild-bundled-tsm.mjs",
     "storybook": "vp exec storybook dev -p 6006 --no-open",
     "storybook:build": "vp exec storybook build",
     "storybook:test": "node ./scripts/storybook-test.mjs",
