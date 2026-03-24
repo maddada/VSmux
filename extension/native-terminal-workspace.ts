@@ -325,7 +325,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return {
       backend: this.backendKind,
       platform: process.platform,
-      terminalUiPath: "Bundled tsm daemons with ephemeral VS Code attach terminals",
+      terminalUiPath: "Bundled zellij sessions with ephemeral VS Code attach terminals",
     };
   }
 

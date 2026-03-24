@@ -16,7 +16,6 @@ import type {
   TerminalAgentStatus,
   TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
-import { ensureAgentShellIntegration, type AgentShellIntegration } from "./agent-shell-integration";
 import {
   createManagedTerminalEnvironment,
   getManagedTerminalIdentity,
@@ -28,7 +27,6 @@ import type {
 import {
   createDisconnectedSessionSnapshot,
   focusEditorGroupByIndex,
-  getDefaultShell,
   getDefaultWorkspaceCwd,
   getViewColumn,
   moveActiveEditorToNextGroup,
@@ -42,15 +40,20 @@ import {
   updatePersistedSessionStateFile,
   type PersistedSessionState,
 } from "./session-state-file";
-import { ensureBundledTsmBinaryIsExecutable } from "./tsm-bundled-binary";
-import { createTsmAttachShellCommand } from "./tsm-shell-command";
-import { TsmSessionRuntime } from "./tsm-session-runtime";
+import { ensureBundledZellijBinaryIsExecutable } from "./zellij-bundled-binary";
+import { ZellijSessionRuntime } from "./zellij-session-runtime";
+import { createZellijAttachArgs } from "./zellij-shell-command";
+import {
+  buildZellijUiProfile,
+  readZellijUiSettings,
+  writeZellijUiProfile,
+} from "./zellij-ui-profile";
 
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
-const ATTACH_SEND_DELAY_MS = 250;
 const POLL_INTERVAL_MS = 500;
 const OPEN_EDITOR_AT_INDEX_COMMAND_PREFIX = "workbench.action.openEditorAtIndex";
-const SHELL_INTEGRATION_ATTACH_TIMEOUT_MS = 2_000;
+const SESSION_ATTACH_RETRY_COUNT = 100;
+const SESSION_ATTACH_RETRY_DELAY_MS = 100;
 const TERMINAL_RENAME_COMMAND = "workbench.action.terminal.renameWithArg";
 const TRACE_FILE_NAME = "native-terminal-reconcile.log";
 
@@ -66,7 +69,6 @@ type SessionProjection = {
 };
 
 export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
-  private agentShellIntegration: AgentShellIntegration | undefined;
   private readonly activateSessionEmitter = new vscode.EventEmitter<string>();
   private readonly changeDebugStateEmitter = new vscode.EventEmitter<void>();
   private readonly changeSessionsEmitter = new vscode.EventEmitter<void>();
@@ -84,8 +86,8 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private readonly staleTerminals = new WeakSet<vscode.Terminal>();
   private readonly terminalToSessionId = new Map<vscode.Terminal, string>();
   private readonly trace = createWorkspaceTrace(TRACE_FILE_NAME);
-  private bundledTsmBinaryPath: string | undefined;
-  private tsmRuntime: TsmSessionRuntime | undefined;
+  private bundledZellijBinaryPath: string | undefined;
+  private zellijRuntime: ZellijSessionRuntime | undefined;
 
   public readonly onDidActivateSession = this.activateSessionEmitter.event;
   public readonly onDidChangeDebugState = this.changeDebugStateEmitter.event;
@@ -95,11 +97,8 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   public constructor(private readonly options: NativeTerminalWorkspaceBackendOptions) {}
 
   public async initialize(sessionRecords: readonly SessionRecord[]): Promise<void> {
-    this.agentShellIntegration = await ensureAgentShellIntegration(
-      path.join(this.options.context.globalStorageUri.fsPath, "terminal-host-daemon"),
-    );
-    this.bundledTsmBinaryPath = await ensureBundledTsmBinaryIsExecutable(this.options.context);
-    this.tsmRuntime = new TsmSessionRuntime(this.bundledTsmBinaryPath, this.options.workspaceId);
+    this.bundledZellijBinaryPath = await ensureBundledZellijBinaryIsExecutable(this.options.context);
+    this.zellijRuntime = new ZellijSessionRuntime(this.bundledZellijBinaryPath);
     this.syncSessions(sessionRecords);
     await this.trace.reset();
 
@@ -285,7 +284,9 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     this.upsertSession(sessionRecord);
-    await this.ensureSessionAlive(sessionRecord);
+    await this.ensureAttachedTerminal(sessionRecord, {
+      bootstrapSession: true,
+    });
     await this.refreshSessionSnapshot(sessionRecord.sessionId);
     return this.sessions.get(sessionRecord.sessionId)!;
   }
@@ -410,7 +411,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return;
     }
 
-    await this.ensureSessionAlive(sessionRecord);
+    if (!(await this.runtime.probeSession(sessionId))) {
+      await this.ensureAttachedTerminal(sessionRecord, {
+        bootstrapSession: true,
+        forceNewTerminal: true,
+      });
+    }
     await this.runtime.sendInput(sessionId, data, shouldExecute);
     this.lastTerminalActivityAtBySessionId.set(sessionId, Date.now());
   }
@@ -465,12 +471,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
   }
 
-  private get runtime(): TsmSessionRuntime {
-    if (!this.tsmRuntime) {
-      throw new Error("Bundled tsm runtime is not initialized.");
+  private get runtime(): ZellijSessionRuntime {
+    if (!this.zellijRuntime) {
+      throw new Error("Bundled zellij runtime is not initialized.");
     }
 
-    return this.tsmRuntime;
+    return this.zellijRuntime;
   }
 
   private upsertSession(sessionRecord: TerminalSessionRecord): void {
@@ -482,7 +488,9 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     );
   }
 
-  private async ensureSessionAlive(sessionRecord: TerminalSessionRecord): Promise<void> {
+  private async ensureShellSpawnAllowedOrThrow(
+    sessionRecord: TerminalSessionRecord,
+  ): Promise<void> {
     if (!(await this.options.ensureShellSpawnAllowed())) {
       const disconnectedSnapshot = createDisconnectedSessionSnapshot(
         sessionRecord.sessionId,
@@ -494,12 +502,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       this.changeSessionsEmitter.fire();
       throw new Error("Shell creation blocked in an untrusted workspace.");
     }
-
-    await this.runtime.ensureSession(sessionRecord.sessionId, {
-      cwd: getDefaultWorkspaceCwd(),
-      environment: this.createSessionShellEnvironment(sessionRecord.sessionId),
-      shellPath: getDefaultShell(),
-    });
   }
 
   private async placeTerminal(
@@ -561,8 +563,16 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   private async ensureAttachedTerminal(
     sessionRecord: TerminalSessionRecord,
+    options: {
+      bootstrapSession?: boolean;
+      forceNewTerminal?: boolean;
+    } = {},
   ): Promise<SessionProjection> {
-    const existingProjection = this.projections.get(sessionRecord.sessionId);
+    await this.ensureShellSpawnAllowedOrThrow(sessionRecord);
+
+    const existingProjection = !options.forceNewTerminal
+      ? this.projections.get(sessionRecord.sessionId)
+      : undefined;
     if (existingProjection && this.isReusableTerminal(existingProjection.terminal)) {
       return existingProjection;
     }
@@ -571,9 +581,9 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       this.unbindTerminal(existingProjection.terminal);
     }
 
-    await this.ensureSessionAlive(sessionRecord);
-
-    const existingTerminal = await this.findExistingTerminal(sessionRecord);
+    const existingTerminal = options.forceNewTerminal
+      ? undefined
+      : await this.findExistingTerminal(sessionRecord);
     if (existingTerminal) {
       try {
         const projection = {
@@ -592,59 +602,46 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       }
     }
 
-    const terminal = vscode.window.createTerminal({
+    const zellijUiProfile = await this.resolveZellijUiProfilePaths();
+    const terminalOptions: vscode.TerminalOptions = {
+      cwd: getDefaultWorkspaceCwd(),
+      env: this.createSessionLaunchEnvironment(sessionRecord.sessionId),
       location: {
         preserveFocus: true,
         viewColumn: vscode.ViewColumn.One,
       },
       name: this.getSessionSurfaceTitle(sessionRecord.sessionId),
-    });
+      shellArgs: createZellijAttachArgs(
+        zellijUiProfile.configPath,
+        sessionRecord.sessionId,
+        options.bootstrapSession === true,
+        zellijUiProfile.layoutPath,
+      ),
+      shellPath: this.bundledZellijBinaryPath ?? "zellij",
+    };
+
+    const terminal = vscode.window.createTerminal(terminalOptions);
     const projection = {
       sessionId: sessionRecord.sessionId,
       terminal,
     } satisfies SessionProjection;
     this.bindTerminalToSession(sessionRecord.sessionId, terminal);
-    void this.attachSessionInShellTerminal(terminal, sessionRecord.sessionId);
+    if (options.bootstrapSession) {
+      await this.waitForSessionStartup(sessionRecord.sessionId);
+    }
     return projection;
   }
 
-  private async attachSessionInShellTerminal(
-    terminal: vscode.Terminal,
-    sessionId: string,
-  ): Promise<void> {
-    await this.waitForAttachReady(terminal);
-    terminal.sendText(
-      createTsmAttachShellCommand(
-        this.bundledTsmBinaryPath ?? "tsm",
-        sessionId,
-        this.runtime.getSocketDirectory(),
-      ),
-      true,
-    );
-  }
+  private async waitForSessionStartup(sessionId: string): Promise<void> {
+    for (let attempt = 0; attempt < SESSION_ATTACH_RETRY_COUNT; attempt += 1) {
+      if (await this.runtime.probeSession(sessionId)) {
+        return;
+      }
 
-  private async waitForAttachReady(terminal: vscode.Terminal): Promise<void> {
-    if (!terminal.shellIntegration) {
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          const listener = vscode.window.onDidChangeTerminalShellIntegration(
-            ({ terminal: nextTerminal }) => {
-              if (nextTerminal !== terminal) {
-                return;
-              }
-
-              listener.dispose();
-              resolve();
-            },
-          );
-        }),
-        delay(SHELL_INTEGRATION_ATTACH_TIMEOUT_MS),
-      ]);
+      await delay(SESSION_ATTACH_RETRY_DELAY_MS);
     }
 
-    if (!terminal.shellIntegration) {
-      await delay(ATTACH_SEND_DELAY_MS);
-    }
+    throw new Error(`Timed out while starting bundled zellij session ${sessionId}.`);
   }
 
   private isReusableTerminal(terminal: vscode.Terminal): boolean {
@@ -943,21 +940,23 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     return readPersistedSessionStateFromFile(this.getSessionAgentStateFilePath(sessionId));
   }
 
-  private createSessionShellEnvironment(sessionId: string): Record<string, string> {
-    const environment = createManagedTerminalEnvironment(
+  private createSessionLaunchEnvironment(sessionId: string): Record<string, string> {
+    return createManagedTerminalEnvironment(
       this.options.workspaceId,
       sessionId,
       this.getSessionAgentStateFilePath(sessionId),
     );
+  }
 
-    if (this.agentShellIntegration) {
-      environment.PATH = `${this.agentShellIntegration.binDir}${path.delimiter}${process.env.PATH ?? ""}`;
-      if (process.platform !== "win32") {
-        environment.ZDOTDIR = this.agentShellIntegration.zshDotDir;
-      }
-    }
-
-    return environment;
+  private async resolveZellijUiProfilePaths(): Promise<{
+    configPath: string;
+    layoutPath: string | undefined;
+  }> {
+    return writeZellijUiProfile(
+      this.options.context.globalStorageUri.fsPath,
+      this.options.workspaceId,
+      buildZellijUiProfile(readZellijUiSettings()),
+    );
   }
 
   private getSessionSurfaceTitle(sessionId: string): string | undefined {

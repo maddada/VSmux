@@ -4,32 +4,39 @@ import {
   getTerminalSessionSurfaceTitle,
 } from "../shared/session-grid-contract";
 import { NativeTerminalWorkspaceBackend } from "./native-terminal-workspace-backend";
-import { createTsmAttachShellCommand } from "./tsm-shell-command";
+import { createZellijAttachArgs } from "./zellij-shell-command";
 
 const testState = vi.hoisted(() => ({
   activeTerminal: undefined as MockTerminal | undefined,
+  buildZellijUiProfile: vi.fn(() => ({
+    configContent: "show_startup_tips false\n",
+    layoutContent: "layout {\n    pane\n}\n",
+  })),
   createTerminal: vi.fn((options: Record<string, unknown>) => {
     const terminal = createTerminal(options);
     testState.terminals.push(terminal);
     return terminal;
   }),
-  ensureBundledTsmBinaryIsExecutable: vi.fn(async () => "/bundled/tsm"),
-  ensureSession: vi.fn(async () => undefined),
+  ensureBundledZellijBinaryIsExecutable: vi.fn(async () => "/bundled/zellij"),
   executeCommand: vi.fn(async () => undefined),
   killSession: vi.fn(async () => undefined),
   onDidChangeActiveTerminal: vi.fn(() => ({ dispose: vi.fn() })),
+  onDidChangeTerminalShellIntegration: vi.fn(() => ({ dispose: vi.fn() })),
   onDidChangeTerminalState: vi.fn(() => ({ dispose: vi.fn() })),
   onDidCloseTerminal: vi.fn(() => ({ dispose: vi.fn() })),
   onDidOpenTerminal: vi.fn(() => ({ dispose: vi.fn() })),
   probeSession: vi.fn(async () => ({
-    attachedClientCount: 0,
-    cwd: "/workspace",
-    processId: 1234,
+    sessionId: "session-1",
   })),
   readPersistedSessionStateFromFile: vi.fn(async () => ({
     agentName: "codex",
     agentStatus: "idle",
     title: "Codex",
+  })),
+  readZellijUiSettings: vi.fn(() => ({
+    customConfigKdl: "",
+    customLayoutKdl: "",
+    mode: "native",
   })),
   sendInput: vi.fn(async () => undefined),
   terminals: [] as MockTerminal[],
@@ -40,6 +47,10 @@ const testState = vi.hoisted(() => ({
       title: "Codex",
     }),
   ),
+  writeZellijUiProfile: vi.fn(async () => ({
+    configPath: "/storage/zellij-ui-profiles/workspace-1.config.kdl",
+    layoutPath: "/storage/zellij-ui-profiles/workspace-1.layout.kdl",
+  })),
 }));
 
 type MockTerminal = {
@@ -84,6 +95,7 @@ vi.mock("vscode", () => ({
     },
     createTerminal: testState.createTerminal,
     onDidChangeActiveTerminal: testState.onDidChangeActiveTerminal,
+    onDidChangeTerminalShellIntegration: testState.onDidChangeTerminalShellIntegration,
     onDidChangeTerminalState: testState.onDidChangeTerminalState,
     onDidCloseTerminal: testState.onDidCloseTerminal,
     onDidOpenTerminal: testState.onDidOpenTerminal,
@@ -113,37 +125,22 @@ vi.mock("vscode", () => ({
   },
 }));
 
-vi.mock("./agent-shell-integration", () => ({
-  ensureAgentShellIntegration: vi.fn(async () => ({
-    binDir: "/bin",
-    claudeSettingsPath: "/claude.json",
-    notifyPath: "/notify.js",
-    opencodeConfigDir: "/opencode",
-    zshDotDir: "/zsh",
-  })),
+vi.mock("./zellij-bundled-binary", () => ({
+  ensureBundledZellijBinaryIsExecutable: testState.ensureBundledZellijBinaryIsExecutable,
 }));
 
-vi.mock("./tsm-bundled-binary", () => ({
-  ensureBundledTsmBinaryIsExecutable: testState.ensureBundledTsmBinaryIsExecutable,
-}));
-
-vi.mock("./tsm-session-runtime", () => ({
-  TsmSessionRuntime: class MockTsmSessionRuntime {
-    public createAttachEnvironment(environment: Record<string, string>): Record<string, string> {
-      return {
-        ...environment,
-        TSM_DIR: "/tmp/vsmux-tsm-test",
-      };
-    }
-
-    public ensureSession = testState.ensureSession;
-    public getSocketDirectory(): string {
-      return "/tmp/vsmux-tsm-test";
-    }
+vi.mock("./zellij-session-runtime", () => ({
+  ZellijSessionRuntime: class MockZellijSessionRuntime {
     public killSession = testState.killSession;
     public probeSession = testState.probeSession;
     public sendInput = testState.sendInput;
   },
+}));
+
+vi.mock("./zellij-ui-profile", () => ({
+  buildZellijUiProfile: testState.buildZellijUiProfile,
+  readZellijUiSettings: testState.readZellijUiSettings,
+  writeZellijUiProfile: testState.writeZellijUiProfile,
 }));
 
 vi.mock("./terminal-workspace-helpers", () => ({
@@ -165,7 +162,6 @@ vi.mock("./terminal-workspace-helpers", () => ({
     workspaceId,
   }),
   focusEditorGroupByIndex: vi.fn(async () => true),
-  getDefaultShell: () => "/bin/zsh",
   getDefaultWorkspaceCwd: () => "/workspace",
   getViewColumn: (index: number) => index + 1,
   moveActiveEditorToNextGroup: vi.fn(async () => undefined),
@@ -182,24 +178,24 @@ vi.mock("./session-state-file", () => ({
 describe("NativeTerminalWorkspaceBackend", () => {
   beforeEach(() => {
     testState.activeTerminal = undefined;
+    testState.buildZellijUiProfile.mockClear();
     testState.createTerminal.mockClear();
-    testState.ensureBundledTsmBinaryIsExecutable.mockClear();
-    testState.ensureSession.mockClear();
+    testState.ensureBundledZellijBinaryIsExecutable.mockClear();
     testState.executeCommand.mockClear();
     testState.killSession.mockClear();
     testState.probeSession.mockClear();
     testState.probeSession.mockImplementation(async () => ({
-      attachedClientCount: 0,
-      cwd: "/workspace",
-      processId: 1234,
+      sessionId: "session-1",
     }));
     testState.readPersistedSessionStateFromFile.mockClear();
+    testState.readZellijUiSettings.mockClear();
     testState.sendInput.mockClear();
     testState.terminals = [];
     testState.updatePersistedSessionStateFile.mockClear();
+    testState.writeZellijUiProfile.mockClear();
   });
 
-  test("should create bundled tsm attach terminals for focused sessions", async () => {
+  test("should create bundled zellij attach terminals for focused sessions", async () => {
     const session = createSessionRecord(1, 1);
     const backend = createBackend();
 
@@ -207,25 +203,27 @@ describe("NativeTerminalWorkspaceBackend", () => {
     await backend.createOrAttachSession(session);
     await backend.focusSession(session.sessionId);
 
-    expect(testState.ensureSession).toHaveBeenCalledWith(session.sessionId, {
-      cwd: "/workspace",
-      environment: expect.objectContaining({
-        PATH: expect.stringContaining("/bin"),
-        VSMUX_SESSION_ID: session.sessionId,
-        VSMUX_SESSION_STATE_FILE: "/storage/terminal-session-state/session-1.env",
-        VSMUX_WORKSPACE_ID: "workspace-1",
-        ZDOTDIR: "/zsh",
-      }),
-      shellPath: "/bin/zsh",
-    });
     expect(testState.createTerminal).toHaveBeenCalledWith(
       expect.objectContaining({
+        env: expect.objectContaining({
+          VSMUX_SESSION_ID: session.sessionId,
+          VSMUX_SESSION_STATE_FILE: "/storage/terminal-session-state/session-1.env",
+          VSMUX_WORKSPACE_ID: "workspace-1",
+        }),
+        cwd: "/workspace",
         name: getTerminalSessionSurfaceTitle(session),
       }),
     );
-    expect(testState.terminals[0]?.sendText).toHaveBeenCalledWith(
-      createTsmAttachShellCommand("/bundled/tsm", session.sessionId, "/tmp/vsmux-tsm-test"),
-      true,
+    expect(testState.terminals[0]?.creationOptions).toEqual(
+      expect.objectContaining({
+        shellArgs: createZellijAttachArgs(
+          "/storage/zellij-ui-profiles/workspace-1.config.kdl",
+          session.sessionId,
+          true,
+          "/storage/zellij-ui-profiles/workspace-1.layout.kdl",
+        ),
+        shellPath: "/bundled/zellij",
+      }),
     );
     expect(backend.hasAttachedTerminal(session.sessionId)).toBe(true);
     expect(backend.hasLiveTerminal(session.sessionId)).toBe(true);
@@ -275,6 +273,18 @@ describe("NativeTerminalWorkspaceBackend", () => {
     expect(testState.createTerminal).toHaveBeenCalledTimes(2);
     expect(testState.terminals[1]).toBeDefined();
     expect(testState.terminals[1]).not.toBe(firstTerminal);
+    expect(testState.terminals[1]?.creationOptions).toEqual(
+      expect.objectContaining({
+        cwd: "/workspace",
+        shellArgs: createZellijAttachArgs(
+          "/storage/zellij-ui-profiles/workspace-1.config.kdl",
+          session.sessionId,
+          false,
+          "/storage/zellij-ui-profiles/workspace-1.layout.kdl",
+        ),
+        shellPath: "/bundled/zellij",
+      }),
+    );
   });
 
   test("should ignore stale terminals that still appear in the VS Code terminal list", async () => {
@@ -299,7 +309,7 @@ describe("NativeTerminalWorkspaceBackend", () => {
     expect(testState.terminals[1]).not.toBe(firstTerminal);
   });
 
-  test("should write input directly to the bundled tsm daemon", async () => {
+  test("should write input directly to the bundled zellij session", async () => {
     const session = createSessionRecord(1, 1);
     const backend = createBackend();
 

@@ -22,22 +22,22 @@
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "vscode:prepublish": "vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
+    "vscode:prepublish": "node ./scripts/clean-build-output.mjs && vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
     "sidebar:build": "vp build --config vite.sidebar.config.ts",
     "debug-panel:build": "vp build --config vite.debug-panel.config.ts",
-    "tsm:bundle:rebuild": "node ./scripts/rebuild-bundled-tsm.mjs",
+    "zellij:bundle:rebuild": "node ./scripts/rebuild-bundled-zellij.mjs",
     "storybook": "vp exec storybook dev -p 6006 --no-open",
     "storybook:build": "vp exec storybook build",
     "storybook:test": "node ./scripts/storybook-test.mjs",
-    "compile": "vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
+    "compile": "node ./scripts/clean-build-output.mjs && vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "t3:embed:build": "node ./scripts/build-t3-embed.mjs",
     "lint": "vp lint",
     "fmt": "vp fmt",
     "check": "vp check",
     "prepare": "vp config",
-    "vsix:package": "node ./scripts/vsix.mjs package",
-    "vsix:install": "node ./scripts/vsix.mjs install"
+    "package": "node ./scripts/vsix.mjs package",
+    "install": "node ./scripts/vsix.mjs install"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -304,6 +304,44 @@
           "minimum": 0,
           "default": 0,
           "description": "Delay native terminal move actions for debugging so you can watch layout changes more clearly."
+        },
+        "VSmux.zellijUiMode": {
+          "title": "Zellij UI Mode",
+          "type": "string",
+          "default": "native",
+          "enum": [
+            "minimal",
+            "native",
+            "passthrough",
+            "ultra"
+          ],
+          "enumItemLabels": [
+            "Minimal",
+            "Native",
+            "Passthrough",
+            "Ultra"
+          ],
+          "enumDescriptions": [
+            "Keep Zellij mostly stock while disabling startup tips, release notes, and extra visual noise.",
+            "Hide frames and bars, disable most mouse-owned UI behavior, and make Zellij feel closer to a native VS Code terminal.",
+            "Prefer host-terminal mouse and wheel behavior while keeping Zellij locked down as a single-pane persistence layer.",
+            "Apply the most stripped-down preset with extra UI and protocol features disabled."
+          ],
+          "description": "Preset used to generate the Zellij config and layout for new VSmux terminal sessions."
+        },
+        "VSmux.zellijCustomConfigKdl": {
+          "title": "Zellij Custom Config KDL",
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Extra Zellij config lines appended after the selected Zellij UI mode preset for new VSmux terminal sessions."
+        },
+        "VSmux.zellijCustomLayoutKdl": {
+          "title": "Zellij Custom Layout KDL",
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Optional full Zellij layout override for new VSmux terminal sessions. Leave empty to use the selected preset layout."
         },
         "VSmux.keepSessionGroupsUnlocked": {
           "title": "Keep Session Groups Unlocked",
