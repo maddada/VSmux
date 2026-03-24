@@ -138,6 +138,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly lastKnownActivityBySessionId = new Map<string, TerminalAgentStatus>();
   private externalFocusLockSessionId: string | undefined;
   private externalFocusLockUntil = 0;
+  private focusSessionQueue: Promise<void> = Promise.resolve();
   private ownsNativeTerminalControl = false;
   private readonly sessionAgentLaunchBySessionId = new Map<string, StoredSessionAgentLaunch>();
   private readonly sidebarAgentIconBySessionId = new Map<string, SidebarAgentIcon>();
@@ -381,86 +382,119 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async focusSession(sessionId: string, preserveFocus = false): Promise<void> {
-    if (this.isAlreadyActiveSession(sessionId)) {
-      await this.logControllerEvent("ACTION", "focusSession-noop", {
-        preserveFocus,
-        sessionId,
-      });
+    return this.enqueueFocusSessionAction(async () => {
+      if (this.isAlreadyActiveSession(sessionId)) {
+        await this.logControllerEvent("ACTION", "focusSession-noop", {
+          preserveFocus,
+          sessionId,
+        });
+        return;
+      }
+
+      this.setExternalFocusLock(sessionId);
+      try {
+        await this.runLoggedAction(
+          "focusSession",
+          {
+            preserveFocus,
+            sessionId,
+          },
+          async (operation) => {
+            await operation.step("after-external-focus-lock", {
+              lockSessionId: sessionId,
+            });
+
+            if (!(await this.ensureNativeTerminalControl())) {
+              await operation.step("ensure-native-terminal-control-blocked");
+              return;
+            }
+
+            const observedWorkbenchFocusResult =
+              await this.focusSessionInObservedWorkbenchIfPossible(sessionId, preserveFocus);
+            await operation.step("after-observed-workbench-focus", {
+              observedWorkbenchFocusResult,
+            });
+            if (observedWorkbenchFocusResult === "focused") {
+              const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
+              await operation.step("after-acknowledge-attention", {
+                acknowledgedAttention,
+              });
+              await this.refreshSidebar();
+              await operation.step("after-refresh-sidebar");
+              return;
+            }
+            if (observedWorkbenchFocusResult === "reconciled") {
+              await this.reconcileProjectedSessions(preserveFocus);
+              await operation.step("after-reconcile");
+              const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
+              await operation.step("after-acknowledge-attention", {
+                acknowledgedAttention,
+              });
+              await this.refreshSidebar();
+              await operation.step("after-refresh-sidebar");
+              return;
+            }
+
+            const shouldResumeAgentSession =
+              this.sessionAgentLaunchBySessionId.has(sessionId) &&
+              !this.backend.hasLiveTerminal(sessionId);
+            const changed = await this.store.focusSession(sessionId);
+            await operation.step("after-store-focus", {
+              changed,
+              expected: this.captureSnapshotTraceState(this.getActiveSnapshot()),
+              shouldResumeAgentSession,
+            });
+            await this.reconcileProjectedSessions(preserveFocus);
+            await operation.step("after-reconcile");
+
+            if (shouldResumeAgentSession) {
+              await this.resumeAgentSessionIfConfigured(sessionId);
+              await operation.step("after-resume-agent-session");
+            }
+
+            if (!preserveFocus) {
+              this.focusT3ComposerIfPossible(sessionId);
+              await operation.step("after-focus-t3-composer-if-possible");
+            }
+
+            const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
+            await operation.step("after-acknowledge-attention", {
+              acknowledgedAttention,
+            });
+            if ((changed || !preserveFocus) && !acknowledgedAttention) {
+              await this.refreshSidebar();
+              await operation.step("after-refresh-sidebar");
+            }
+          },
+        );
+      } finally {
+        this.clearExternalFocusLock(sessionId);
+        await this.logControllerEvent("ACTION", "focusSession-lock-cleared", {
+          sessionId,
+        });
+      }
+    });
+  }
+
+  private enqueueFocusSessionAction(action: () => Promise<void>): Promise<void> {
+    const previous = this.focusSessionQueue;
+    const next = previous.then(action, action);
+    this.focusSessionQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private setExternalFocusLock(sessionId: string): void {
+    this.externalFocusLockSessionId = sessionId;
+    this.externalFocusLockUntil = Date.now() + 5_000;
+  }
+
+  private clearExternalFocusLock(sessionId?: string): void {
+    if (sessionId && this.externalFocusLockSessionId !== sessionId) {
       return;
     }
 
-    await this.runLoggedAction(
-      "focusSession",
-      {
-        preserveFocus,
-        sessionId,
-      },
-      async (operation) => {
-        if (!(await this.ensureNativeTerminalControl())) {
-          await operation.step("ensure-native-terminal-control-blocked");
-          return;
-        }
-
-        const observedWorkbenchFocusResult = await this.focusSessionInObservedWorkbenchIfPossible(
-          sessionId,
-          preserveFocus,
-        );
-        await operation.step("after-observed-workbench-focus", {
-          observedWorkbenchFocusResult,
-        });
-        if (observedWorkbenchFocusResult === "focused") {
-          const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
-          await operation.step("after-acknowledge-attention", {
-            acknowledgedAttention,
-          });
-          await this.refreshSidebar();
-          await operation.step("after-refresh-sidebar");
-          return;
-        }
-        if (observedWorkbenchFocusResult === "reconciled") {
-          await this.reconcileProjectedSessions(preserveFocus);
-          await operation.step("after-reconcile");
-          const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
-          await operation.step("after-acknowledge-attention", {
-            acknowledgedAttention,
-          });
-          await this.refreshSidebar();
-          await operation.step("after-refresh-sidebar");
-          return;
-        }
-
-        const shouldResumeAgentSession =
-          this.sessionAgentLaunchBySessionId.has(sessionId) &&
-          !this.backend.hasLiveTerminal(sessionId);
-        const changed = await this.store.focusSession(sessionId);
-        await operation.step("after-store-focus", {
-          changed,
-          expected: this.captureSnapshotTraceState(this.getActiveSnapshot()),
-          shouldResumeAgentSession,
-        });
-        await this.reconcileProjectedSessions(preserveFocus);
-        await operation.step("after-reconcile");
-
-        if (shouldResumeAgentSession) {
-          await this.resumeAgentSessionIfConfigured(sessionId);
-          await operation.step("after-resume-agent-session");
-        }
-
-        if (!preserveFocus) {
-          this.focusT3ComposerIfPossible(sessionId);
-          await operation.step("after-focus-t3-composer-if-possible");
-        }
-
-        const acknowledgedAttention = await this.acknowledgeSessionAttention(sessionId);
-        await operation.step("after-acknowledge-attention", {
-          acknowledgedAttention,
-        });
-        if ((changed || !preserveFocus) && !acknowledgedAttention) {
-          await this.refreshSidebar();
-          await operation.step("after-refresh-sidebar");
-        }
-      },
-    );
+    this.externalFocusLockSessionId = undefined;
+    this.externalFocusLockUntil = 0;
   }
 
   public async focusSessionSlot(slotNumber: number): Promise<void> {
@@ -1719,20 +1753,26 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     preserveFocus: boolean,
   ): Promise<"none" | "focused" | "reconciled"> {
     const activeGroup = this.store.getActiveGroup();
-    if (!activeGroup) {
+    const targetGroup = this.store.getSessionGroup(sessionId);
+    if (!activeGroup || !targetGroup) {
+      return "none";
+    }
+
+    const targetGroupIsActive = activeGroup.groupId === targetGroup.groupId;
+    if (!targetGroupIsActive) {
       return "none";
     }
 
     const observedTabLocation = this.findObservedWorkbenchTabLocation(
-      activeGroup.snapshot.sessions,
+      targetGroup.snapshot.sessions,
       sessionId,
     );
     if (!observedTabLocation) {
       return "none";
     }
 
-    const observedSnapshot = this.getObservedActiveSidebarSnapshot();
-    const activeSnapshot = activeGroup.snapshot;
+    const observedSnapshot = this.getObservedSidebarSnapshot(targetGroup.snapshot);
+    const targetSnapshot = targetGroup.snapshot;
     const workbench = captureWorkbenchState();
     const observedVisibleSessionIds = observedSnapshot.visibleSessionIds;
     const targetIsVisible = observedVisibleSessionIds.includes(sessionId);
@@ -1741,13 +1781,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const targetIsInFocusedVisibleGroup =
         observedTabLocation.viewColumn === workbench.activeTabGroupViewColumn;
       const nextVisibleSessionIds = this.buildVisibleSessionIdsByReplacingFocusedObservedSession(
-        activeGroup.snapshot.visibleCount,
+        targetSnapshot.visibleCount,
         targetIsInFocusedVisibleGroup
           ? observedVisibleSessionIds
-          : activeSnapshot.visibleSessionIds,
+          : targetSnapshot.visibleSessionIds,
         targetIsInFocusedVisibleGroup
           ? (observedSnapshot.focusedSessionId ?? observedVisibleSessionIds[0])
-          : (activeSnapshot.focusedSessionId ?? activeSnapshot.visibleSessionIds[0]),
+          : (targetSnapshot.focusedSessionId ?? targetSnapshot.visibleSessionIds[0]),
         sessionId,
       );
       await this.store.applyObservedActiveGroupState(sessionId, nextVisibleSessionIds);
@@ -1973,17 +2013,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return false;
     }
 
-    if (
-      this.externalFocusLockSessionId &&
-      Date.now() <= this.externalFocusLockUntil &&
-      this.externalFocusLockSessionId !== sessionId
-    ) {
-      return false;
+    if (this.externalFocusLockSessionId && Date.now() > this.externalFocusLockUntil) {
+      this.clearExternalFocusLock();
     }
 
-    if (this.externalFocusLockSessionId && Date.now() > this.externalFocusLockUntil) {
-      this.externalFocusLockSessionId = undefined;
-      this.externalFocusLockUntil = 0;
+    if (this.externalFocusLockSessionId && Date.now() <= this.externalFocusLockUntil) {
+      return false;
     }
 
     if (
@@ -2209,7 +2244,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           );
           if (!layoutMatches) {
             await applyEditorLayout(snapshot.visibleCount, snapshot.viewMode, {
-              joinAllGroups: false,
+              joinAllGroups: true,
+            });
+            await operation.step("after-apply-editor-layout-decision", {
+              joinAllGroups: true,
             });
           }
           await operation.step("after-apply-editor-layout", {
@@ -2717,7 +2755,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return createEmptyWorkspaceSessionSnapshot();
     }
 
-    const snapshot = activeGroup.snapshot;
+    return this.getObservedSidebarSnapshot(activeGroup.snapshot);
+  }
+
+  private getObservedSidebarSnapshot(snapshot: SessionGridSnapshot): SessionGridSnapshot {
     const workbench = captureWorkbenchState();
     const observedVisibleSessionIds = workbench.tabGroups
       .filter((group) => group.viewColumn !== undefined)

@@ -673,7 +673,7 @@ function normalizeWorkspaceSessionDisplayIds(groups: readonly SessionGroupRecord
   const nextGroups = groups.map((group) => {
     const sessions = group.snapshot.sessions.map((session) => {
       const normalizedDisplayId = formatSessionDisplayId(session.displayId ?? "");
-      if (!usedDisplayIds.has(normalizedDisplayId) && /^\d{3}$/.test(normalizedDisplayId)) {
+      if (!usedDisplayIds.has(normalizedDisplayId) && /^\d{2}$/.test(normalizedDisplayId)) {
         usedDisplayIds.add(normalizedDisplayId);
         return {
           ...session,

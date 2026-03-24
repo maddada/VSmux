@@ -29,6 +29,36 @@ describe("normalizeGroupedSessionWorkspaceSnapshot", () => {
     expect(snapshot.nextGroupNumber).toBe(2);
     expect(snapshot.nextSessionNumber).toBe(1);
   });
+
+  test("should preserve existing two-digit session display ids", () => {
+    const firstSession = createSessionRecord(1, 0, { displayId: "00" });
+    const secondSession = createSessionRecord(2, 1, { displayId: "01" });
+
+    const snapshot = normalizeGroupedSessionWorkspaceSnapshot({
+      activeGroupId: DEFAULT_MAIN_GROUP_ID,
+      groups: [
+        {
+          groupId: DEFAULT_MAIN_GROUP_ID,
+          snapshot: {
+            focusedSessionId: firstSession.sessionId,
+            sessions: [firstSession, secondSession],
+            viewMode: "grid",
+            visibleCount: 2,
+            visibleSessionIds: [firstSession.sessionId, secondSession.sessionId],
+          },
+          title: "Main",
+        },
+      ],
+      nextGroupNumber: 2,
+      nextSessionDisplayId: 2,
+      nextSessionNumber: 3,
+    });
+
+    expect(snapshot.groups[0]?.snapshot.sessions.map((session) => session.displayId)).toEqual([
+      "00",
+      "01",
+    ]);
+  });
 });
 
 describe("createSessionInWorkspace", () => {

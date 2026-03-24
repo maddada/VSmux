@@ -669,6 +669,53 @@ describe("NativeTerminalWorkspaceController", () => {
     expect(testState.t3WebviewManager?.focusComposer).not.toHaveBeenCalled();
   });
 
+  test("should reproject from the stored snapshot when focusing a session in another group", async () => {
+    const controller = createController();
+    const firstSession = await (controller as any).store.createSession({
+      alias: "Atlas",
+    });
+    const secondSession = await (controller as any).store.createSession({
+      alias: "Harbor",
+    });
+    await (controller as any).store.createGroupFromSession(secondSession!.sessionId);
+    await (controller as any).store.focusSession(firstSession!.sessionId);
+
+    (vscode.window.tabGroups.all as any) = [
+      {
+        activeTab: { label: getTerminalSessionSurfaceTitle(firstSession!) },
+        isActive: true,
+        tabs: [{ isActive: true, label: getTerminalSessionSurfaceTitle(firstSession!) }],
+        viewColumn: 1,
+      },
+      {
+        activeTab: { label: getTerminalSessionSurfaceTitle(secondSession!) },
+        isActive: false,
+        tabs: [{ isActive: true, label: getTerminalSessionSurfaceTitle(secondSession!) }],
+        viewColumn: 2,
+      },
+    ];
+    (vscode.window.tabGroups.activeTabGroup as any) = (vscode.window.tabGroups.all as any)[0];
+
+    await controller.initialize();
+    testState.backend?.reconcileVisibleTerminals.mockClear();
+    testState.t3WebviewManager?.reconcileVisibleSessions.mockClear();
+    testState.browserManager?.reconcileVisibleSessions.mockClear();
+    testState.backend?.focusSession.mockClear();
+
+    await controller.focusSession(secondSession!.sessionId);
+
+    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
+    expect(testState.t3WebviewManager?.reconcileVisibleSessions).toHaveBeenCalled();
+    expect(testState.browserManager?.reconcileVisibleSessions).toHaveBeenCalled();
+    expect((controller as any).store.getActiveGroup()?.groupId).toBe("group-2");
+    expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
+      secondSession!.sessionId,
+    );
+    expect((controller as any).store.getActiveGroup()?.snapshot.visibleSessionIds).toEqual([
+      secondSession!.sessionId,
+    ]);
+  });
+
   test("should reject non-focused terminal activation events while projection reconcile is in flight", async () => {
     const controller = createController();
     const firstSession = await (controller as any).store.createSession({
@@ -689,6 +736,26 @@ describe("NativeTerminalWorkspaceController", () => {
 
     expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
       firstSession!.sessionId,
+    );
+  });
+
+  test("should reject external terminal activation events while a focus action is in flight", async () => {
+    const controller = createController();
+    const firstSession = await (controller as any).store.createSession({
+      alias: "Fixing layout issues",
+    });
+    const secondSession = await (controller as any).store.createSession({
+      alias: "Publish to Store",
+    });
+    await (controller as any).store.setVisibleCount(2);
+    await (controller as any).store.focusSession(secondSession!.sessionId);
+
+    await controller.initialize();
+    (controller as any).setExternalFocusLock(firstSession!.sessionId);
+    await (controller as any).handleProjectedTerminalActivated(secondSession!.sessionId);
+
+    expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
+      secondSession!.sessionId,
     );
   });
 
@@ -774,6 +841,54 @@ describe("NativeTerminalWorkspaceController", () => {
 
     expect(testState.executeCommand).not.toHaveBeenCalledWith("workbench.action.joinAllGroups");
     expect(testState.executeCommand).not.toHaveBeenCalledWith(
+      "vscode.setEditorLayout",
+      expect.anything(),
+    );
+  });
+
+  test("should join editor groups before applying any mismatched layout", async () => {
+    const controller = createController();
+    await (controller as any).store.createSession();
+    testState.executeCommand.mockImplementation(async (command: string) => {
+      if (command === "vscode.getEditorLayout") {
+        return {
+          groups: [{}, {}, {}],
+          orientation: 0,
+        };
+      }
+
+      return undefined;
+    });
+
+    await controller.initialize();
+
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.action.joinAllGroups");
+    expect(testState.executeCommand).toHaveBeenCalledWith(
+      "vscode.setEditorLayout",
+      expect.anything(),
+    );
+  });
+
+  test("should join editor groups before applying a larger layout", async () => {
+    const controller = createController();
+    await (controller as any).store.createSession();
+    await (controller as any).store.createSession();
+    await (controller as any).store.setVisibleCount(2);
+    testState.executeCommand.mockImplementation(async (command: string) => {
+      if (command === "vscode.getEditorLayout") {
+        return {
+          groups: [{}],
+          orientation: 0,
+        };
+      }
+
+      return undefined;
+    });
+
+    await controller.initialize();
+
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.action.joinAllGroups");
+    expect(testState.executeCommand).toHaveBeenCalledWith(
       "vscode.setEditorLayout",
       expect.anything(),
     );

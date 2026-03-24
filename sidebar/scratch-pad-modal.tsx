@@ -110,13 +110,13 @@ export function ScratchPadModal({
       >
         <button
           aria-label="Close scratch pad"
-          className="scratch-pad-close-button"
+          className="confirm-modal-close-button"
           onClick={closeModal}
           type="button"
         >
           <IconX aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
         </button>
-        <div className="confirm-modal-header scratch-pad-modal-header">
+        <div className="confirm-modal-header confirm-modal-header-with-close">
           <div className="confirm-modal-title" id="scratch-pad-modal-title">
             Scratch Pad
           </div>

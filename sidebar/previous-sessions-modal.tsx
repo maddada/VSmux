@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import type { SidebarPreviousSessionItem } from "../shared/session-grid-contract";
@@ -73,7 +74,15 @@ export function PreviousSessionsModal({
         className="confirm-modal previous-sessions-modal"
         role="dialog"
       >
-        <div className="confirm-modal-header">
+        <button
+          aria-label="Close previous sessions"
+          className="confirm-modal-close-button"
+          onClick={onClose}
+          type="button"
+        >
+          <IconX aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+        </button>
+        <div className="confirm-modal-header confirm-modal-header-with-close">
           <div className="confirm-modal-title" id="previous-sessions-modal-title">
             Previous Sessions
           </div>

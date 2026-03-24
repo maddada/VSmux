@@ -275,6 +275,26 @@ describe("NativeTerminalWorkspaceBackend", () => {
     expect(backend.getSessionSnapshot(session.sessionId)?.status).toBe("running");
   });
 
+  test("should prefer managed terminal identity over a conflicting terminal title", async () => {
+    const firstSession = createTerminalSession(1, 0, "Scratchpad");
+    const secondSession = createTerminalSession(2, 1, "Publish to Store");
+    const terminal = createTerminal({
+      env: {
+        VSMUX_SESSION_ID: firstSession.sessionId,
+        VSMUX_WORKSPACE_ID: "workspace-1",
+      },
+      name: getTerminalSessionSurfaceTitle(secondSession),
+    });
+    testState.terminals.push(terminal);
+    testState.tabGroupsAll = [createTabGroup(1, terminal)];
+
+    const backend = createBackend();
+    await backend.initialize([firstSession, secondSession]);
+
+    expect(backend.hasLiveTerminal(firstSession.sessionId)).toBe(true);
+    expect(backend.hasLiveTerminal(secondSession.sessionId)).toBe(false);
+  });
+
   test("should create a missing managed terminal in editor group one", async () => {
     const session = createTerminalSession(1, 0, "Adding t3 code");
     const backend = createBackend();
@@ -384,6 +404,56 @@ describe("NativeTerminalWorkspaceBackend", () => {
 
     expect(changed).toBe(true);
     expect(terminal.show).toHaveBeenCalledWith(false);
+  });
+
+  test("should no-op when focusing a terminal that is already the active terminal tab", async () => {
+    const session = createTerminalSession(1, 0, "Adding t3 code");
+    const terminal = createTerminal({ env: {}, name: getTerminalSessionSurfaceTitle(session) });
+    testState.terminals.push(terminal);
+    testState.tabGroupsAll = [createTabGroup(1, terminal)];
+    activateTabAtIndex(0, 0);
+    testState.activeTerminal = terminal;
+
+    const backend = createBackend();
+    await backend.initialize([session]);
+    terminal.show.mockClear();
+
+    const changed = await backend.focusSession(session.sessionId, false);
+
+    expect(changed).toBe(true);
+    expect(terminal.show).not.toHaveBeenCalled();
+  });
+
+  test("should not rename a terminal in response to terminal-state changes", async () => {
+    const session = createTerminalSession(1, 0, "Fixing layout issues");
+    const terminal = createTerminal({ env: {}, name: getTerminalSessionSurfaceTitle(session) });
+    testState.terminals.push(terminal);
+    testState.tabGroupsAll = [createTabGroup(1, terminal)];
+    activateTabAtIndex(0, 0);
+    testState.activeTerminal = terminal;
+
+    const backend = createBackend();
+    await backend.initialize([session]);
+
+    const handleTerminalStateChange = testState.onDidChangeTerminalState.mock.calls[0]?.[0] as
+      | ((terminal: MockTerminal) => void)
+      | undefined;
+
+    expect(handleTerminalStateChange).toBeTypeOf("function");
+
+    testState.executeCommand.mockClear();
+    terminal.show.mockClear();
+    terminal.name = "Codex changed title";
+    syncTerminalTabLabels(terminal);
+
+    handleTerminalStateChange?.(terminal);
+    await Promise.resolve();
+
+    expect(terminal.show).not.toHaveBeenCalled();
+    expect(testState.executeCommand).not.toHaveBeenCalledWith(
+      "workbench.action.terminal.renameWithArg",
+      expect.anything(),
+    );
   });
 
   test("should persist attention acknowledgements instead of clearing them only in memory", async () => {
@@ -522,6 +592,159 @@ describe("NativeTerminalWorkspaceBackend", () => {
     expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
       getTerminalSessionSurfaceTitle(firstSession),
     ]);
+  });
+
+  test("should foreground a visible non-focused terminal in its target group", async () => {
+    const visibleSession = createTerminalSession(1, 0, "Scratchpad");
+    const focusedSession = createTerminalSession(2, 1, "Fixing layout issues");
+    const otherVisibleSession = createTerminalSession(3, 2, "Fix Codex/Claude indicators 24");
+    const parkedSession = createTerminalSession(4, 3, "Focus mode impr");
+
+    const visibleTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(visibleSession),
+    });
+    const focusedTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(focusedSession),
+    });
+    const otherVisibleTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(otherVisibleSession),
+    });
+    const parkedTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(parkedSession),
+    });
+
+    testState.terminals.push(
+      visibleTerminal,
+      focusedTerminal,
+      otherVisibleTerminal,
+      parkedTerminal,
+    );
+    testState.tabGroupsAll = [
+      createTabGroup(1, parkedTerminal, visibleTerminal),
+      createTabGroup(2, otherVisibleTerminal),
+      createTabGroup(3, focusedTerminal),
+      createTabGroup(4),
+    ];
+    activateTabAtIndex(0, 0);
+    testState.activeTerminal = parkedTerminal;
+
+    const backend = createBackend();
+    await backend.initialize([visibleSession, focusedSession, otherVisibleSession, parkedSession]);
+    testState.executeCommand.mockClear();
+
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: focusedSession.sessionId,
+      fullscreenRestoreVisibleCount: undefined,
+      sessions: [visibleSession, focusedSession, otherVisibleSession, parkedSession],
+      viewMode: "grid",
+      visibleCount: 4,
+      visibleSessionIds: [
+        visibleSession.sessionId,
+        otherVisibleSession.sessionId,
+        focusedSession.sessionId,
+        "session-999",
+      ],
+    });
+
+    expect(testState.executeCommand).toHaveBeenCalledWith("workbench.action.openEditorAtIndex2");
+    expect(testState.tabGroupsAll[0]?.tabs.find((tab) => tab.isActive)?.label).toBe(
+      getTerminalSessionSurfaceTitle(visibleSession),
+    );
+    expect(testState.activeTerminal).toBe(focusedTerminal);
+  });
+
+  test("should not reopen an already active terminal tab in its target group", async () => {
+    const leftSession = createTerminalSession(1, 0, "Scratchpad");
+    const rightSession = createTerminalSession(2, 1, "Fixing layout issues");
+
+    const leftTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(leftSession),
+    });
+    const rightTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(rightSession),
+    });
+
+    testState.terminals.push(leftTerminal, rightTerminal);
+    testState.tabGroupsAll = [createTabGroup(1, leftTerminal), createTabGroup(2, rightTerminal)];
+    activateTabAtIndex(1, 0);
+    testState.activeTerminal = rightTerminal;
+
+    const backend = createBackend();
+    await backend.initialize([leftSession, rightSession]);
+    testState.executeCommand.mockClear();
+
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: rightSession.sessionId,
+      fullscreenRestoreVisibleCount: undefined,
+      sessions: [leftSession, rightSession],
+      viewMode: "horizontal",
+      visibleCount: 1,
+      visibleSessionIds: [rightSession.sessionId],
+    });
+
+    expect(testState.executeCommand).not.toHaveBeenCalledWith(
+      "workbench.action.openEditorAtIndex1",
+    );
+    expect(testState.activeTerminal).toBe(rightTerminal);
+  });
+
+  test("should restore the focused visible terminal after staging other visible terminals", async () => {
+    const leftSession = createTerminalSession(1, 0, "Scratchpad");
+    const focusedSession = createTerminalSession(2, 1, "Fixing layout issues");
+    const rightSession = createTerminalSession(3, 2, "Fix Codex/Claude indicators 24");
+    const parkedSession = createTerminalSession(4, 3, "Focus mode impr");
+
+    const leftTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(leftSession),
+    });
+    const focusedTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(focusedSession),
+    });
+    const rightTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(rightSession),
+    });
+    const parkedTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(parkedSession),
+    });
+
+    testState.terminals.push(leftTerminal, focusedTerminal, rightTerminal, parkedTerminal);
+    testState.tabGroupsAll = [
+      createTabGroup(1, parkedTerminal, leftTerminal),
+      createTabGroup(2, focusedTerminal),
+      createTabGroup(3, rightTerminal),
+      createTabGroup(4),
+    ];
+    activateTabAtIndex(2, 0);
+    testState.activeTerminal = rightTerminal;
+
+    const backend = createBackend();
+    await backend.initialize([leftSession, focusedSession, rightSession, parkedSession]);
+
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: focusedSession.sessionId,
+      fullscreenRestoreVisibleCount: undefined,
+      sessions: [leftSession, focusedSession, rightSession, parkedSession],
+      viewMode: "grid",
+      visibleCount: 4,
+      visibleSessionIds: [
+        leftSession.sessionId,
+        focusedSession.sessionId,
+        "session-999",
+        rightSession.sessionId,
+      ],
+    });
+
+    expect(testState.activeTerminal).toBe(focusedTerminal);
   });
 });
 

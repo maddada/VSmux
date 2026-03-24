@@ -5,6 +5,7 @@ import {
   doesCurrentEditorLayoutMatch,
   extractClaudeCodeTitleFromVtHistory,
   extractLatestTerminalTitleFromVtHistory,
+  getCurrentEditorGroupCount,
   getSessionTabTitle,
   getWorkspaceStorageKey,
   hasInterruptStatusInVtHistory,
@@ -107,6 +108,30 @@ describe("doesCurrentEditorLayoutMatch", () => {
     });
 
     await expect(doesCurrentEditorLayoutMatch(4, "grid")).resolves.toBe(false);
+  });
+});
+
+describe("getCurrentEditorGroupCount", () => {
+  test("should count leaf editor groups in the current layout", async () => {
+    const executeCommand = (await import("vscode")).commands.executeCommand as ReturnType<
+      typeof vi.fn
+    >;
+    executeCommand.mockReset();
+    executeCommand.mockImplementation(async (command: string) => {
+      if (command === "vscode.getEditorLayout") {
+        return {
+          groups: [
+            { groups: [{}, {}], orientation: 0 },
+            { groups: [{}, {}], orientation: 0 },
+          ],
+          orientation: 1,
+        };
+      }
+
+      return undefined;
+    });
+
+    await expect(getCurrentEditorGroupCount()).resolves.toBe(4);
   });
 });
 

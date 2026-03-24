@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect } from "react";
 
@@ -49,7 +50,15 @@ export function ConfirmationModal({
         className="confirm-modal"
         role="dialog"
       >
-        <div className="confirm-modal-header">
+        <button
+          aria-label="Close modal"
+          className="confirm-modal-close-button"
+          onClick={onCancel}
+          type="button"
+        >
+          <IconX aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+        </button>
+        <div className="confirm-modal-header confirm-modal-header-with-close">
           <div className="confirm-modal-title" id="confirm-modal-title">
             {title}
           </div>

@@ -79,6 +79,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
   private readonly terminalToSessionId = new Map<vscode.Terminal, string>();
   private readonly trace = createWorkspaceTrace(TRACE_FILE_NAME);
+  private reconcileDepth = 0;
 
   public readonly onDidActivateSession = this.activateSessionEmitter.event;
   public readonly onDidChangeDebugState = this.changeDebugStateEmitter.event;
@@ -141,6 +142,9 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           sessionId,
           terminalName: terminal.name,
         });
+        if (this.reconcileDepth > 0) {
+          return;
+        }
         this.activateSessionEmitter.fire(sessionId);
       }),
       vscode.window.onDidChangeTerminalState((terminal) => {
@@ -152,7 +156,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
         this.lastTerminalActivityAtBySessionId.set(sessionId, Date.now());
         void this.captureProcessAssociation(sessionId, terminal);
-        void this.syncTerminalName(terminal, sessionId);
         void this.logState("EVENT", "terminal-state-changed", {
           sessionId,
           terminalName: terminal.name,
@@ -306,6 +309,11 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return false;
     }
 
+    if (this.isTerminalTabActive(sessionId, projection.terminal)) {
+      await this.logState("FOCUS", "terminal-noop", { preserveFocus, sessionId });
+      return true;
+    }
+
     projection.terminal.show(preserveFocus);
     await this.logState("FOCUS", "terminal", { preserveFocus, sessionId });
     return true;
@@ -344,19 +352,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       };
     });
 
-    placements.sort((left, right) => {
-      const leftRank = getPlacementRank(left.isVisible, left.isFocused);
-      const rightRank = getPlacementRank(right.isVisible, right.isFocused);
-      if (leftRank !== rightRank) {
-        return rightRank - leftRank;
-      }
-
-      if (left.targetGroupIndex !== right.targetGroupIndex) {
-        return left.targetGroupIndex - right.targetGroupIndex;
-      }
-
-      return left.sessionRecord.alias.localeCompare(right.sessionRecord.alias);
-    });
+    placements.sort(compareTerminalPlacements);
 
     await this.logState("RECONCILE", "start", {
       focusedSessionId,
@@ -370,26 +366,32 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       snapshot,
     });
 
-    for (const placement of placements) {
-      await this.logState("PLACE", "before", {
-        focused: placement.isFocused,
-        sessionId: placement.sessionRecord.sessionId,
-        shouldFocus: placement.isFocused && !preserveFocus,
-        targetGroupIndex: placement.targetGroupIndex,
-        visible: placement.isVisible,
-      });
-      await this.placeTerminal(
-        placement.sessionRecord,
-        placement.targetGroupIndex,
-        placement.isFocused && !preserveFocus,
-      );
-      await this.logState("PLACE", "after", {
-        focused: placement.isFocused,
-        sessionId: placement.sessionRecord.sessionId,
-        shouldFocus: placement.isFocused && !preserveFocus,
-        targetGroupIndex: placement.targetGroupIndex,
-        visible: placement.isVisible,
-      });
+    this.reconcileDepth += 1;
+    try {
+      for (const placement of placements) {
+        await this.logState("PLACE", "before", {
+          focused: placement.isFocused,
+          sessionId: placement.sessionRecord.sessionId,
+          shouldFocus: placement.isFocused && !preserveFocus,
+          targetGroupIndex: placement.targetGroupIndex,
+          visible: placement.isVisible,
+        });
+        await this.placeTerminal(
+          placement.sessionRecord,
+          placement.targetGroupIndex,
+          placement.isVisible,
+          placement.isFocused && !preserveFocus,
+        );
+        await this.logState("PLACE", "after", {
+          focused: placement.isFocused,
+          sessionId: placement.sessionRecord.sessionId,
+          shouldFocus: placement.isFocused && !preserveFocus,
+          targetGroupIndex: placement.targetGroupIndex,
+          visible: placement.isVisible,
+        });
+      }
+    } finally {
+      this.reconcileDepth = Math.max(0, this.reconcileDepth - 1);
     }
 
     await this.refreshSessionSnapshots();
@@ -497,6 +499,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private async placeTerminal(
     sessionRecord: TerminalSessionRecord,
     targetGroupIndex: number,
+    isVisible: boolean,
     shouldFocus: boolean,
   ): Promise<void> {
     const projection = await this.ensureTerminal(sessionRecord);
@@ -527,6 +530,15 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       await moveActiveEditorToPreviousGroup();
       currentGroupIndex =
         this.findTerminalGroupIndex(sessionRecord.sessionId) ?? currentGroupIndex - 1;
+    }
+
+    if (
+      isVisible &&
+      currentGroupIndex === targetGroupIndex &&
+      !shouldFocus &&
+      !this.isTerminalTabForeground(sessionRecord.sessionId, targetGroupIndex)
+    ) {
+      await this.activateTerminalEditorTab(sessionRecord.sessionId, targetGroupIndex);
     }
 
     if (shouldFocus) {
@@ -561,6 +573,26 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return false;
     }
 
+    const viewColumn = getViewColumn(groupIndex);
+    const activeGroupViewColumn = vscode.window.tabGroups.activeTabGroup?.viewColumn;
+    if (this.isTerminalTabForeground(sessionId, groupIndex)) {
+      if (activeGroupViewColumn !== viewColumn) {
+        await focusEditorGroupByIndex(groupIndex);
+        await this.logState("ACTIVATE", "terminal-tab-group-focus", {
+          groupIndex,
+          sessionId,
+          tabIndex,
+        });
+      } else {
+        await this.logState("ACTIVATE", "terminal-tab-noop", {
+          groupIndex,
+          sessionId,
+          tabIndex,
+        });
+      }
+      return true;
+    }
+
     await focusEditorGroupByIndex(groupIndex);
     await vscode.commands.executeCommand(`${OPEN_EDITOR_AT_INDEX_COMMAND_PREFIX}${tabIndex + 1}`);
     await this.logState("ACTIVATE", "terminal-tab", {
@@ -590,8 +622,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         sessionId: sessionRecord.sessionId,
         terminal: existingTerminal,
       } satisfies SessionProjection;
-      this.projections.set(sessionRecord.sessionId, projection);
-      this.terminalToSessionId.set(existingTerminal, sessionRecord.sessionId);
+      this.bindTerminalToSession(sessionRecord.sessionId, existingTerminal);
       await this.captureProcessAssociation(sessionRecord.sessionId, existingTerminal);
       return projection;
     }
@@ -623,8 +654,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       sessionId: sessionRecord.sessionId,
       terminal,
     } satisfies SessionProjection;
-    this.projections.set(sessionRecord.sessionId, projection);
-    this.terminalToSessionId.set(terminal, sessionRecord.sessionId);
+    this.bindTerminalToSession(sessionRecord.sessionId, terminal);
     await this.captureProcessAssociation(sessionRecord.sessionId, terminal);
     await this.logState("ENSURE", "terminal-created", {
       sessionId: sessionRecord.sessionId,
@@ -643,11 +673,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return;
     }
 
-    this.projections.set(sessionId, {
-      sessionId,
-      terminal,
-    });
-    this.terminalToSessionId.set(terminal, sessionId);
+    this.bindTerminalToSession(sessionId, terminal);
     await this.captureProcessAssociation(sessionId, terminal);
     await this.syncTerminalName(terminal, sessionId);
     await this.refreshSessionSnapshot(sessionId);
@@ -673,13 +699,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   private async resolveManagedSessionId(terminal: vscode.Terminal): Promise<string | undefined> {
-    const sessionRecord = this.findSessionRecordByTitle(
-      terminal.name ?? terminal.creationOptions.name,
-    );
-    if (sessionRecord) {
-      return sessionRecord.sessionId;
-    }
-
     const managedIdentity = getManagedTerminalIdentity(terminal);
     if (
       managedIdentity?.workspaceId === this.options.workspaceId &&
@@ -706,7 +725,38 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return processIdentity.sessionId;
     }
 
+    const sessionRecord = this.findSessionRecordByTitle(
+      terminal.name ?? terminal.creationOptions.name,
+    );
+    if (sessionRecord) {
+      return sessionRecord.sessionId;
+    }
+
     return undefined;
+  }
+
+  private bindTerminalToSession(sessionId: string, terminal: vscode.Terminal): void {
+    const previousSessionId = this.terminalToSessionId.get(terminal);
+    if (previousSessionId && previousSessionId !== sessionId) {
+      const previousProjection = this.projections.get(previousSessionId);
+      if (previousProjection?.terminal === terminal) {
+        this.projections.delete(previousSessionId);
+      }
+    }
+
+    const previousProjection = this.projections.get(sessionId);
+    if (previousProjection && previousProjection.terminal !== terminal) {
+      const previousTerminalSessionId = this.terminalToSessionId.get(previousProjection.terminal);
+      if (previousTerminalSessionId === sessionId) {
+        this.terminalToSessionId.delete(previousProjection.terminal);
+      }
+    }
+
+    this.projections.set(sessionId, {
+      sessionId,
+      terminal,
+    });
+    this.terminalToSessionId.set(terminal, sessionId);
   }
 
   private findSessionRecordByTitle(title: string | undefined): TerminalSessionRecord | undefined {
@@ -784,6 +834,28 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return group.tabs.some((tab) => {
         return tab.input instanceof vscode.TabInputTerminal && tab.label === expectedTitle;
       });
+    });
+  }
+
+  private isTerminalTabActive(sessionId: string, terminal: vscode.Terminal): boolean {
+    if (vscode.window.activeTerminal !== terminal) {
+      return false;
+    }
+
+    const expectedTitle = this.getSessionSurfaceTitle(sessionId);
+    if (!expectedTitle) {
+      return false;
+    }
+
+    const activeGroup = vscode.window.tabGroups.activeTabGroup;
+    if (!activeGroup) {
+      return false;
+    }
+
+    return activeGroup.tabs.some((tab) => {
+      return (
+        tab.isActive && tab.input instanceof vscode.TabInputTerminal && tab.label === expectedTitle
+      );
     });
   }
 
@@ -1041,12 +1113,43 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 }
 
-function getPlacementRank(isVisible: boolean, isFocused: boolean): number {
-  if (isFocused) {
+function getPlacementPhase(isVisible: boolean, isFocused: boolean): number {
+  if (!isVisible) {
     return 2;
   }
 
-  return isVisible ? 1 : 0;
+  return isFocused ? 1 : 0;
+}
+
+function compareTerminalPlacements(
+  left: {
+    isFocused: boolean;
+    isVisible: boolean;
+    sessionRecord: TerminalSessionRecord;
+    targetGroupIndex: number;
+  },
+  right: {
+    isFocused: boolean;
+    isVisible: boolean;
+    sessionRecord: TerminalSessionRecord;
+    targetGroupIndex: number;
+  },
+): number {
+  const leftPhase = getPlacementPhase(left.isVisible, left.isFocused);
+  const rightPhase = getPlacementPhase(right.isVisible, right.isFocused);
+  if (leftPhase !== rightPhase) {
+    return leftPhase - rightPhase;
+  }
+
+  if (left.isVisible && right.isVisible) {
+    if (left.targetGroupIndex !== right.targetGroupIndex) {
+      return right.targetGroupIndex - left.targetGroupIndex;
+    }
+  } else if (left.targetGroupIndex !== right.targetGroupIndex) {
+    return left.targetGroupIndex - right.targetGroupIndex;
+  }
+
+  return left.sessionRecord.alias.localeCompare(right.sessionRecord.alias);
 }
 
 function formatLocation(groupIndex: number | undefined): string {

@@ -62,6 +62,21 @@ export async function doesCurrentEditorLayoutMatch(
   }
 }
 
+export async function getCurrentEditorGroupCount(): Promise<number | undefined> {
+  try {
+    const currentLayout = await vscode.commands.executeCommand<EditorLayout | undefined>(
+      "vscode.getEditorLayout",
+    );
+    if (!isEditorLayout(currentLayout)) {
+      return undefined;
+    }
+
+    return countEditorLayoutLeafGroups(currentLayout);
+  } catch {
+    return undefined;
+  }
+}
+
 export function createBlockedSessionSnapshot(
   sessionId: string,
   workspaceId: string,
@@ -142,6 +157,21 @@ function normalizeEditorLayoutGroup(group: EditorLayoutGroup): Record<string, un
     groups: group.groups.map((childGroup) => normalizeEditorLayoutGroup(childGroup)),
     orientation: group.orientation,
   };
+}
+
+function countEditorLayoutLeafGroups(layout: EditorLayout): number {
+  return layout.groups.reduce((count, group) => count + countEditorLayoutGroupLeaves(group), 0);
+}
+
+function countEditorLayoutGroupLeaves(group: EditorLayoutGroup): number {
+  if (!Array.isArray(group.groups) || group.groups.length === 0) {
+    return 1;
+  }
+
+  return group.groups.reduce(
+    (count, childGroup) => count + countEditorLayoutGroupLeaves(childGroup),
+    0,
+  );
 }
 
 export function getDefaultWorkspaceCwd(): string {
