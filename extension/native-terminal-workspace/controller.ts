@@ -77,7 +77,6 @@ import {
   handleT3ActivityChanged,
   syncSessionTitle,
 } from "./events";
-import { executeProjectionReconcile } from "./projection";
 import {
   COMMAND_TERMINAL_EXIT_POLL_MS,
   COMPLETION_BELL_ENABLED_KEY,
@@ -638,9 +637,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
       if (changed) {
         await this.backend.renameSession(sessionRecord);
-        if (isT3Session(sessionRecord)) {
-          await this.t3Webviews.reconcileVisibleSessions(this.getActiveSnapshot(), true);
-        }
+        await this.reconcileProjectedSessions(true);
         await operation.step("after-surface-rename");
       }
 
@@ -730,20 +727,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         await this.previousSessionHistory.append([archivedSession]);
       }
       await operation.step("after-dispose-surface-state");
-      const snapshot = this.getActiveSnapshot();
-      const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
-
-      if (!this.backend.canReuseVisibleLayout(snapshot)) {
-        await this.reconcileProjectedSessions();
-        await operation.step("after-reconcile");
-      } else {
-        if (focusedSessionId) {
-          await this.backend.focusSession(focusedSessionId, false);
-        }
-        await this.t3Webviews.reconcileVisibleSessions(snapshot);
-        await this.browserSessions.reconcileVisibleSessions(snapshot);
-        await operation.step("after-layout-reuse");
-      }
+      await this.reconcileProjectedSessions();
+      await operation.step("after-reconcile");
 
       await this.syncT3RuntimeLease();
       await this.refreshSidebar();
@@ -1718,29 +1703,67 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async reconcileProjectedSessions(preserveFocus = false): Promise<void> {
     await this.layoutTrace.runOperation("reconcileProjectedSessions", {
       captureState: () => this.captureTraceState(),
-      execute: async (operation) =>
-        executeProjectionReconcile({
-          applyDisabledVsMuxMode: () => this.applyDisabledVsMuxMode(),
-          backend: this.backend,
-          browserSessions: this.browserSessions,
-          captureSnapshotTraceState: (snapshot) => this.captureSnapshotTraceState(snapshot),
-          ensureT3RuntimeForStoredSessions: (sessionRecords) =>
-            this.ensureT3RuntimeForStoredSessions(sessionRecords),
-          getAllSessionRecords: () => this.getAllSessionRecords(),
-          isVsMuxDisabled: () => this.isVsMuxDisabled(),
-          logControllerEvent: (tag, message, details) =>
-            this.logControllerEvent(tag, message, details),
-          operation,
+      execute: async (operation) => {
+        const sessionRecords = this.getAllSessionRecords();
+        this.backend.syncSessions(sessionRecords);
+        this.t3Webviews.syncSessions(sessionRecords);
+        this.browserSessions.syncSessions(sessionRecords);
+        await operation.step("after-sync-session-managers", {
+          expected: this.captureSnapshotTraceState(this.getActiveSnapshot()),
           preserveFocus,
-          snapshot: this.getActiveSnapshot(),
-          storeGetSession: (sessionId) => this.store.getSession(sessionId),
-          syncT3RuntimeLease: () => this.syncT3RuntimeLease(),
-          t3Webviews: this.t3Webviews,
-        }),
+        });
+        await this.ensureT3RuntimeForStoredSessions(sessionRecords);
+        await this.syncT3RuntimeLease();
+        await operation.step("after-sync-t3-runtime");
+
+        if (this.isVsMuxDisabled()) {
+          await operation.step("vsmux-disabled");
+          return;
+        }
+
+        const focusedSessionId =
+          this.getActiveSnapshot().focusedSessionId ?? this.getActiveSnapshot().visibleSessionIds[0];
+        if (!focusedSessionId) {
+          await operation.step("no-focused-session");
+          return;
+        }
+
+        await this.revealSessionSurface(focusedSessionId, preserveFocus);
+        await operation.step("after-reveal-focused-session", {
+          focusedSessionId,
+          preserveFocus,
+        });
+      },
       payload: {
         preserveFocus,
       },
     });
+  }
+
+  private async revealSessionSurface(sessionId: string, preserveFocus = false): Promise<void> {
+    const sessionRecord = this.store.getSession(sessionId);
+    if (!sessionRecord) {
+      return;
+    }
+
+    if (isTerminalSession(sessionRecord)) {
+      if (this.backend.hasLiveTerminal(sessionId)) {
+        await this.backend.focusSession(sessionId, preserveFocus);
+      }
+      return;
+    }
+
+    if (isT3Session(sessionRecord)) {
+      await this.t3Webviews.openSession(sessionRecord, preserveFocus);
+      if (!preserveFocus) {
+        this.t3Webviews.focusComposer(sessionId);
+      }
+      return;
+    }
+
+    if (isBrowserSession(sessionRecord)) {
+      await this.browserSessions.openSession(sessionRecord, preserveFocus);
+    }
   }
 
   private focusT3ComposerIfPossible(sessionId: string): void {
@@ -2132,13 +2155,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async applyDisabledVsMuxMode(): Promise<void> {
-    await this.backend.moveManagedTerminalsToPanel();
     this.t3Webviews.disposeAllSessions();
-    await vscode.commands.executeCommand("workbench.action.joinAllGroups");
-    await this.browserSessions.revealAllSessionsInOneGroup(
-      this.getAllSessionRecords().filter(isBrowserSession),
-      true,
-    );
   }
 
   private getDisableVsMuxStorageKey(): string {

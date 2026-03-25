@@ -8,7 +8,6 @@ import type {
 import {
   getTerminalSessionSurfaceTitle,
   isTerminalSession,
-  type SessionGridSnapshot,
   type SessionRecord,
   type TerminalSessionRecord,
 } from "../shared/session-grid-contract";
@@ -28,26 +27,15 @@ import type {
 } from "./terminal-workspace-backend";
 import {
   createDisconnectedSessionSnapshot,
-  focusEditorGroupByIndex,
   getDefaultShell,
   getDefaultWorkspaceCwd,
-  getViewColumn,
   getWorkspaceStorageKey,
-  moveActiveEditorToNextGroup,
-  moveActiveEditorToPreviousGroup,
-  moveActiveTerminalToEditor,
-  moveActiveTerminalToPanel,
 } from "./terminal-workspace-helpers";
 import {
   findTerminalGroupIndex as findTerminalGroupIndexByTitle,
-  findTerminalTabIndex as findTerminalTabIndexByTitle,
   isTerminalTabActive as isTerminalTabActiveByTitle,
   isTerminalTabForeground as isTerminalTabForegroundByTitle,
-  waitForActiveEditorGroup as waitForActiveEditorGroupByIndex,
   waitForActiveTerminal as waitForActiveTerminalInstance,
-  waitForTerminalInGroup as waitForTerminalInGroupByTitle,
-  waitForTerminalMove as waitForTerminalMoveByTitle,
-  waitForTerminalTabForeground as waitForTerminalTabForegroundByTitle,
 } from "./native-terminal-workspace-backend/workbench";
 import { createWorkspaceTrace } from "./runtime-trace";
 import {
@@ -58,7 +46,6 @@ import {
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
 const POLL_INTERVAL_MS = 500;
 const PROCESS_ID_ASSOCIATIONS_KEY = "nativeTerminalProcessIdBySession";
-const OPEN_EDITOR_AT_INDEX_COMMAND_PREFIX = "workbench.action.openEditorAtIndex";
 const TERMINAL_RENAME_COMMAND = "workbench.action.terminal.renameWithArg";
 const TRACE_FILE_NAME = "native-terminal-reconcile.log";
 
@@ -90,7 +77,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
   private readonly terminalToSessionId = new Map<vscode.Terminal, string>();
   private readonly trace = createWorkspaceTrace(TRACE_FILE_NAME);
-  private reconcileDepth = 0;
 
   public readonly onDidActivateSession = this.activateSessionEmitter.event;
   public readonly onDidChangeDebugState = this.changeDebugStateEmitter.event;
@@ -153,9 +139,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           sessionId,
           terminalName: terminal.name,
         });
-        if (this.reconcileDepth > 0) {
-          return;
-        }
         this.activateSessionEmitter.fire(sessionId);
       }),
       vscode.window.onDidChangeTerminalState((terminal) => {
@@ -309,10 +292,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     return this.sessions.get(sessionRecord.sessionId)!;
   }
 
-  public canReuseVisibleLayout(_snapshot: SessionGridSnapshot): boolean {
-    return false;
-  }
-
   public async focusSession(sessionId: string, preserveFocus = false): Promise<boolean> {
     const projection = this.projections.get(sessionId);
     if (!projection) {
@@ -343,73 +322,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     await this.logState("SESSION", "kill", { sessionId });
     projection.terminal.dispose();
     this.projections.delete(sessionId);
-  }
-
-  public async reconcileVisibleTerminals(
-    snapshot: SessionGridSnapshot,
-    preserveFocus = false,
-  ): Promise<void> {
-    const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
-    const placements = [...this.sessionRecordBySessionId.values()].map((sessionRecord) => {
-      const visibleIndex = snapshot.visibleSessionIds.indexOf(sessionRecord.sessionId);
-      const isVisible = visibleIndex >= 0;
-      const currentGroupIndex = this.findTerminalGroupIndex(sessionRecord.sessionId);
-
-      return {
-        isFocused: focusedSessionId === sessionRecord.sessionId,
-        isVisible,
-        sessionRecord,
-        targetGroupIndex: isVisible ? visibleIndex : (currentGroupIndex ?? 0),
-      };
-    });
-
-    placements.sort(compareTerminalPlacements);
-
-    await this.logState("RECONCILE", "start", {
-      focusedSessionId,
-      placements: placements.map((placement) => ({
-        focused: placement.isFocused,
-        sessionId: placement.sessionRecord.sessionId,
-        targetGroupIndex: placement.targetGroupIndex,
-        visible: placement.isVisible,
-      })),
-      preserveFocus,
-      snapshot,
-    });
-
-    this.reconcileDepth += 1;
-    try {
-      for (const placement of placements) {
-        await this.logState("PLACE", "before", {
-          focused: placement.isFocused,
-          sessionId: placement.sessionRecord.sessionId,
-          shouldFocus: placement.isFocused && !preserveFocus,
-          targetGroupIndex: placement.targetGroupIndex,
-          visible: placement.isVisible,
-        });
-        await this.placeTerminal(
-          placement.sessionRecord,
-          placement.targetGroupIndex,
-          placement.isVisible,
-          placement.isFocused && !preserveFocus,
-        );
-        await this.logState("PLACE", "after", {
-          focused: placement.isFocused,
-          sessionId: placement.sessionRecord.sessionId,
-          shouldFocus: placement.isFocused && !preserveFocus,
-          targetGroupIndex: placement.targetGroupIndex,
-          visible: placement.isVisible,
-        });
-      }
-    } finally {
-      this.reconcileDepth = Math.max(0, this.reconcileDepth - 1);
-    }
-
-    await this.refreshSessionSnapshots();
-    await this.logState("RECONCILE", "complete", {
-      preserveFocus,
-      snapshot,
-    });
   }
 
   public async renameSession(sessionRecord: SessionRecord): Promise<void> {
@@ -448,36 +360,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.lastTerminalActivityAtBySessionId.set(sessionId, Date.now());
   }
 
-  public async moveManagedTerminalsToPanel(): Promise<void> {
-    const projections = [...this.projections.values()].sort((left, right) => {
-      const leftGroupIndex = this.findTerminalGroupIndex(left.sessionId) ?? Number.MAX_SAFE_INTEGER;
-      const rightGroupIndex =
-        this.findTerminalGroupIndex(right.sessionId) ?? Number.MAX_SAFE_INTEGER;
-      if (leftGroupIndex !== rightGroupIndex) {
-        return leftGroupIndex - rightGroupIndex;
-      }
-
-      return left.sessionId.localeCompare(right.sessionId);
-    });
-
-    for (const projection of projections) {
-      const groupIndex = this.findTerminalGroupIndex(projection.sessionId);
-      if (groupIndex === undefined) {
-        continue;
-      }
-
-      await this.activateTerminalEditorTab(projection.sessionId, groupIndex);
-      await moveActiveTerminalToPanel();
-      await this.logState("MODE", "moved-terminal-to-panel", {
-        groupIndex,
-        sessionId: projection.sessionId,
-        terminalName: projection.terminal.name,
-      });
-    }
-
-    await this.refreshSessionSnapshots();
-  }
-
   public syncSessions(sessionRecords: readonly SessionRecord[]): void {
     const nextSessionRecords = sessionRecords.filter(isTerminalSession);
     const nextSessionIdSet = new Set(
@@ -505,132 +387,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       this.sessions.get(sessionRecord.sessionId) ??
         createDisconnectedSessionSnapshot(sessionRecord.sessionId, this.options.workspaceId),
     );
-  }
-
-  private async placeTerminal(
-    sessionRecord: TerminalSessionRecord,
-    targetGroupIndex: number,
-    isVisible: boolean,
-    shouldFocus: boolean,
-  ): Promise<void> {
-    const projection = await this.ensureTerminal(sessionRecord);
-    await this.syncTerminalName(projection.terminal, sessionRecord.sessionId);
-
-    let currentGroupIndex = this.findTerminalGroupIndex(sessionRecord.sessionId);
-    const restoreViewColumn = !shouldFocus
-      ? vscode.window.tabGroups.activeTabGroup?.viewColumn
-      : undefined;
-
-    if (currentGroupIndex === undefined) {
-      projection.terminal.show(false);
-      await this.waitForActiveTerminal(projection.terminal);
-      await focusEditorGroupByIndex(targetGroupIndex);
-      await this.waitForActiveEditorGroup(targetGroupIndex);
-      await moveActiveTerminalToEditor();
-      currentGroupIndex = await this.waitForTerminalInGroup(
-        sessionRecord.sessionId,
-        targetGroupIndex,
-      );
-    }
-
-    while (currentGroupIndex !== undefined && currentGroupIndex < targetGroupIndex) {
-      const sourceGroupIndex = currentGroupIndex;
-      await this.activateTerminalEditorTab(sessionRecord.sessionId, currentGroupIndex);
-      await moveActiveEditorToNextGroup();
-      currentGroupIndex =
-        (await this.waitForTerminalMove(
-          sessionRecord.sessionId,
-          sourceGroupIndex,
-          sourceGroupIndex + 1,
-        )) ?? sourceGroupIndex + 1;
-    }
-
-    while (currentGroupIndex !== undefined && currentGroupIndex > targetGroupIndex) {
-      const sourceGroupIndex = currentGroupIndex;
-      await this.activateTerminalEditorTab(sessionRecord.sessionId, currentGroupIndex);
-      await moveActiveEditorToPreviousGroup();
-      currentGroupIndex =
-        (await this.waitForTerminalMove(
-          sessionRecord.sessionId,
-          sourceGroupIndex,
-          sourceGroupIndex - 1,
-        )) ?? sourceGroupIndex - 1;
-    }
-
-    if (
-      isVisible &&
-      currentGroupIndex === targetGroupIndex &&
-      !shouldFocus &&
-      !this.isTerminalTabForeground(sessionRecord.sessionId, targetGroupIndex)
-    ) {
-      await this.activateTerminalEditorTab(sessionRecord.sessionId, targetGroupIndex);
-    }
-
-    if (shouldFocus) {
-      projection.terminal.show(false);
-      await this.waitForActiveTerminal(projection.terminal);
-      await this.waitForTerminalTabForeground(sessionRecord.sessionId, targetGroupIndex);
-    }
-
-    if (
-      !shouldFocus &&
-      restoreViewColumn &&
-      restoreViewColumn !== getViewColumn(targetGroupIndex)
-    ) {
-      await focusEditorGroupByIndex(restoreViewColumn - 1);
-      await this.waitForActiveEditorGroup(restoreViewColumn - 1);
-    }
-
-    await this.logState("PLACE", "settled", {
-      restoreViewColumn,
-      sessionId: sessionRecord.sessionId,
-      shouldFocus,
-      targetGroupIndex,
-    });
-  }
-
-  private async activateTerminalEditorTab(sessionId: string, groupIndex: number): Promise<boolean> {
-    const tabIndex = this.findTerminalTabIndex(sessionId, groupIndex);
-    if (tabIndex === undefined || tabIndex > 8) {
-      await this.logState("ACTIVATE", "terminal-tab-missing", {
-        groupIndex,
-        sessionId,
-        tabIndex,
-      });
-      return false;
-    }
-
-    const viewColumn = getViewColumn(groupIndex);
-    const activeGroupViewColumn = vscode.window.tabGroups.activeTabGroup?.viewColumn;
-    if (this.isTerminalTabForeground(sessionId, groupIndex)) {
-      if (activeGroupViewColumn !== viewColumn) {
-        await focusEditorGroupByIndex(groupIndex);
-        await this.waitForActiveEditorGroup(groupIndex);
-        await this.logState("ACTIVATE", "terminal-tab-group-focus", {
-          groupIndex,
-          sessionId,
-          tabIndex,
-        });
-      } else {
-        await this.logState("ACTIVATE", "terminal-tab-noop", {
-          groupIndex,
-          sessionId,
-          tabIndex,
-        });
-      }
-      return true;
-    }
-
-    await focusEditorGroupByIndex(groupIndex);
-    await this.waitForActiveEditorGroup(groupIndex);
-    await vscode.commands.executeCommand(`${OPEN_EDITOR_AT_INDEX_COMMAND_PREFIX}${tabIndex + 1}`);
-    await this.waitForTerminalTabForeground(sessionId, groupIndex);
-    await this.logState("ACTIVATE", "terminal-tab", {
-      groupIndex,
-      sessionId,
-      tabIndex,
-    });
-    return true;
   }
 
   private async ensureTerminal(sessionRecord: TerminalSessionRecord): Promise<SessionProjection> {
@@ -675,7 +431,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       iconPath: new vscode.ThemeIcon("terminal"),
       location: {
         preserveFocus: true,
-        viewColumn: vscode.ViewColumn.One,
+        viewColumn: vscode.window.tabGroups.activeTabGroup?.viewColumn ?? vscode.ViewColumn.One,
       },
       name: this.getSessionSurfaceTitle(sessionRecord.sessionId),
       shellPath: getDefaultShell(),
@@ -825,10 +581,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   private findTerminalGroupIndex(sessionId: string): number | undefined {
     return findTerminalGroupIndexByTitle(this.getSessionSurfaceTitle(sessionId));
-  }
-
-  private findTerminalTabIndex(sessionId: string, groupIndex: number): number | undefined {
-    return findTerminalTabIndexByTitle(this.getSessionSurfaceTitle(sessionId), groupIndex);
   }
 
   private isTerminalTabActive(sessionId: string, terminal: vscode.Terminal): boolean {
@@ -1071,72 +823,6 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       state: this.getTraceState(),
     });
   }
-
-  private async waitForActiveEditorGroup(groupIndex: number): Promise<void> {
-    await waitForActiveEditorGroupByIndex(groupIndex);
-  }
-
-  private async waitForTerminalInGroup(
-    sessionId: string,
-    targetGroupIndex: number,
-  ): Promise<number | undefined> {
-    return waitForTerminalInGroupByTitle(this.getSessionSurfaceTitle(sessionId), targetGroupIndex);
-  }
-
-  private async waitForTerminalMove(
-    sessionId: string,
-    sourceGroupIndex: number,
-    targetGroupIndex: number,
-  ): Promise<number | undefined> {
-    return waitForTerminalMoveByTitle(
-      this.getSessionSurfaceTitle(sessionId),
-      sourceGroupIndex,
-      targetGroupIndex,
-    );
-  }
-
-  private async waitForTerminalTabForeground(sessionId: string, groupIndex: number): Promise<void> {
-    await waitForTerminalTabForegroundByTitle(this.getSessionSurfaceTitle(sessionId), groupIndex);
-  }
-}
-
-function getPlacementPhase(isVisible: boolean, isFocused: boolean): number {
-  if (!isVisible) {
-    return 2;
-  }
-
-  return isFocused ? 1 : 0;
-}
-
-function compareTerminalPlacements(
-  left: {
-    isFocused: boolean;
-    isVisible: boolean;
-    sessionRecord: TerminalSessionRecord;
-    targetGroupIndex: number;
-  },
-  right: {
-    isFocused: boolean;
-    isVisible: boolean;
-    sessionRecord: TerminalSessionRecord;
-    targetGroupIndex: number;
-  },
-): number {
-  const leftPhase = getPlacementPhase(left.isVisible, left.isFocused);
-  const rightPhase = getPlacementPhase(right.isVisible, right.isFocused);
-  if (leftPhase !== rightPhase) {
-    return leftPhase - rightPhase;
-  }
-
-  if (left.isVisible && right.isVisible) {
-    if (left.targetGroupIndex !== right.targetGroupIndex) {
-      return right.targetGroupIndex - left.targetGroupIndex;
-    }
-  } else if (left.targetGroupIndex !== right.targetGroupIndex) {
-    return left.targetGroupIndex - right.targetGroupIndex;
-  }
-
-  return left.sessionRecord.alias.localeCompare(right.sessionRecord.alias);
 }
 
 function formatLocation(groupIndex: number | undefined): string {

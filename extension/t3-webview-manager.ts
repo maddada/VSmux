@@ -1,15 +1,10 @@
 import * as vscode from "vscode";
 import {
   isT3Session,
-  type SessionGridSnapshot,
   type SessionRecord,
   type T3SessionRecord,
 } from "../shared/session-grid-contract";
-import {
-  focusEditorGroupByIndex,
-  getActiveEditorGroupViewColumn,
-  getViewColumn,
-} from "./terminal-workspace-helpers";
+import { getActiveEditorGroupViewColumn } from "./terminal-workspace-helpers";
 import { captureWorkbenchState } from "./session-layout-trace";
 import { createWorkspaceTrace } from "./runtime-trace";
 import { createT3PanelHtml, getEmbeddedT3Root } from "./t3-webview-manager/html";
@@ -17,7 +12,6 @@ import {
   T3_PANEL_TYPE,
   getObservedPanelViewColumn,
   getPanelTitle,
-  getPlacementRank,
   getRenderKey,
   isT3WebviewMessage,
 } from "./t3-webview-manager/helpers";
@@ -67,6 +61,10 @@ export class T3WebviewManager implements vscode.Disposable {
     this.sessionRecordBySessionId.clear();
     for (const [sessionId, sessionRecord] of nextRecords) {
       this.sessionRecordBySessionId.set(sessionId, sessionRecord);
+      const managedPanel = this.panelsBySessionId.get(sessionId);
+      if (managedPanel) {
+        managedPanel.panel.title = getPanelTitle(sessionRecord);
+      }
     }
 
     for (const sessionId of this.panelsBySessionId.keys()) {
@@ -82,57 +80,9 @@ export class T3WebviewManager implements vscode.Disposable {
     });
   }
 
-  public async reconcileVisibleSessions(
-    snapshot: SessionGridSnapshot,
-    preserveFocus = false,
-  ): Promise<void> {
-    await this.closeUnknownPanels();
-    const placements = this.getPlacements(snapshot);
-    await this.logState("RECONCILE", "start", {
-      placements: placements.map((placement) => ({
-        isFocused: placement.isFocused,
-        isVisible: placement.isVisible,
-        sessionId: placement.sessionRecord.sessionId,
-        targetViewColumn: placement.targetViewColumn,
-      })),
-      preserveFocus,
-      snapshot,
-    });
-    this.suppressFocusEvents += 1;
-    try {
-      for (const placement of placements) {
-        await this.logState("PLACE", "before", {
-          isFocused: placement.isFocused,
-          isVisible: placement.isVisible,
-          sessionId: placement.sessionRecord.sessionId,
-          targetViewColumn: placement.targetViewColumn,
-        });
-        await this.ensurePlacement(
-          placement.sessionRecord,
-          placement.targetViewColumn,
-          placement.isFocused && !preserveFocus,
-          placement.isVisible,
-        );
-        await this.logState("PLACE", "after", {
-          isFocused: placement.isFocused,
-          isVisible: placement.isVisible,
-          sessionId: placement.sessionRecord.sessionId,
-          targetViewColumn: placement.targetViewColumn,
-        });
-      }
-    } finally {
-      this.suppressFocusEvents = Math.max(0, this.suppressFocusEvents - 1);
-    }
-    await this.logState("RECONCILE", "complete", {
-      preserveFocus,
-      snapshot,
-    });
-  }
-
-  public async revealStoredSession(
+  public async openSession(
     sessionRecord: T3SessionRecord,
-    snapshot: SessionGridSnapshot,
-    preserveFocus: boolean,
+    preserveFocus = false,
   ): Promise<void> {
     this.syncSessions([
       ...Array.from(this.sessionRecordBySessionId.values()).filter(
@@ -140,7 +90,32 @@ export class T3WebviewManager implements vscode.Disposable {
       ),
       sessionRecord,
     ]);
-    await this.reconcileVisibleSessions(snapshot, preserveFocus);
+    const managedPanel = this.panelsBySessionId.get(sessionRecord.sessionId);
+    const renderKey = getRenderKey(sessionRecord);
+    const targetViewColumn = managedPanel?.panel.viewColumn ?? getActiveEditorGroupViewColumn() ?? 1;
+
+    if (managedPanel && managedPanel.renderKey === renderKey) {
+      managedPanel.panel.title = getPanelTitle(sessionRecord);
+      managedPanel.panel.reveal(targetViewColumn, preserveFocus);
+      await this.logState("OPEN", "reuse-panel", {
+        preserveFocus,
+        sessionId: sessionRecord.sessionId,
+        targetViewColumn,
+      });
+      return;
+    }
+
+    if (managedPanel) {
+      this.disposeSession(sessionRecord.sessionId);
+    }
+
+    const nextManagedPanel = await this.createPanel(sessionRecord, renderKey, targetViewColumn);
+    nextManagedPanel.panel.reveal(targetViewColumn, preserveFocus);
+    await this.logState("OPEN", "panel", {
+      preserveFocus,
+      sessionId: sessionRecord.sessionId,
+      targetViewColumn,
+    });
   }
 
   public focusComposer(sessionId: string): void {
@@ -191,106 +166,11 @@ export class T3WebviewManager implements vscode.Disposable {
     }
   }
 
-  private getPlacements(snapshot: SessionGridSnapshot): Array<{
-    isFocused: boolean;
-    isVisible: boolean;
-    sessionRecord: T3SessionRecord;
-    targetViewColumn: vscode.ViewColumn;
-  }> {
-    const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
-    const placements = [...this.sessionRecordBySessionId.values()].map((sessionRecord) => {
-      const visibleIndex = snapshot.visibleSessionIds.indexOf(sessionRecord.sessionId);
-      const isVisible = visibleIndex >= 0;
-      const currentViewColumn =
-        this.panelsBySessionId.get(sessionRecord.sessionId)?.panel.viewColumn ??
-        getObservedPanelViewColumn(getPanelTitle(sessionRecord));
-
-      return {
-        isFocused: focusedSessionId === sessionRecord.sessionId,
-        isVisible,
-        sessionRecord,
-        targetViewColumn: isVisible ? getViewColumn(visibleIndex) : (currentViewColumn ?? 1),
-      };
-    });
-
-    placements.sort((left, right) => {
-      const leftRank = getPlacementRank(left.isVisible, left.isFocused);
-      const rightRank = getPlacementRank(right.isVisible, right.isFocused);
-      if (leftRank !== rightRank) {
-        return rightRank - leftRank;
-      }
-
-      if (left.targetViewColumn !== right.targetViewColumn) {
-        return left.targetViewColumn - right.targetViewColumn;
-      }
-
-      return left.sessionRecord.alias.localeCompare(right.sessionRecord.alias);
-    });
-
-    return placements;
-  }
-
-  private async ensurePlacement(
-    sessionRecord: T3SessionRecord,
-    targetViewColumn: vscode.ViewColumn,
-    shouldFocus: boolean,
-    isVisible: boolean,
-  ): Promise<void> {
-    const managedPanel = this.panelsBySessionId.get(sessionRecord.sessionId);
-    const renderKey = getRenderKey(sessionRecord);
-    const observedViewColumn = getObservedPanelViewColumn(getPanelTitle(sessionRecord));
-    const currentViewColumn = managedPanel?.panel.viewColumn ?? observedViewColumn;
-
-    if (
-      managedPanel &&
-      managedPanel.renderKey === renderKey &&
-      currentViewColumn === targetViewColumn
-    ) {
-      await this.logState("PLACE", "reuse", {
-        currentViewColumn,
-        isVisible,
-        observedViewColumn,
-        sessionId: sessionRecord.sessionId,
-        shouldFocus,
-        targetViewColumn,
-      });
-      managedPanel.panel.title = getPanelTitle(sessionRecord);
-      if (isVisible || shouldFocus) {
-        managedPanel.panel.reveal(targetViewColumn, !shouldFocus);
-      }
-      if (shouldFocus) {
-        this.requestComposerFocus(managedPanel);
-      }
-      return;
-    }
-
-    if (managedPanel) {
-      await this.logState("PLACE", "recreate", {
-        currentViewColumn,
-        isVisible,
-        observedViewColumn,
-        sessionId: sessionRecord.sessionId,
-        shouldFocus,
-        targetViewColumn,
-      });
-      this.disposeSession(sessionRecord.sessionId);
-    }
-
-    const nextManagedPanel = await this.createPanel(sessionRecord, renderKey, targetViewColumn);
-    if (isVisible || shouldFocus) {
-      nextManagedPanel.panel.reveal(targetViewColumn, !shouldFocus);
-    }
-    if (shouldFocus) {
-      this.requestComposerFocus(nextManagedPanel);
-    }
-  }
-
   private async createPanel(
     sessionRecord: T3SessionRecord,
     renderKey: string,
     targetViewColumn: vscode.ViewColumn,
   ): Promise<ManagedPanel> {
-    const restoreViewColumn = getActiveEditorGroupViewColumn();
     const panel = vscode.window.createWebviewPanel(
       T3_PANEL_TYPE,
       getPanelTitle(sessionRecord),
@@ -347,15 +227,6 @@ export class T3WebviewManager implements vscode.Disposable {
       }
     });
     panel.webview.html = await this.createPanelHtml(panel.webview, sessionRecord);
-
-    if (
-      restoreViewColumn &&
-      restoreViewColumn !== targetViewColumn &&
-      this.suppressFocusEvents > 0
-    ) {
-      await focusEditorGroupByIndex(restoreViewColumn - 1);
-    }
-
     return managedPanel;
   }
 
@@ -374,33 +245,6 @@ export class T3WebviewManager implements vscode.Disposable {
     });
     void managedPanel.panel.webview.postMessage({ type: "focusComposer" });
   }
-
-  private async closeUnknownPanels(): Promise<void> {
-    const expectedTitles = new Set(
-      [...this.sessionRecordBySessionId.values()].map((sessionRecord) =>
-        getPanelTitle(sessionRecord),
-      ),
-    );
-
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        if (
-          !(tab.input instanceof vscode.TabInputWebview) ||
-          tab.input.viewType !== T3_PANEL_TYPE ||
-          expectedTitles.has(tab.label)
-        ) {
-          continue;
-        }
-
-        await vscode.window.tabGroups.close(tab, true);
-        await this.logState("DISPOSE", "unknown-panel", {
-          label: tab.label,
-          viewColumn: group.viewColumn,
-        });
-      }
-    }
-  }
-
   private async createPanelHtml(
     webview: vscode.Webview,
     sessionRecord: T3SessionRecord,

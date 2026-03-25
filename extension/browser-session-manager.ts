@@ -2,20 +2,14 @@ import * as vscode from "vscode";
 import {
   isBrowserSession,
   type BrowserSessionRecord,
-  type SessionGridSnapshot,
   type SessionRecord,
 } from "../shared/session-grid-contract";
-import {
-  focusEditorGroupByIndex,
-  getActiveEditorGroupViewColumn,
-  getViewColumn,
-} from "./terminal-workspace-helpers";
+import { focusEditorGroupByIndex, getActiveEditorGroupViewColumn } from "./terminal-workspace-helpers";
 import { captureWorkbenchState } from "./session-layout-trace";
 import { createWorkspaceTrace } from "./runtime-trace";
 import {
   getBrowserTabInputKind,
   getBrowserTabUrl,
-  getPlacementRank,
   getRenderKey,
   isBrowserLikeTab,
   normalizeUrl,
@@ -91,56 +85,9 @@ export class BrowserSessionManager implements vscode.Disposable {
     });
   }
 
-  public async reconcileVisibleSessions(
-    snapshot: SessionGridSnapshot,
-    preserveFocus = false,
-  ): Promise<void> {
-    const placements = this.getPlacements(snapshot);
-    await this.logState("RECONCILE", "start", {
-      placements: placements.map((placement) => ({
-        isFocused: placement.isFocused,
-        isVisible: placement.isVisible,
-        sessionId: placement.sessionRecord.sessionId,
-        targetViewColumn: placement.targetViewColumn,
-      })),
-      preserveFocus,
-      snapshot,
-    });
-    this.suppressFocusEvents += 1;
-    try {
-      for (const placement of placements) {
-        await this.logState("PLACE", "before", {
-          isFocused: placement.isFocused,
-          isVisible: placement.isVisible,
-          sessionId: placement.sessionRecord.sessionId,
-          targetViewColumn: placement.targetViewColumn,
-        });
-        await this.ensurePlacement(
-          placement.sessionRecord,
-          placement.targetViewColumn,
-          placement.isFocused && !preserveFocus,
-          placement.isVisible,
-        );
-        await this.logState("PLACE", "after", {
-          isFocused: placement.isFocused,
-          isVisible: placement.isVisible,
-          sessionId: placement.sessionRecord.sessionId,
-          targetViewColumn: placement.targetViewColumn,
-        });
-      }
-    } finally {
-      this.suppressFocusEvents = Math.max(0, this.suppressFocusEvents - 1);
-    }
-    await this.logState("RECONCILE", "complete", {
-      preserveFocus,
-      snapshot,
-    });
-  }
-
-  public async revealStoredSession(
+  public async openSession(
     sessionRecord: BrowserSessionRecord,
-    snapshot: SessionGridSnapshot,
-    preserveFocus: boolean,
+    preserveFocus = false,
   ): Promise<void> {
     this.syncSessions([
       ...Array.from(this.sessionRecordBySessionId.values()).filter(
@@ -148,7 +95,27 @@ export class BrowserSessionManager implements vscode.Disposable {
       ),
       sessionRecord,
     ]);
-    await this.reconcileVisibleSessions(snapshot, preserveFocus);
+    const renderKey = getRenderKey(sessionRecord);
+    const managedTab =
+      this.managedTabsBySessionId.get(sessionRecord.sessionId) ??
+      this.createManagedTab(sessionRecord.sessionId, renderKey, sessionRecord.browser.url);
+    managedTab.renderKey = renderKey;
+    managedTab.url = sessionRecord.browser.url;
+
+    let liveTab = this.resolveLiveTab(sessionRecord.sessionId);
+    if (!liveTab) {
+      liveTab = await this.openBrowserTab(sessionRecord, preserveFocus);
+    } else if (!preserveFocus) {
+      await this.revealTab(liveTab, true);
+    }
+
+    managedTab.tab = liveTab;
+    await this.logState("OPEN", liveTab ? "browser-tab" : "browser-tab-missing", {
+      preserveFocus,
+      sessionId: sessionRecord.sessionId,
+      url: sessionRecord.browser.url,
+      viewColumn: liveTab?.group.viewColumn,
+    });
   }
 
   public hasLiveTab(sessionId: string): boolean {
@@ -170,22 +137,6 @@ export class BrowserSessionManager implements vscode.Disposable {
     return undefined;
   }
 
-  public async revealAllSessionsInOneGroup(
-    sessionRecords: readonly BrowserSessionRecord[],
-    preserveFocus = true,
-  ): Promise<void> {
-    this.syncSessions(sessionRecords);
-    const snapshot: SessionGridSnapshot = {
-      focusedSessionId: undefined,
-      fullscreenRestoreVisibleCount: undefined,
-      sessions: [...sessionRecords],
-      viewMode: "grid",
-      visibleCount: 1,
-      visibleSessionIds: [],
-    };
-    await this.reconcileVisibleSessions(snapshot, preserveFocus);
-  }
-
   public async disposeSession(sessionId: string): Promise<void> {
     const managedTab = this.managedTabsBySessionId.get(sessionId);
     this.managedTabsBySessionId.delete(sessionId);
@@ -198,80 +149,6 @@ export class BrowserSessionManager implements vscode.Disposable {
       await this.logState("DISPOSE", "session", { sessionId });
     } catch {
       // Ignore races with user-controlled browser tabs.
-    }
-  }
-
-  private getPlacements(snapshot: SessionGridSnapshot): Array<{
-    isFocused: boolean;
-    isVisible: boolean;
-    sessionRecord: BrowserSessionRecord;
-    targetViewColumn: vscode.ViewColumn;
-  }> {
-    const focusedSessionId = snapshot.focusedSessionId ?? snapshot.visibleSessionIds[0];
-    const placements = [...this.sessionRecordBySessionId.values()].map((sessionRecord) => {
-      const visibleIndex = snapshot.visibleSessionIds.indexOf(sessionRecord.sessionId);
-      const isVisible = visibleIndex >= 0;
-      const currentViewColumn =
-        this.resolveLiveTab(sessionRecord.sessionId)?.group.viewColumn ??
-        this.managedTabsBySessionId.get(sessionRecord.sessionId)?.tab?.group.viewColumn;
-
-      return {
-        isFocused: focusedSessionId === sessionRecord.sessionId,
-        isVisible,
-        sessionRecord,
-        targetViewColumn: isVisible ? getViewColumn(visibleIndex) : (currentViewColumn ?? 1),
-      };
-    });
-
-    placements.sort((left, right) => {
-      const leftRank = getPlacementRank(left.isVisible, left.isFocused);
-      const rightRank = getPlacementRank(right.isVisible, right.isFocused);
-      if (leftRank !== rightRank) {
-        return rightRank - leftRank;
-      }
-
-      if (left.targetViewColumn !== right.targetViewColumn) {
-        return left.targetViewColumn - right.targetViewColumn;
-      }
-
-      return left.sessionRecord.alias.localeCompare(right.sessionRecord.alias);
-    });
-
-    return placements;
-  }
-
-  private async ensurePlacement(
-    sessionRecord: BrowserSessionRecord,
-    targetViewColumn: vscode.ViewColumn,
-    shouldFocus: boolean,
-    isVisible: boolean,
-  ): Promise<void> {
-    const renderKey = getRenderKey(sessionRecord);
-    const managedTab =
-      this.managedTabsBySessionId.get(sessionRecord.sessionId) ??
-      this.createManagedTab(sessionRecord.sessionId, renderKey, sessionRecord.browser.url);
-    managedTab.renderKey = renderKey;
-    managedTab.url = sessionRecord.browser.url;
-
-    let liveTab = this.resolveLiveTab(sessionRecord.sessionId);
-    if (!liveTab || liveTab.group.viewColumn !== targetViewColumn) {
-      await this.logState("PLACE", "reopen", {
-        hasLiveTab: Boolean(liveTab),
-        sessionId: sessionRecord.sessionId,
-        shouldFocus,
-        targetViewColumn,
-      });
-      await this.closeManagedTab(sessionRecord.sessionId, true);
-      liveTab = await this.openBrowserTab(sessionRecord, targetViewColumn, !shouldFocus);
-    }
-
-    managedTab.tab = liveTab;
-    if (!liveTab) {
-      return;
-    }
-
-    if (isVisible || shouldFocus) {
-      await this.revealTab(liveTab, targetViewColumn, shouldFocus);
     }
   }
 
@@ -289,10 +166,10 @@ export class BrowserSessionManager implements vscode.Disposable {
 
   private async openBrowserTab(
     sessionRecord: BrowserSessionRecord,
-    targetViewColumn: vscode.ViewColumn,
     preserveFocus: boolean,
   ): Promise<vscode.Tab | undefined> {
     const restoreViewColumn = preserveFocus ? getActiveEditorGroupViewColumn() : undefined;
+    const targetViewColumn = restoreViewColumn ?? getActiveEditorGroupViewColumn() ?? 1;
     const browserTabsBeforeOpen = new Set(this.getBrowserLikeTabs(targetViewColumn));
     await vscode.commands.executeCommand(
       SIMPLE_BROWSER_OPEN_COMMAND,
@@ -330,9 +207,13 @@ export class BrowserSessionManager implements vscode.Disposable {
 
   private async revealTab(
     tab: vscode.Tab,
-    targetViewColumn: vscode.ViewColumn,
     shouldFocus: boolean,
   ): Promise<void> {
+    const targetViewColumn = tab.group.viewColumn;
+    if (!targetViewColumn) {
+      return;
+    }
+
     const restoreViewColumn = !shouldFocus ? getActiveEditorGroupViewColumn() : undefined;
     await focusEditorGroupByIndex(targetViewColumn - 1);
     const liveTab =
@@ -452,23 +333,6 @@ export class BrowserSessionManager implements vscode.Disposable {
       .filter((group) => viewColumn === undefined || group.viewColumn === viewColumn)
       .flatMap((group) => group.tabs)
       .filter(isBrowserLikeTab);
-  }
-
-  private async closeManagedTab(sessionId: string, preserveFocus: boolean): Promise<void> {
-    const liveTab = this.resolveLiveTab(sessionId);
-    const managedTab = this.managedTabsBySessionId.get(sessionId);
-    if (managedTab) {
-      managedTab.tab = undefined;
-    }
-    if (!liveTab) {
-      return;
-    }
-
-    try {
-      await vscode.window.tabGroups.close(liveTab, preserveFocus);
-    } catch {
-      // Ignore races with user-controlled browser tabs.
-    }
   }
 
   private async handleTabChange(): Promise<void> {

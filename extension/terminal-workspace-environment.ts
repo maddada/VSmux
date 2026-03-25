@@ -120,22 +120,6 @@ export async function focusEditorGroupByIndex(index: number): Promise<boolean> {
   return true;
 }
 
-export async function moveActiveTerminalToEditor(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.terminal.moveToEditor");
-}
-
-export async function moveActiveTerminalToPanel(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.terminal.moveToTerminalPanel");
-}
-
-export async function moveActiveEditorToNextGroup(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.moveEditorToNextGroup");
-}
-
-export async function moveActiveEditorToPreviousGroup(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.moveEditorToPreviousGroup");
-}
-
 export async function lockActiveEditorGroup(): Promise<void> {
   await vscode.commands.executeCommand("workbench.action.lockEditorGroup");
 }

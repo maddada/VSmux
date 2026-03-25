@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { NativeTerminalBackendDebugState } from "../shared/native-terminal-debug-contract";
-import type { SessionGridSnapshot, SessionRecord } from "../shared/session-grid-contract";
+import type { SessionRecord } from "../shared/session-grid-contract";
 import type { TerminalSessionSnapshot } from "../shared/terminal-host-protocol";
 
 export type TerminalWorkspaceBackendTitleChange = {
@@ -20,15 +20,9 @@ export type TerminalWorkspaceBackend = vscode.Disposable & {
   initialize: (sessionRecords: readonly SessionRecord[]) => Promise<void>;
   acknowledgeAttention: (sessionId: string) => Promise<boolean>;
   createOrAttachSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
-  canReuseVisibleLayout: (snapshot: SessionGridSnapshot) => boolean;
   focusSession: (sessionId: string, preserveFocus?: boolean) => Promise<boolean>;
   getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
   killSession: (sessionId: string) => Promise<void>;
-  moveManagedTerminalsToPanel: () => Promise<void>;
-  reconcileVisibleTerminals: (
-    snapshot: SessionGridSnapshot,
-    preserveFocus?: boolean,
-  ) => Promise<void>;
   renameSession: (sessionRecord: SessionRecord) => Promise<void>;
   restartSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
   syncSessions: (sessionRecords: readonly SessionRecord[]) => void;
