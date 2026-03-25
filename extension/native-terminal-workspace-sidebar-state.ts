@@ -2,6 +2,7 @@ import {
   getSessionShortcutLabel,
   getSessionGridLayoutVisibleCount,
   getVisiblePrimaryTitle,
+  getVisibleSessionNumber,
   getOrderedSessions,
   isBrowserSession,
   isSessionGridFocusModeActive,
@@ -189,7 +190,7 @@ function buildSidebarItem(
       primaryTitle: getVisiblePrimaryTitle(sessionRecord.title) ?? "Browser",
       row: sessionRecord.row,
       sessionId: sessionRecord.sessionId,
-      sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+      sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
       shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
       terminalTitle: undefined,
     };
@@ -210,7 +211,7 @@ function buildSidebarItem(
       primaryTitle: getVisiblePrimaryTitle(sessionRecord.title) ?? "T3 Code",
       row: sessionRecord.row,
       sessionId: sessionRecord.sessionId,
-      sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+      sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
       shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
       terminalTitle: undefined,
     };
@@ -242,7 +243,7 @@ function buildSidebarItem(
     primaryTitle: getVisibleTerminalTitle(getVisiblePrimaryTitle(sessionRecord.title)),
     row: sessionRecord.row,
     sessionId: sessionRecord.sessionId,
-    sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+    sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
     shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
     terminalTitle: getVisibleTerminalTitle(options.getTerminalTitle(sessionRecord.sessionId)),
   };
@@ -262,8 +263,12 @@ function getVisibleTerminalTitle(title: string | undefined): string | undefined 
 }
 
 function getDebuggingSessionNumber(
-  displayId: string | undefined,
+  sessionRecord: SessionRecord,
   debuggingMode: boolean,
 ): string | undefined {
-  return debuggingMode ? displayId : undefined;
+  if (!debuggingMode) {
+    return undefined;
+  }
+
+  return getVisibleSessionNumber(sessionRecord);
 }

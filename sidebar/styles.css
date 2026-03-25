@@ -446,9 +446,13 @@ button:disabled {
 }
 
 .agents-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+}
+
+.agents-grid > * {
+  min-width: 0;
 }
 
 .commands-grid {
@@ -493,6 +497,7 @@ button:disabled {
 
 .agent-button {
   min-width: 0;
+  width: 100%;
 }
 
 .command-button {

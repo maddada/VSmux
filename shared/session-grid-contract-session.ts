@@ -177,9 +177,13 @@ export function getSessionShortcutLabel(slotIndex: number, platform: "default" |
   return platform === "mac" ? `⌘⌥${shortcutNumber}` : `⌃⌥${shortcutNumber}`;
 }
 
-export function createSessionAlias(sessionNumber: number, slotIndex: number): string {
+export function createSessionAlias(
+  sessionNumber: number,
+  slotIndex: number,
+  displayId?: string | number,
+): string {
   void slotIndex;
-  return String(Math.max(1, Math.floor(sessionNumber)));
+  return formatSessionDisplayId(displayId ?? sessionNumber - 1);
 }
 
 export function isNumericSessionAlias(alias: string | undefined): boolean {
@@ -187,9 +191,12 @@ export function isNumericSessionAlias(alias: string | undefined): boolean {
 }
 
 export function isGeneratedSessionAlias(
-  session: Pick<BaseSessionRecord, "alias" | "sessionId" | "slotIndex">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex">,
 ): boolean {
-  return session.alias.trim() === createSessionAlias(parseSessionNumber(session.sessionId), session.slotIndex);
+  return (
+    session.alias.trim() ===
+    createSessionAlias(getSessionNumber(session), session.slotIndex, session.displayId)
+  );
 }
 
 export function createSessionRecord(
@@ -198,9 +205,9 @@ export function createSessionRecord(
   options?: CreateSessionRecordOptions,
 ): SessionRecord {
   const position = getSlotPosition(slotIndex);
-  const alias = createSessionAlias(sessionNumber, slotIndex);
-  const createdAt = new Date().toISOString();
   const displayId = formatSessionDisplayId(options?.displayId ?? sessionNumber - 1);
+  const alias = createSessionAlias(sessionNumber, slotIndex, displayId);
+  const createdAt = new Date().toISOString();
   const sessionId = `session-${sessionNumber}`;
   const title = options?.title?.trim() || `Session ${sessionNumber}`;
 
@@ -248,15 +255,31 @@ export function createSessionRecord(
 }
 
 export function getTerminalSessionSurfaceTitle(
-  session: Pick<BaseSessionRecord, "alias" | "displayId">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex">,
 ): string {
-  return `${formatSessionDisplayId(session.displayId)}_ ${session.alias}`;
+  return formatSessionSurfaceTitle(session);
 }
 
 export function getT3SessionSurfaceTitle(
-  session: Pick<BaseSessionRecord, "alias" | "displayId">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex">,
 ): string {
-  return `${formatSessionDisplayId(session.displayId)}_ T3: ${session.alias}`;
+  return formatSessionSurfaceTitle(session);
+}
+
+export function getSessionNumberFromSessionId(sessionId: string): number | undefined {
+  const match = /^session-(\d+)$/.exec(sessionId);
+  if (!match) {
+    return undefined;
+  }
+
+  const parsedNumber = Number.parseInt(match[1], 10);
+  return Number.isInteger(parsedNumber) && parsedNumber > 0 ? parsedNumber : undefined;
+}
+
+export function getVisibleSessionNumber(
+  session: Pick<BaseSessionRecord, "displayId" | "sessionId" | "slotIndex">,
+): string {
+  return formatSessionDisplayId(session.displayId ?? getSessionNumber(session) - 1);
 }
 
 export function getVisiblePrimaryTitle(title: string): string | undefined {
@@ -284,12 +307,15 @@ export function isT3Session(session: SessionRecord): session is T3SessionRecord 
   return session.kind === "t3";
 }
 
-function parseSessionNumber(sessionId: string): number {
-  const match = /^session-(\d+)$/.exec(sessionId);
-  if (!match) {
-    return 1;
-  }
+function getSessionNumber(
+  session: Pick<BaseSessionRecord, "sessionId" | "slotIndex">,
+): number {
+  return getSessionNumberFromSessionId(session.sessionId) ?? session.slotIndex + 1;
+}
 
-  const parsedNumber = Number.parseInt(match[1], 10);
-  return Number.isInteger(parsedNumber) && parsedNumber > 0 ? parsedNumber : 1;
+function formatSessionSurfaceTitle(
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex">,
+): string {
+  const displayId = formatSessionDisplayId(session.displayId ?? getSessionNumber(session) - 1);
+  return isGeneratedSessionAlias(session) ? displayId : `${displayId} ${session.alias}`;
 }

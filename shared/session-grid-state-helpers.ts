@@ -206,7 +206,7 @@ export function reindexSessionsInOrder(sessions: readonly SessionRecord[]): Sess
 
 export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
   const sessionNumber = getSessionNumber(session);
-  const defaultAlias = createSessionAlias(sessionNumber, session.slotIndex);
+  const defaultAlias = createSessionAlias(sessionNumber, session.slotIndex, session.displayId);
   const defaultTitle = `Session ${sessionNumber}`;
   const alias =
     typeof session.alias === "string" && session.alias.trim().length > 0

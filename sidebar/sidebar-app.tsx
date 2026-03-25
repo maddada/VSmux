@@ -8,6 +8,7 @@ import {
   IconBug,
   IconHistory,
   IconLayoutSidebar,
+  IconPencil,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
@@ -447,16 +448,6 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
           commands={serverState.hud.commands}
           createRequestId={commandCreateRequestId}
           isVsMuxDisabled={serverState.hud.isVsMuxDisabled}
-          isScratchPadOpen={isScratchPadOpen}
-          onToggleScratchPad={() => {
-            setIsPreviousSessionsOpen(false);
-            setIsScratchPadOpen((previous) => !previous);
-          }}
-          vscode={vscode}
-        />
-        <AgentsPanel
-          agents={serverState.hud.agents}
-          createRequestId={agentCreateRequestId}
           titlebarActions={
             <div
               className="sidebar-titlebar-controls"
@@ -583,6 +574,39 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
                 </div>
               ) : null}
             </div>
+          }
+          vscode={vscode}
+        />
+        <AgentsPanel
+          agents={serverState.hud.agents}
+          createRequestId={agentCreateRequestId}
+          titlebarActions={
+            <Tooltip.Root>
+              <Tooltip.Trigger
+                render={
+                  <button
+                    aria-expanded={isScratchPadOpen}
+                    aria-haspopup="dialog"
+                    aria-label="Show scratch pad"
+                    className="floating-toolbar-button section-titlebar-action-button"
+                    data-empty-space-blocking="true"
+                    data-selected={String(isScratchPadOpen)}
+                    onClick={() => {
+                      setIsPreviousSessionsOpen(false);
+                      setIsScratchPadOpen((previous) => !previous);
+                    }}
+                    type="button"
+                  >
+                    <IconPencil aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+                  </button>
+                }
+              />
+              <Tooltip.Portal>
+                <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
+                  <Tooltip.Popup className="tooltip-popup">Scratch Pad</Tooltip.Popup>
+                </Tooltip.Positioner>
+              </Tooltip.Portal>
+            </Tooltip.Root>
           }
           vscode={vscode}
         />
