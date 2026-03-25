@@ -31,7 +31,7 @@ export const DEFAULT_SIDEBAR_AGENTS = [
   },
 ] as const;
 
-export type SidebarAgentIcon = (typeof DEFAULT_SIDEBAR_AGENTS)[number]["icon"];
+export type SidebarAgentIcon = "browser" | (typeof DEFAULT_SIDEBAR_AGENTS)[number]["icon"];
 
 export type SidebarAgentButton = {
   agentId: string;
@@ -107,6 +107,10 @@ export function getSidebarAgentIconById(agentId: string | undefined): SidebarAge
 }
 
 export function getSidebarAgentNameByIcon(icon: SidebarAgentIcon | undefined): string | undefined {
+  if (icon === "browser") {
+    return "Browser";
+  }
+
   return DEFAULT_SIDEBAR_AGENTS.find((agent) => agent.icon === icon)?.name;
 }
 
@@ -149,6 +153,10 @@ export function normalizeStoredSidebarAgents(candidate: unknown): StoredSidebarA
 }
 
 function isSidebarAgentIcon(candidate: unknown): candidate is SidebarAgentIcon {
+  if (candidate === "browser") {
+    return true;
+  }
+
   return (
     typeof candidate === "string" &&
     DEFAULT_SIDEBAR_AGENTS.some((agent) => agent.icon === candidate)

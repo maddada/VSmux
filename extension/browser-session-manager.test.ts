@@ -237,6 +237,55 @@ describe("BrowserSessionManager", () => {
       hiddenTab.tab,
     );
   });
+
+  test("should reuse an existing browser-like tab when the browser tab has no url input", async () => {
+    const manager = new BrowserSessionManager({
+      onDidChangeSessions: vi.fn(async () => {}),
+      onDidFocusSession: vi.fn(async () => {}),
+    });
+    const session = createBrowserSession("session-1", "001", "Docs", "https://example.com");
+    manager.syncSessions([session]);
+    testState.executeCommand.mockImplementation(async (command: string) => {
+      if (command === "simpleBrowser.api.open") {
+        testState.tabGroupsAll = [createBrowserLikeTab("Google", 1, true).group];
+      }
+    });
+
+    await manager.reconcileVisibleSessions(
+      {
+        focusedSessionId: session.sessionId,
+        fullscreenRestoreVisibleCount: undefined,
+        sessions: [session],
+        viewMode: "grid",
+        visibleCount: 1,
+        visibleSessionIds: [session.sessionId],
+      },
+      false,
+    );
+
+    testState.executeCommand.mockClear();
+    await manager.reconcileVisibleSessions(
+      {
+        focusedSessionId: session.sessionId,
+        fullscreenRestoreVisibleCount: undefined,
+        sessions: [session],
+        viewMode: "grid",
+        visibleCount: 1,
+        visibleSessionIds: [session.sessionId],
+      },
+      false,
+    );
+
+    expect(manager.hasLiveTab(session.sessionId)).toBe(true);
+    expect(testState.executeCommand).not.toHaveBeenCalledWith(
+      "simpleBrowser.api.open",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect((manager as any).managedTabsBySessionId.get(session.sessionId)?.lastKnownLabel).toBe(
+      "Google",
+    );
+  });
 });
 
 async function fireTabChange(): Promise<void> {
@@ -287,6 +336,27 @@ function createBrowserTab(url: string, viewColumn: number, isActive: boolean) {
     }),
     isActive,
     label: "Docs",
+  };
+  group.tabs.push(tab);
+  return { group, tab };
+}
+
+function createBrowserLikeTab(label: string, viewColumn: number, isActive: boolean) {
+  const group = {
+    isActive,
+    tabs: [] as Array<{
+      group: unknown;
+      input: unknown;
+      isActive: boolean;
+      label: string;
+    }>,
+    viewColumn,
+  };
+  const tab = {
+    group,
+    input: undefined,
+    isActive,
+    label,
   };
   group.tabs.push(tab);
   return { group, tab };

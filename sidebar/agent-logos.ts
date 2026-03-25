@@ -1,3 +1,4 @@
+import browserLogo from "../src/assets/browser.svg";
 import claudeLogo from "../src/assets/claude.svg";
 import codexLogo from "../src/assets/codex.svg";
 import geminiLogo from "../src/assets/gemini.svg";
@@ -6,6 +7,7 @@ import t3Logo from "../src/assets/t3.svg";
 import type { SidebarAgentIcon } from "../shared/sidebar-agents";
 
 export const AGENT_LOGOS: Record<SidebarAgentIcon, string> = {
+  browser: browserLogo,
   claude: claudeLogo,
   codex: codexLogo,
   gemini: geminiLogo,

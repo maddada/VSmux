@@ -4,16 +4,13 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## New in 1.8.0
+## Latest Release: 1.10.0
 
-- Working on windows.
+- Browser sessions now reuse and recover tabs more reliably.
+- Native terminal layout reconciliation is more stable across grouped sessions.
+- Sidebar and embedded session polish across browser and T3 workflows.
 
-## New in 1.7.0
-
-## New in 1.6.0
-
-- Added browser support.
-- Better UI across the workspace and session management flow.
+Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 
 > Current UI in v1.3 (still under development. Will be much nicer with time.)
 

@@ -1,4 +1,4 @@
-import { IconPencil } from "@tabler/icons-react";
+import { IconPencil, IconWorld } from "@tabler/icons-react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
@@ -7,6 +7,7 @@ import { AGENT_LOGOS } from "./agent-logos";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 
 const AGENT_SECONDARY_LABELS: Record<SidebarAgentIcon, readonly string[]> = {
+  browser: ["browser"],
   claude: ["claude", "claude code"],
   codex: ["codex", "codex cli", "openai codex"],
   gemini: ["gemini"],
@@ -47,7 +48,15 @@ export function SessionCardContent({
 
   return (
     <>
-      {session.agentIcon ? (
+      {session.agentIcon === "browser" ? (
+        <IconWorld
+          aria-hidden="true"
+          className="session-agent-tabler-watermark"
+          data-agent-icon="browser"
+          size={18}
+          stroke={1.8}
+        />
+      ) : session.agentIcon ? (
         <span
           aria-hidden="true"
           className="session-agent-watermark"

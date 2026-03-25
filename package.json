@@ -1,7 +1,7 @@
 {
   "name": "VSmux",
   "displayName": "VSmux",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "description": "VSmux - A VS Code extension",
   "categories": [
@@ -35,7 +35,8 @@
     "check": "vp check",
     "prepare": "vp config",
     "vsix:package": "node ./scripts/vsix.mjs package",
-    "vsix:install": "node ./scripts/vsix.mjs install"
+    "vsix:install": "node ./scripts/vsix.mjs install",
+    "vsix:publish": "node ./scripts/publish-extension.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

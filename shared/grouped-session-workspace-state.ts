@@ -6,10 +6,7 @@ import {
   type CreateSessionRecordOptions,
   createDefaultGroupedSessionWorkspaceSnapshot,
   createDefaultSessionGridSnapshot,
-  formatSessionDisplayId,
-  getOrderedSessions,
   type GroupedSessionWorkspaceSnapshot,
-  type SessionGridSnapshot,
   type SessionGroupRecord,
   type SessionRecord,
   type TerminalViewMode,
@@ -21,17 +18,26 @@ import {
   normalizeSessionGridSnapshot,
   removeSessionInSnapshot,
   renameSessionAliasInSnapshot,
+  setBrowserSessionMetadataInSnapshot,
   setSessionTitleInSnapshot,
   setViewModeInSnapshot,
   setVisibleCountInSnapshot,
   syncSessionOrderInSnapshot,
   toggleFullscreenSessionInSnapshot,
 } from "./session-grid-state";
-
-type GroupLocation = {
-  group: SessionGroupRecord;
-  index: number;
-};
+import {
+  claimNextSessionDisplayId,
+  findGroupContainingSession,
+  getSessionRecord,
+  insertSessionIntoGroup,
+  isGroupedWorkspaceSnapshot,
+  isSessionGroupRecord,
+  normalizeGroup,
+  normalizeWorkspaceSessionDisplayIds,
+  updateActiveGroupSnapshot,
+  updateGroup,
+  updateOwningGroupSnapshot,
+} from "./grouped-session-workspace-state-helpers";
 
 export function normalizeGroupedSessionWorkspaceSnapshot(
   snapshot: GroupedSessionWorkspaceSnapshot | undefined,
@@ -316,6 +322,17 @@ export function setSessionTitleInWorkspace(
   );
 }
 
+export function setBrowserSessionMetadataInWorkspace(
+  snapshot: GroupedSessionWorkspaceSnapshot,
+  sessionId: string,
+  title: string,
+  url: string,
+): { changed: boolean; snapshot: GroupedSessionWorkspaceSnapshot } {
+  return updateOwningGroupSnapshot(snapshot, sessionId, (groupSnapshot) =>
+    setBrowserSessionMetadataInSnapshot(groupSnapshot, sessionId, title, url),
+  );
+}
+
 export function removeSessionInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   sessionId: string,
@@ -329,7 +346,7 @@ export function setVisibleCountInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   visibleCount: VisibleSessionCount,
 ): GroupedSessionWorkspaceSnapshot {
-  return updateActiveGroupSnapshot(snapshot, (groupSnapshot) =>
+  return updateActiveGroupSnapshot(snapshot, getActiveGroup, (groupSnapshot) =>
     setVisibleCountInSnapshot(groupSnapshot, visibleCount),
   );
 }
@@ -337,7 +354,7 @@ export function setVisibleCountInWorkspace(
 export function toggleFullscreenSessionInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
 ): GroupedSessionWorkspaceSnapshot {
-  return updateActiveGroupSnapshot(snapshot, (groupSnapshot) =>
+  return updateActiveGroupSnapshot(snapshot, getActiveGroup, (groupSnapshot) =>
     toggleFullscreenSessionInSnapshot(groupSnapshot),
   );
 }
@@ -346,7 +363,7 @@ export function setViewModeInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   viewMode: TerminalViewMode,
 ): GroupedSessionWorkspaceSnapshot {
-  return updateActiveGroupSnapshot(snapshot, (groupSnapshot) =>
+  return updateActiveGroupSnapshot(snapshot, getActiveGroup, (groupSnapshot) =>
     setViewModeInSnapshot(groupSnapshot, viewMode),
   );
 }
@@ -523,224 +540,4 @@ export function createGroupFromSessionInWorkspace(
       nextGroupNumber: normalizedSnapshot.nextGroupNumber + 1,
     },
   };
-}
-
-function insertSessionIntoGroup(
-  snapshot: SessionGridSnapshot,
-  sessionRecord: SessionRecord,
-  targetIndex?: number,
-): SessionGridSnapshot {
-  const orderedSessions = getOrderedSessions(snapshot);
-  const insertionIndex =
-    typeof targetIndex === "number"
-      ? Math.max(0, Math.min(targetIndex, orderedSessions.length))
-      : orderedSessions.length;
-  const nextSessions = [...orderedSessions];
-  nextSessions.splice(insertionIndex, 0, sessionRecord);
-
-  return normalizeSessionGridSnapshot({
-    ...snapshot,
-    sessions: nextSessions,
-  });
-}
-
-function updateActiveGroupSnapshot(
-  snapshot: GroupedSessionWorkspaceSnapshot,
-  updater: (groupSnapshot: SessionGridSnapshot) => SessionGridSnapshot,
-): GroupedSessionWorkspaceSnapshot {
-  const normalizedSnapshot = normalizeGroupedSessionWorkspaceSnapshot(snapshot);
-  const activeGroup = getActiveGroup(normalizedSnapshot);
-  if (!activeGroup) {
-    return normalizedSnapshot;
-  }
-
-  return {
-    ...normalizedSnapshot,
-    groups: updateGroup(
-      normalizedSnapshot.groups,
-      activeGroup.groupId,
-      updater(activeGroup.snapshot),
-    ),
-  };
-}
-
-function updateOwningGroupSnapshot(
-  snapshot: GroupedSessionWorkspaceSnapshot,
-  sessionId: string,
-  updater: (groupSnapshot: SessionGridSnapshot) => {
-    changed: boolean;
-    snapshot: SessionGridSnapshot;
-  },
-): { changed: boolean; snapshot: GroupedSessionWorkspaceSnapshot } {
-  const normalizedSnapshot = normalizeGroupedSessionWorkspaceSnapshot(snapshot);
-  const location = findGroupContainingSession(normalizedSnapshot, sessionId);
-  if (!location) {
-    return { changed: false, snapshot: normalizedSnapshot };
-  }
-
-  const result = updater(location.group.snapshot);
-  return {
-    changed: result.changed,
-    snapshot: result.changed
-      ? {
-          ...normalizedSnapshot,
-          groups: updateGroup(normalizedSnapshot.groups, location.group.groupId, result.snapshot),
-        }
-      : normalizedSnapshot,
-  };
-}
-
-function updateGroup(
-  groups: readonly SessionGroupRecord[],
-  groupId: string,
-  snapshot: SessionGridSnapshot,
-): SessionGroupRecord[] {
-  return groups.map((group) =>
-    group.groupId === groupId
-      ? {
-          ...group,
-          snapshot,
-        }
-      : group,
-  );
-}
-
-function findGroupContainingSession(
-  snapshot: GroupedSessionWorkspaceSnapshot,
-  sessionId: string,
-): GroupLocation | undefined {
-  for (let index = 0; index < snapshot.groups.length; index += 1) {
-    const group = snapshot.groups[index];
-    if (group.snapshot.sessions.some((session) => session.sessionId === sessionId)) {
-      return { group, index };
-    }
-  }
-
-  return undefined;
-}
-
-function getSessionRecord(
-  snapshot: SessionGridSnapshot,
-  sessionId: string,
-): SessionRecord | undefined {
-  return snapshot.sessions.find((session) => session.sessionId === sessionId);
-}
-
-function isGroupedWorkspaceSnapshot(
-  snapshot: GroupedSessionWorkspaceSnapshot | undefined,
-): snapshot is GroupedSessionWorkspaceSnapshot {
-  return Boolean(
-    snapshot && Array.isArray(snapshot.groups) && typeof snapshot.activeGroupId === "string",
-  );
-}
-
-function isSessionGroupRecord(candidate: unknown): candidate is SessionGroupRecord {
-  return Boolean(
-    candidate &&
-    typeof candidate === "object" &&
-    typeof (candidate as SessionGroupRecord).groupId === "string" &&
-    typeof (candidate as SessionGroupRecord).title === "string" &&
-    typeof (candidate as SessionGroupRecord).snapshot === "object",
-  );
-}
-
-function normalizeGroup(group: SessionGroupRecord, index: number): SessionGroupRecord {
-  return {
-    groupId:
-      group.groupId.trim().length > 0
-        ? group.groupId
-        : index === 0
-          ? DEFAULT_MAIN_GROUP_ID
-          : `group-${index + 1}`,
-    snapshot: normalizeSessionGridSnapshot(group.snapshot),
-    title:
-      group.title.trim().length > 0
-        ? group.title.trim()
-        : index === 0
-          ? DEFAULT_MAIN_GROUP_TITLE
-          : `Group ${index + 1}`,
-  };
-}
-
-function normalizeWorkspaceSessionDisplayIds(groups: readonly SessionGroupRecord[]): {
-  groups: SessionGroupRecord[];
-  nextSessionDisplayId: number;
-} {
-  const usedDisplayIds = new Set<string>();
-  let nextAvailableDisplayId = 0;
-  let changed = false;
-
-  const nextGroups = groups.map((group) => {
-    const sessions = group.snapshot.sessions.map((session) => {
-      const normalizedDisplayId = formatSessionDisplayId(session.displayId ?? "");
-      if (!usedDisplayIds.has(normalizedDisplayId) && /^\d{2}$/.test(normalizedDisplayId)) {
-        usedDisplayIds.add(normalizedDisplayId);
-        return {
-          ...session,
-          displayId: normalizedDisplayId,
-        };
-      }
-
-      changed = true;
-      const claimedDisplayId = claimDisplayId(usedDisplayIds, nextAvailableDisplayId);
-      nextAvailableDisplayId = claimedDisplayId.nextSessionDisplayId;
-      return {
-        ...session,
-        displayId: claimedDisplayId.displayId,
-      };
-    });
-
-    return sessions === group.snapshot.sessions && !changed
-      ? group
-      : {
-          ...group,
-          snapshot: {
-            ...group.snapshot,
-            sessions,
-          },
-        };
-  });
-
-  const nextSessionDisplayId = findNextAvailableDisplayId(usedDisplayIds, nextAvailableDisplayId);
-  return {
-    groups: changed ? nextGroups : [...nextGroups],
-    nextSessionDisplayId,
-  };
-}
-
-function claimNextSessionDisplayId(snapshot: GroupedSessionWorkspaceSnapshot): {
-  displayId: string;
-  nextSessionDisplayId: number;
-} {
-  const usedDisplayIds = new Set(
-    snapshot.groups.flatMap((group) => group.snapshot.sessions.map((session) => session.displayId)),
-  );
-  return claimDisplayId(usedDisplayIds, snapshot.nextSessionDisplayId);
-}
-
-function claimDisplayId(
-  usedDisplayIds: Set<string>,
-  startDisplayId: number,
-): { displayId: string; nextSessionDisplayId: number } {
-  const normalizedStartDisplayId =
-    ((Math.floor(startDisplayId) % MAX_SESSION_DISPLAY_ID_COUNT) + MAX_SESSION_DISPLAY_ID_COUNT) %
-    MAX_SESSION_DISPLAY_ID_COUNT;
-  const nextDisplayId = findNextAvailableDisplayId(usedDisplayIds, normalizedStartDisplayId);
-  const displayId = formatSessionDisplayId(nextDisplayId);
-  usedDisplayIds.add(displayId);
-  return {
-    displayId,
-    nextSessionDisplayId: (nextDisplayId + 1) % MAX_SESSION_DISPLAY_ID_COUNT,
-  };
-}
-
-function findNextAvailableDisplayId(usedDisplayIds: Set<string>, startDisplayId: number): number {
-  for (let offset = 0; offset < MAX_SESSION_DISPLAY_ID_COUNT; offset += 1) {
-    const candidate = (startDisplayId + offset) % MAX_SESSION_DISPLAY_ID_COUNT;
-    if (!usedDisplayIds.has(formatSessionDisplayId(candidate))) {
-      return candidate;
-    }
-  }
-
-  return startDisplayId % MAX_SESSION_DISPLAY_ID_COUNT;
 }

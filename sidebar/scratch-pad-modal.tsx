@@ -9,12 +9,7 @@ export type ScratchPadModalProps = {
   onSave: (content: string) => void;
 };
 
-export function ScratchPadModal({
-  content,
-  isOpen,
-  onClose,
-  onSave,
-}: ScratchPadModalProps) {
+export function ScratchPadModal({ content, isOpen, onClose, onSave }: ScratchPadModalProps) {
   const [draftContent, setDraftContent] = useState(content);
   const lastSavedContentRef = useRef(content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,11 +92,7 @@ export function ScratchPadModal({
 
   return createPortal(
     <div className="confirm-modal-root" role="presentation">
-      <button
-        className="confirm-modal-backdrop"
-        onClick={closeModal}
-        type="button"
-      />
+      <button className="confirm-modal-backdrop" onClick={closeModal} type="button" />
       <div
         aria-labelledby="scratch-pad-modal-title"
         aria-modal="true"

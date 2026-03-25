@@ -1,14 +1,7 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { DragDropProvider } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
-import {
-  IconBracketsAngle,
-  IconCode,
-  IconPencil,
-  IconPlayerPlay,
-  IconTrash,
-  IconWorld,
-} from "@tabler/icons-react";
+import { IconCode, IconPencil, IconPlayerPlay, IconTrash, IconWorld } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { SidebarCommandButton } from "../shared/sidebar-commands";
@@ -258,11 +251,7 @@ export function CommandsPanel({
                     onClick={onToggleScratchPad}
                     type="button"
                   >
-                    <IconPencil
-                      aria-hidden="true"
-                      className="toolbar-tabler-icon"
-                      stroke={1.8}
-                    />
+                    <IconPencil aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
                   </button>
                 }
               />

@@ -511,9 +511,11 @@ button:disabled {
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="codex"],
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="opencode"],
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="t3"],
+body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="browser"],
 body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="codex"],
 body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="opencode"],
-body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
+body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"],
+body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="browser"] {
   filter: brightness(0) invert(1);
 }
 
@@ -1523,8 +1525,28 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
   transition: opacity 120ms ease;
 }
 
+.session-agent-tabler-watermark {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  color: var(--session-agent-watermark-color, var(--app-foreground));
+  opacity: 0.7;
+  pointer-events: none;
+  translate: 0 -50%;
+  z-index: 0;
+  transition: opacity 120ms ease;
+}
+
 .session-agent-watermark[data-agent-icon="codex"] {
   --session-agent-watermark-color: #ffffff;
+}
+
+.session-agent-tabler-watermark[data-agent-icon="browser"] {
+  --session-agent-watermark-color: #82b7ff;
+}
+
+.session-agent-watermark[data-agent-icon="browser"] {
+  --session-agent-watermark-color: #82b7ff;
 }
 
 .session-agent-watermark[data-agent-icon="t3"] {
@@ -1679,7 +1701,10 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="t3"] {
 
 .session:hover .session-agent-watermark,
 .session:focus-visible .session-agent-watermark,
-.session:focus-within .session-agent-watermark {
+.session:focus-within .session-agent-watermark,
+.session:hover .session-agent-tabler-watermark,
+.session:focus-visible .session-agent-tabler-watermark,
+.session:focus-within .session-agent-tabler-watermark {
   opacity: 0;
 }
 

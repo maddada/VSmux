@@ -329,16 +329,13 @@ export function reduceSidebarStoryWorkspace(
 
 function createSessionGroupRecord(
   group: SidebarHydrateMessage["groups"][number],
-  message: SidebarHydrateMessage,
 ): SessionGroupRecord {
   return {
     groupId: group.groupId,
     snapshot: {
       focusedSessionId: group.sessions.find((session) => session.isFocused)?.sessionId,
       fullscreenRestoreVisibleCount:
-        group.isFocusModeActive && group.visibleCount === 1
-          ? group.layoutVisibleCount
-          : undefined,
+        group.isFocusModeActive && group.visibleCount === 1 ? group.layoutVisibleCount : undefined,
       sessions: group.sessions.map((session) => createSessionRecord(session)),
       viewMode: group.viewMode,
       visibleCount: group.visibleCount,

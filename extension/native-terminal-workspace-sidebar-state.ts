@@ -1,0 +1,269 @@
+import {
+  getSessionShortcutLabel,
+  getSessionGridLayoutVisibleCount,
+  getVisiblePrimaryTitle,
+  getOrderedSessions,
+  isBrowserSession,
+  isSessionGridFocusModeActive,
+  isT3Session,
+  type ExtensionToSidebarMessage,
+  type GroupedSessionWorkspaceSnapshot,
+  type SessionGridSnapshot,
+  type SessionGroupRecord,
+  type SessionRecord,
+  type SidebarHydrateMessage,
+  type SidebarPreviousSessionItem,
+  type SidebarSessionGroup,
+  type SidebarSessionStateMessage,
+  type SidebarSessionItem,
+} from "../shared/session-grid-contract";
+import type { SidebarAgentIcon } from "../shared/sidebar-agents";
+import type {
+  TerminalAgentStatus,
+  TerminalSessionSnapshot,
+} from "../shared/terminal-host-protocol";
+import {
+  createDisconnectedSessionSnapshot,
+  getSessionActivityLabel,
+} from "./terminal-workspace-helpers";
+import type { PreviousSessionHistoryEntry } from "./previous-session-history";
+
+type BuildSidebarMessageOptions = {
+  activeSnapshot: SessionGridSnapshot;
+  completionBellEnabled: boolean;
+  debuggingMode: boolean;
+  getEffectiveSessionActivity: (
+    sessionRecord: SessionRecord,
+    sessionSnapshot: TerminalSessionSnapshot,
+  ) => {
+    activity: TerminalAgentStatus;
+    agentName: string | undefined;
+  };
+  getSessionAgentLaunch: (sessionId: string) => PreviousSessionHistoryEntry["agentLaunch"];
+  getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
+  getT3ActivityState: (sessionRecord: SessionRecord) => {
+    activity: TerminalAgentStatus;
+    isRunning: boolean;
+  };
+  getTerminalTitle: (sessionId: string) => string | undefined;
+  getSidebarAgentIcon: (
+    sessionId: string,
+    snapshotAgentName: string | undefined,
+    derivedAgentName: string | undefined,
+  ) => SidebarAgentIcon | undefined;
+  hud: SidebarHydrateMessage["hud"];
+  ownsNativeTerminalControl: boolean;
+  platform: "default" | "mac";
+  previousSessions: SidebarPreviousSessionItem[];
+  scratchPadContent: string;
+  terminalHasLiveProjection: (sessionId: string) => boolean;
+  browserHasLiveProjection: (sessionId: string) => boolean;
+  type: SidebarHydrateMessage["type"] | SidebarSessionStateMessage["type"];
+  workspaceId: string;
+  workspaceSnapshot: GroupedSessionWorkspaceSnapshot;
+};
+
+type CreatePreviousSessionEntryOptions = Pick<
+  BuildSidebarMessageOptions,
+  | "browserHasLiveProjection"
+  | "debuggingMode"
+  | "getEffectiveSessionActivity"
+  | "getSessionAgentLaunch"
+  | "getSessionSnapshot"
+  | "getSidebarAgentIcon"
+  | "getT3ActivityState"
+  | "getTerminalTitle"
+  | "ownsNativeTerminalControl"
+  | "platform"
+  | "terminalHasLiveProjection"
+  | "workspaceId"
+> & {
+  group: SessionGroupRecord;
+  sessionRecord: SessionRecord;
+};
+
+export function buildSidebarMessage(
+  options: BuildSidebarMessageOptions,
+): ExtensionToSidebarMessage {
+  return {
+    hud: options.hud,
+    groups: options.workspaceSnapshot.groups.map((group) =>
+      buildSidebarGroup(group, group.snapshot, options),
+    ),
+    previousSessions: options.previousSessions,
+    scratchPadContent: options.scratchPadContent,
+    type: options.type,
+  };
+}
+
+export function createPreviousSessionEntry(
+  options: CreatePreviousSessionEntryOptions,
+): PreviousSessionHistoryEntry | undefined {
+  if (isBrowserSession(options.sessionRecord)) {
+    return undefined;
+  }
+
+  const sidebarItem = buildSidebarItem(
+    options.group,
+    options.group.snapshot,
+    options.sessionRecord,
+    {
+      ...options,
+      activeGroupId: options.group.groupId,
+    },
+  );
+  const closedAt = new Date().toISOString();
+  return {
+    agentIcon: options.getSidebarAgentIcon(options.sessionRecord.sessionId, undefined, undefined),
+    agentLaunch: options.getSessionAgentLaunch(options.sessionRecord.sessionId),
+    closedAt,
+    historyId: `${options.sessionRecord.sessionId}:${closedAt}`,
+    sessionRecord: options.sessionRecord,
+    sidebarItem: {
+      ...sidebarItem,
+      isFocused: false,
+      isRunning: false,
+      isVisible: false,
+    },
+  };
+}
+
+function buildSidebarGroup(
+  group: SessionGroupRecord,
+  presentedSnapshot: SessionGridSnapshot,
+  options: BuildSidebarMessageOptions,
+): SidebarSessionGroup {
+  return {
+    groupId: group.groupId,
+    isActive: options.workspaceSnapshot.activeGroupId === group.groupId,
+    isFocusModeActive: isSessionGridFocusModeActive(presentedSnapshot),
+    layoutVisibleCount: getSessionGridLayoutVisibleCount(presentedSnapshot),
+    sessions: getOrderedSessions(group.snapshot).map((session) =>
+      buildSidebarItem(group, presentedSnapshot, session, {
+        ...options,
+        activeGroupId: options.workspaceSnapshot.activeGroupId,
+      }),
+    ),
+    title: group.title,
+    viewMode: presentedSnapshot.viewMode,
+    visibleCount: presentedSnapshot.visibleCount,
+  };
+}
+
+function buildSidebarItem(
+  group: SessionGroupRecord,
+  presentedSnapshot: SessionGridSnapshot,
+  sessionRecord: SessionRecord,
+  options: Pick<
+    BuildSidebarMessageOptions,
+    | "browserHasLiveProjection"
+    | "debuggingMode"
+    | "getEffectiveSessionActivity"
+    | "getSessionAgentLaunch"
+    | "getSessionSnapshot"
+    | "getSidebarAgentIcon"
+    | "getT3ActivityState"
+    | "getTerminalTitle"
+    | "ownsNativeTerminalControl"
+    | "platform"
+    | "terminalHasLiveProjection"
+    | "workspaceId"
+  > & { activeGroupId: string },
+): SidebarSessionItem {
+  const isActiveGroup = options.activeGroupId === group.groupId;
+  const isVisible =
+    isActiveGroup && presentedSnapshot.visibleSessionIds.includes(sessionRecord.sessionId);
+  const isFocused = isActiveGroup && presentedSnapshot.focusedSessionId === sessionRecord.sessionId;
+
+  if (isBrowserSession(sessionRecord)) {
+    return {
+      activity: "idle",
+      activityLabel: undefined,
+      agentIcon: "browser",
+      alias: sessionRecord.alias,
+      column: sessionRecord.column,
+      detail: sessionRecord.browser.url,
+      isFocused,
+      isRunning: isVisible || options.browserHasLiveProjection(sessionRecord.sessionId),
+      isVisible,
+      primaryTitle: getVisiblePrimaryTitle(sessionRecord.title) ?? "Browser",
+      row: sessionRecord.row,
+      sessionId: sessionRecord.sessionId,
+      sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+      shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
+      terminalTitle: undefined,
+    };
+  }
+
+  if (isT3Session(sessionRecord)) {
+    const activityState = options.getT3ActivityState(sessionRecord);
+    return {
+      activity: activityState.activity,
+      activityLabel: getSessionActivityLabel(activityState.activity, "t3"),
+      agentIcon: "t3",
+      alias: sessionRecord.alias,
+      column: sessionRecord.column,
+      detail: `Thread ${sessionRecord.t3.threadId.slice(0, 8)}`,
+      isFocused,
+      isRunning: activityState.isRunning,
+      isVisible,
+      primaryTitle: getVisiblePrimaryTitle(sessionRecord.title) ?? "T3 Code",
+      row: sessionRecord.row,
+      sessionId: sessionRecord.sessionId,
+      sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+      shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
+      terminalTitle: undefined,
+    };
+  }
+
+  const sessionSnapshot =
+    options.getSessionSnapshot(sessionRecord.sessionId) ??
+    createDisconnectedSessionSnapshot(sessionRecord.sessionId, options.workspaceId);
+  const effectiveActivity = options.getEffectiveSessionActivity(sessionRecord, sessionSnapshot);
+
+  return {
+    activity: effectiveActivity.activity,
+    activityLabel: getSessionActivityLabel(effectiveActivity.activity, effectiveActivity.agentName),
+    agentIcon: options.getSidebarAgentIcon(
+      sessionRecord.sessionId,
+      sessionSnapshot.agentName,
+      effectiveActivity.agentName,
+    ),
+    alias: sessionRecord.alias,
+    column: sessionRecord.column,
+    detail: options.ownsNativeTerminalControl
+      ? sessionSnapshot.errorMessage
+      : "Managed in another VS Code window",
+    isFocused,
+    isRunning:
+      sessionSnapshot.status === "running" &&
+      options.terminalHasLiveProjection(sessionRecord.sessionId),
+    isVisible,
+    primaryTitle: getVisibleTerminalTitle(getVisiblePrimaryTitle(sessionRecord.title)),
+    row: sessionRecord.row,
+    sessionId: sessionRecord.sessionId,
+    sessionNumber: getDebuggingSessionNumber(sessionRecord.displayId, options.debuggingMode),
+    shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
+    terminalTitle: getVisibleTerminalTitle(options.getTerminalTitle(sessionRecord.sessionId)),
+  };
+}
+
+function getVisibleTerminalTitle(title: string | undefined): string | undefined {
+  const normalizedTitle = title?.trim();
+  if (!normalizedTitle) {
+    return undefined;
+  }
+
+  if (/^(~|\/)/.test(normalizedTitle)) {
+    return undefined;
+  }
+
+  return normalizedTitle;
+}
+
+function getDebuggingSessionNumber(
+  displayId: string | undefined,
+  debuggingMode: boolean,
+): string | undefined {
+  return debuggingMode ? displayId : undefined;
+}

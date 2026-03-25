@@ -12,6 +12,14 @@ import {
 } from "./terminal-workspace-helpers";
 import { captureWorkbenchState } from "./session-layout-trace";
 import { createWorkspaceTrace } from "./runtime-trace";
+import {
+  getBrowserTabInputKind,
+  getBrowserTabUrl,
+  getPlacementRank,
+  getRenderKey,
+  isBrowserLikeTab,
+  normalizeUrl,
+} from "./browser-session-manager/helpers";
 
 type BrowserSessionManagerOptions = {
   onDidChangeSessions?: () => Promise<void> | void;
@@ -19,6 +27,7 @@ type BrowserSessionManagerOptions = {
 };
 
 type ManagedBrowserTab = {
+  lastKnownLabel?: string;
   renderKey: string;
   sessionId: string;
   tab: vscode.Tab | undefined;
@@ -268,6 +277,7 @@ export class BrowserSessionManager implements vscode.Disposable {
 
   private createManagedTab(sessionId: string, renderKey: string, url: string): ManagedBrowserTab {
     const managedTab: ManagedBrowserTab = {
+      lastKnownLabel: undefined,
       renderKey,
       sessionId,
       tab: undefined,
@@ -283,6 +293,7 @@ export class BrowserSessionManager implements vscode.Disposable {
     preserveFocus: boolean,
   ): Promise<vscode.Tab | undefined> {
     const restoreViewColumn = preserveFocus ? getActiveEditorGroupViewColumn() : undefined;
+    const browserTabsBeforeOpen = new Set(this.getBrowserLikeTabs(targetViewColumn));
     await vscode.commands.executeCommand(
       SIMPLE_BROWSER_OPEN_COMMAND,
       vscode.Uri.parse(sessionRecord.browser.url),
@@ -291,11 +302,24 @@ export class BrowserSessionManager implements vscode.Disposable {
         viewColumn: targetViewColumn,
       },
     );
-    const openedTab = this.findTabByUrl(sessionRecord.browser.url, targetViewColumn);
+    const openedTab =
+      this.findOpenedBrowserLikeTab(targetViewColumn, browserTabsBeforeOpen) ??
+      this.findTabByUrl(sessionRecord.browser.url, targetViewColumn) ??
+      this.findBestBrowserCandidate(sessionRecord.sessionId, targetViewColumn);
+    const managedTab = this.managedTabsBySessionId.get(sessionRecord.sessionId);
+    if (managedTab && openedTab) {
+      managedTab.lastKnownLabel = openedTab.label;
+    }
     if (preserveFocus && restoreViewColumn && restoreViewColumn !== targetViewColumn) {
       await focusEditorGroupByIndex(restoreViewColumn - 1);
     }
     await this.logState("OPEN", "browser-tab", {
+      browserLikeTabLabelsAfterOpen: this.getBrowserLikeTabs(targetViewColumn).map(
+        (tab) => tab.label,
+      ),
+      browserLikeTabLabelsBeforeOpen: [...browserTabsBeforeOpen].map((tab) => tab.label),
+      openedTabInputKind: openedTab ? getBrowserTabInputKind(openedTab) : undefined,
+      openedTabLabel: openedTab?.label,
       preserveFocus,
       sessionId: sessionRecord.sessionId,
       targetViewColumn,
@@ -313,8 +337,15 @@ export class BrowserSessionManager implements vscode.Disposable {
     await focusEditorGroupByIndex(targetViewColumn - 1);
     const liveTab =
       this.resolveSpecificLiveTab(tab) ??
-      this.findTabByUrl(getBrowserTabUrl(tab), targetViewColumn);
+      this.findTabByUrl(getBrowserTabUrl(tab), targetViewColumn) ??
+      this.findBestBrowserCandidate(undefined, targetViewColumn);
     if (!liveTab) {
+      await this.logState("REVEAL", "browser-tab-missing", {
+        shouldFocus,
+        tabLabel: tab.label,
+        tabUrl: getBrowserTabUrl(tab),
+        targetViewColumn,
+      });
       return;
     }
 
@@ -340,9 +371,23 @@ export class BrowserSessionManager implements vscode.Disposable {
       return undefined;
     }
 
-    return (
-      this.resolveSpecificLiveTab(managedTab.tab) ?? this.findTabByUrl(managedTab.url) ?? undefined
-    );
+    const exactTab = this.resolveSpecificLiveTab(managedTab.tab);
+    if (exactTab) {
+      managedTab.lastKnownLabel = exactTab.label;
+      return exactTab;
+    }
+
+    const urlMatch = this.findTabByUrl(managedTab.url);
+    if (urlMatch) {
+      managedTab.lastKnownLabel = urlMatch.label;
+      return urlMatch;
+    }
+
+    const candidate = this.findBestBrowserCandidate(sessionId);
+    if (candidate) {
+      managedTab.lastKnownLabel = candidate.label;
+    }
+    return candidate;
   }
 
   private resolveSpecificLiveTab(tab: vscode.Tab | undefined): vscode.Tab | undefined {
@@ -364,6 +409,49 @@ export class BrowserSessionManager implements vscode.Disposable {
       .filter((group) => viewColumn === undefined || group.viewColumn === viewColumn)
       .flatMap((group) => group.tabs)
       .find((tab) => normalizeUrl(getBrowserTabUrl(tab)) === expectedUrl);
+  }
+
+  private findOpenedBrowserLikeTab(
+    viewColumn: vscode.ViewColumn,
+    tabsBeforeOpen: ReadonlySet<vscode.Tab>,
+  ): vscode.Tab | undefined {
+    return this.getBrowserLikeTabs(viewColumn).find((tab) => !tabsBeforeOpen.has(tab));
+  }
+
+  private findBestBrowserCandidate(
+    sessionId: string | undefined,
+    viewColumn?: vscode.ViewColumn,
+  ): vscode.Tab | undefined {
+    const managedTab = sessionId ? this.managedTabsBySessionId.get(sessionId) : undefined;
+    const browserLikeTabs = this.getBrowserLikeTabs(viewColumn);
+    if (browserLikeTabs.length === 0) {
+      return undefined;
+    }
+
+    if (managedTab?.lastKnownLabel) {
+      const labelMatch = browserLikeTabs.find((tab) => tab.label === managedTab.lastKnownLabel);
+      if (labelMatch) {
+        return labelMatch;
+      }
+    }
+
+    const activeTab = browserLikeTabs.find((tab) => tab.group.isActive && tab.isActive);
+    if (activeTab) {
+      return activeTab;
+    }
+
+    if (this.sessionRecordBySessionId.size === 1) {
+      return browserLikeTabs.at(-1);
+    }
+
+    return undefined;
+  }
+
+  private getBrowserLikeTabs(viewColumn?: vscode.ViewColumn): vscode.Tab[] {
+    return vscode.window.tabGroups.all
+      .filter((group) => viewColumn === undefined || group.viewColumn === viewColumn)
+      .flatMap((group) => group.tabs)
+      .filter(isBrowserLikeTab);
   }
 
   private async closeManagedTab(sessionId: string, preserveFocus: boolean): Promise<void> {
@@ -404,6 +492,7 @@ export class BrowserSessionManager implements vscode.Disposable {
 
   public getDebugState(): {
     managedTabs: Array<{
+      lastKnownLabel?: string;
       liveTabLabel?: string;
       liveTabViewColumn?: number;
       renderKey: string;
@@ -417,6 +506,7 @@ export class BrowserSessionManager implements vscode.Disposable {
       managedTabs: [...this.managedTabsBySessionId.values()].map((managedTab) => {
         const liveTab = this.resolveLiveTab(managedTab.sessionId);
         return {
+          lastKnownLabel: managedTab.lastKnownLabel,
           liveTabLabel: liveTab?.label,
           liveTabViewColumn: liveTab?.group.viewColumn,
           renderKey: managedTab.renderKey,
@@ -438,38 +528,5 @@ export class BrowserSessionManager implements vscode.Disposable {
       details,
       state: this.getDebugState(),
     });
-  }
-}
-
-function getPlacementRank(isVisible: boolean, isFocused: boolean): number {
-  if (isFocused) {
-    return 2;
-  }
-
-  return isVisible ? 1 : 0;
-}
-
-function getRenderKey(sessionRecord: BrowserSessionRecord): string {
-  return [sessionRecord.alias, sessionRecord.browser.url].join("|");
-}
-
-function getBrowserTabUrl(tab: vscode.Tab): string | undefined {
-  const input = tab.input;
-  if (input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom) {
-    return input.uri.toString(true);
-  }
-
-  return undefined;
-}
-
-function normalizeUrl(url: string | undefined): string | undefined {
-  if (!url) {
-    return undefined;
-  }
-
-  try {
-    return vscode.Uri.parse(url).toString(true);
-  } catch {
-    return url;
   }
 }

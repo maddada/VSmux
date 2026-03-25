@@ -1,8 +1,5 @@
-import { readFile } from "node:fs/promises";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import {
-  getT3SessionSurfaceTitle,
   isT3Session,
   type SessionGridSnapshot,
   type SessionRecord,
@@ -15,6 +12,15 @@ import {
 } from "./terminal-workspace-helpers";
 import { captureWorkbenchState } from "./session-layout-trace";
 import { createWorkspaceTrace } from "./runtime-trace";
+import { createT3PanelHtml, getEmbeddedT3Root } from "./t3-webview-manager/html";
+import {
+  T3_PANEL_TYPE,
+  getObservedPanelViewColumn,
+  getPanelTitle,
+  getPlacementRank,
+  getRenderKey,
+  isT3WebviewMessage,
+} from "./t3-webview-manager/helpers";
 
 type T3WebviewManagerOptions = {
   context: vscode.ExtensionContext;
@@ -30,7 +36,6 @@ type ManagedPanel = {
   sessionId: string;
 };
 
-const T3_PANEL_TYPE = "VSmux.t3Session";
 const TRACE_FILE_NAME = "t3-webview-reconcile.log";
 
 export class T3WebviewManager implements vscode.Disposable {
@@ -400,47 +405,7 @@ export class T3WebviewManager implements vscode.Disposable {
     webview: vscode.Webview,
     sessionRecord: T3SessionRecord,
   ): Promise<string> {
-    const embeddedRoot = getEmbeddedT3Root(this.options.context);
-    const indexPath = path.join(embeddedRoot.fsPath, "index.html");
-    const nonce = createNonce();
-
-    let html: string;
-    try {
-      html = await readFile(indexPath, "utf8");
-    } catch {
-      return createMissingEmbedHtml(webview, nonce);
-    }
-
-    const webviewRootUri = webview.asWebviewUri(embeddedRoot).toString();
-    const csp = [
-      "default-src 'none'",
-      `img-src ${webview.cspSource} https: data:`,
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `font-src ${webview.cspSource} data:`,
-      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-      `connect-src ${sessionRecord.t3.serverOrigin} ${toWebSocketOrigin(sessionRecord.t3.serverOrigin)}`,
-    ].join("; ");
-    const bootstrapScript = `<script nonce="${nonce}">window.__VSMUX_T3_BOOTSTRAP__=${JSON.stringify(
-      {
-        embedMode: "vsmux-mobile",
-        httpOrigin: sessionRecord.t3.serverOrigin,
-        sessionId: sessionRecord.sessionId,
-        threadId: sessionRecord.t3.threadId,
-        workspaceRoot: sessionRecord.t3.workspaceRoot,
-        wsUrl: toWebSocketOrigin(sessionRecord.t3.serverOrigin),
-      },
-    )};</script>`;
-
-    return html
-      .replace(
-        /<meta\s+charset="UTF-8"\s*\/?>/i,
-        `<meta charset="UTF-8" /><meta http-equiv="Content-Security-Policy" content="${csp}" />${bootstrapScript}`,
-      )
-      .replaceAll(/(src|href)="\/([^"]+)"/g, (_, attribute: string, assetPath: string) => {
-        const resourceUri = `${webviewRootUri}/${assetPath}`;
-        return `${attribute}="${resourceUri}"`;
-      })
-      .replace(/<script type="module"/g, `<script nonce="${nonce}" type="module"`);
+    return createT3PanelHtml(webview, this.options.context, sessionRecord);
   }
 
   public getDebugState(): {
@@ -483,88 +448,4 @@ export class T3WebviewManager implements vscode.Disposable {
       state: this.getDebugState(),
     });
   }
-}
-
-function getPlacementRank(isVisible: boolean, isFocused: boolean): number {
-  if (isFocused) {
-    return 2;
-  }
-
-  return isVisible ? 1 : 0;
-}
-
-function getEmbeddedT3Root(context: vscode.ExtensionContext): vscode.Uri {
-  return vscode.Uri.joinPath(context.extensionUri, "forks", "t3code-embed", "dist");
-}
-
-function getPanelTitle(sessionRecord: T3SessionRecord): string {
-  return getT3SessionSurfaceTitle(sessionRecord);
-}
-
-function getRenderKey(sessionRecord: T3SessionRecord): string {
-  return [
-    sessionRecord.alias,
-    sessionRecord.t3.projectId,
-    sessionRecord.t3.serverOrigin,
-    sessionRecord.t3.threadId,
-    sessionRecord.t3.workspaceRoot,
-  ].join("|");
-}
-
-function getObservedPanelViewColumn(panelTitle: string): vscode.ViewColumn | undefined {
-  for (const group of vscode.window.tabGroups.all) {
-    if (group.viewColumn === undefined) {
-      continue;
-    }
-
-    const hasMatchingTab = group.tabs.some(
-      (tab) =>
-        tab.input instanceof vscode.TabInputWebview &&
-        tab.input.viewType === T3_PANEL_TYPE &&
-        tab.label === panelTitle,
-    );
-    if (hasMatchingTab) {
-      return group.viewColumn;
-    }
-  }
-
-  return undefined;
-}
-
-function createMissingEmbedHtml(webview: vscode.Webview, nonce: string): string {
-  const csp = [
-    "default-src 'none'",
-    `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `script-src 'nonce-${nonce}'`,
-  ].join("; ");
-
-  return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>T3 Code</title>
-  </head>
-  <body>
-    <p>Embedded T3 assets are missing.</p>
-  </body>
-</html>`;
-}
-
-function createNonce(): string {
-  return Math.random().toString(36).slice(2);
-}
-
-function isT3WebviewMessage(message: unknown): message is { type: "vsmuxReady" } {
-  return (
-    typeof message === "object" &&
-    message !== null &&
-    "type" in message &&
-    message.type === "vsmuxReady"
-  );
-}
-
-function toWebSocketOrigin(serverOrigin: string): string {
-  return serverOrigin.replace(/^http/i, "ws");
 }

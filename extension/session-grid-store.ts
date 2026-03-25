@@ -26,6 +26,7 @@ import {
   removeSessionInWorkspace,
   renameGroupInWorkspace,
   renameSessionAliasInWorkspace,
+  setBrowserSessionMetadataInWorkspace,
   setSessionTitleInWorkspace,
   setViewModeInWorkspace,
   setVisibleCountInWorkspace,
@@ -209,6 +210,20 @@ export class SessionGridStore {
 
   public async setSessionTitle(sessionId: string, title: string): Promise<boolean> {
     const result = setSessionTitleInWorkspace(this.snapshot, sessionId, title);
+    this.snapshot = result.snapshot;
+    if (result.changed) {
+      await this.persist();
+    }
+
+    return result.changed;
+  }
+
+  public async setBrowserSessionMetadata(
+    sessionId: string,
+    title: string,
+    url: string,
+  ): Promise<boolean> {
+    const result = setBrowserSessionMetadataInWorkspace(this.snapshot, sessionId, title, url);
     this.snapshot = result.snapshot;
     if (result.changed) {
       await this.persist();

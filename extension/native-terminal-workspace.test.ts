@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import * as vscode from "vscode";
-import {
-  getT3SessionSurfaceTitle,
-  getTerminalSessionSurfaceTitle,
-} from "../shared/session-grid-contract";
+import { getTerminalSessionSurfaceTitle } from "../shared/session-grid-contract";
 
 const testState = vi.hoisted(() => ({
   backend: undefined as
@@ -31,6 +28,9 @@ const testState = vi.hoisted(() => ({
         syncConfiguration: ReturnType<typeof vi.fn>;
         writeText: ReturnType<typeof vi.fn>;
       }
+    | undefined,
+  backendActivateSessionHandler: undefined as
+    | ((sessionId: string) => void | Promise<void>)
     | undefined,
   browserManager: undefined as
     | {
@@ -218,7 +218,10 @@ vi.mock("./native-terminal-workspace-backend", () => ({
     public readonly initialize = vi.fn(async () => undefined);
     public readonly killSession = vi.fn(async () => undefined);
     public readonly moveManagedTerminalsToPanel = vi.fn(async () => undefined);
-    public readonly onDidActivateSession = vi.fn(() => ({ dispose: vi.fn() }));
+    public readonly onDidActivateSession = vi.fn((listener: (sessionId: string) => void) => {
+      testState.backendActivateSessionHandler = listener;
+      return { dispose: vi.fn() };
+    });
     public readonly onDidChangeDebugState = vi.fn(() => ({ dispose: vi.fn() }));
     public readonly onDidChangeSessionTitle = vi.fn(() => ({ dispose: vi.fn() }));
     public readonly onDidChangeSessions = vi.fn(() => ({ dispose: vi.fn() }));
@@ -365,6 +368,7 @@ import { NativeTerminalWorkspaceController } from "./native-terminal-workspace";
 describe("NativeTerminalWorkspaceController", () => {
   beforeEach(() => {
     testState.backend = undefined;
+    testState.backendActivateSessionHandler = undefined;
     testState.browserManager = undefined;
     testState.configValues.clear();
     testState.executeCommand.mockClear();
@@ -437,28 +441,8 @@ describe("NativeTerminalWorkspaceController", () => {
     expect(testState.t3WebviewManager?.focusComposer).toHaveBeenCalledWith(session!.sessionId);
   });
 
-  test("should focus an already present hidden terminal tab without reprojecting the layout", async () => {
+  test("should reproject from the stored snapshot when focusing another session in the active group", async () => {
     const controller = createController();
-    const hiddenT3Session = await (controller as any).store.createSession({
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-1",
-        workspaceRoot: "/workspace",
-      },
-      title: "T3 Code",
-    });
-    const visibleT3Session = await (controller as any).store.createSession({
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-2",
-        workspaceRoot: "/workspace",
-      },
-      title: "T3 Code",
-    });
     const firstTerminal = await (controller as any).store.createSession({
       alias: "Fixing layout issues",
     });
@@ -467,190 +451,20 @@ describe("NativeTerminalWorkspaceController", () => {
     });
     await (controller as any).store.setVisibleCount(2);
     await (controller as any).store.focusSession(secondTerminal!.sessionId);
-    await (controller as any).store.applyObservedActiveGroupState(secondTerminal!.sessionId, [
-      visibleT3Session!.sessionId,
-      secondTerminal!.sessionId,
-    ]);
-
-    (vscode.window.tabGroups.all as any) = [
-      {
-        activeTab: { label: getT3SessionSurfaceTitle(visibleT3Session!) },
-        isActive: false,
-        tabs: [
-          {
-            isActive: false,
-            label: getT3SessionSurfaceTitle(hiddenT3Session!),
-          },
-          {
-            isActive: true,
-            label: getT3SessionSurfaceTitle(visibleT3Session!),
-          },
-        ],
-        viewColumn: 1,
-      },
-      {
-        activeTab: { label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        isActive: true,
-        tabs: [
-          { isActive: false, label: getTerminalSessionSurfaceTitle(firstTerminal!) },
-          { isActive: true, label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        ],
-        viewColumn: 2,
-      },
-    ];
-    (vscode.window.tabGroups.activeTabGroup as any) = (vscode.window.tabGroups.all as any)[1];
 
     await controller.initialize();
     testState.backend?.reconcileVisibleTerminals.mockClear();
     testState.t3WebviewManager?.reconcileVisibleSessions.mockClear();
     testState.browserManager?.reconcileVisibleSessions.mockClear();
-    testState.backend?.focusSession.mockClear();
 
     await controller.focusSession(firstTerminal!.sessionId);
 
-    expect(testState.backend?.reconcileVisibleTerminals).not.toHaveBeenCalled();
-    expect(testState.t3WebviewManager?.reconcileVisibleSessions).not.toHaveBeenCalled();
-    expect(testState.browserManager?.reconcileVisibleSessions).not.toHaveBeenCalled();
-    expect(testState.backend?.focusSession).toHaveBeenCalledWith(firstTerminal!.sessionId, false);
-    expect((controller as any).store.getActiveGroup()?.snapshot.visibleSessionIds).toEqual([
-      visibleT3Session!.sessionId,
-      firstTerminal!.sessionId,
-    ]);
+    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalledTimes(1);
+    expect(testState.t3WebviewManager?.reconcileVisibleSessions).toHaveBeenCalledTimes(1);
+    expect(testState.browserManager?.reconcileVisibleSessions).toHaveBeenCalledTimes(1);
     expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
       firstTerminal!.sessionId,
     );
-  });
-
-  test("should preserve the other visible session when a hidden tab from the non-focused group is activated", async () => {
-    const controller = createController();
-    const hiddenT3Session = await (controller as any).store.createSession({
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-1",
-        workspaceRoot: "/workspace",
-      },
-      title: "T3 Code",
-    });
-    const visibleT3Session = await (controller as any).store.createSession({
-      kind: "t3",
-      t3: {
-        projectId: "project-1",
-        serverOrigin: "http://127.0.0.1:3773",
-        threadId: "thread-2",
-        workspaceRoot: "/workspace",
-      },
-      title: "T3 Code",
-    });
-    const firstTerminal = await (controller as any).store.createSession({
-      alias: "Fixing layout issues",
-    });
-    const secondTerminal = await (controller as any).store.createSession({
-      alias: "Atlas",
-    });
-    await (controller as any).store.setVisibleCount(2);
-    await (controller as any).store.focusSession(secondTerminal!.sessionId);
-    await (controller as any).store.applyObservedActiveGroupState(secondTerminal!.sessionId, [
-      visibleT3Session!.sessionId,
-      secondTerminal!.sessionId,
-    ]);
-
-    (vscode.window.tabGroups.all as any) = [
-      {
-        activeTab: { label: getT3SessionSurfaceTitle(visibleT3Session!) },
-        isActive: false,
-        tabs: [
-          { isActive: false, label: getTerminalSessionSurfaceTitle(firstTerminal!) },
-          {
-            isActive: false,
-            label: getT3SessionSurfaceTitle(hiddenT3Session!),
-          },
-          {
-            isActive: true,
-            label: getT3SessionSurfaceTitle(visibleT3Session!),
-          },
-        ],
-        viewColumn: 1,
-      },
-      {
-        activeTab: { label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        isActive: true,
-        tabs: [{ isActive: true, label: getTerminalSessionSurfaceTitle(secondTerminal!) }],
-        viewColumn: 2,
-      },
-    ];
-    (vscode.window.tabGroups.activeTabGroup as any) = (vscode.window.tabGroups.all as any)[1];
-
-    await controller.initialize();
-    testState.backend?.reconcileVisibleTerminals.mockClear();
-    testState.t3WebviewManager?.reconcileVisibleSessions.mockClear();
-    testState.browserManager?.reconcileVisibleSessions.mockClear();
-    testState.backend?.focusSession.mockClear();
-
-    await controller.focusSession(firstTerminal!.sessionId);
-
-    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
-    expect(testState.t3WebviewManager?.reconcileVisibleSessions).toHaveBeenCalled();
-    expect((controller as any).store.getActiveGroup()?.snapshot.visibleSessionIds).toEqual([
-      visibleT3Session!.sessionId,
-      firstTerminal!.sessionId,
-    ]);
-    expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
-      firstTerminal!.sessionId,
-    );
-  });
-
-  test("should replace the focused visible slot when a hidden terminal exists in the non-focused visible group", async () => {
-    const controller = createController();
-    const firstTerminal = await (controller as any).store.createSession({
-      alias: "Publish to Store",
-    });
-    const secondTerminal = await (controller as any).store.createSession({
-      alias: "Fix indicators",
-    });
-    const thirdTerminal = await (controller as any).store.createSession({
-      alias: "Fixing layout issues",
-    });
-    await (controller as any).store.setVisibleCount(2);
-    await (controller as any).store.focusSession(thirdTerminal!.sessionId);
-    await (controller as any).store.applyObservedActiveGroupState(thirdTerminal!.sessionId, [
-      secondTerminal!.sessionId,
-      thirdTerminal!.sessionId,
-    ]);
-
-    (vscode.window.tabGroups.all as any) = [
-      {
-        activeTab: { label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        isActive: false,
-        tabs: [
-          { isActive: false, label: getTerminalSessionSurfaceTitle(firstTerminal!) },
-          { isActive: true, label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        ],
-        viewColumn: 1,
-      },
-      {
-        activeTab: { label: getTerminalSessionSurfaceTitle(thirdTerminal!) },
-        isActive: true,
-        tabs: [{ isActive: true, label: getTerminalSessionSurfaceTitle(thirdTerminal!) }],
-        viewColumn: 2,
-      },
-    ];
-    (vscode.window.tabGroups.activeTabGroup as any) = (vscode.window.tabGroups.all as any)[1];
-
-    await controller.initialize();
-    testState.backend?.reconcileVisibleTerminals.mockClear();
-
-    await controller.focusSession(firstTerminal!.sessionId);
-
-    expect((controller as any).store.getActiveGroup()?.snapshot.visibleSessionIds).toEqual([
-      secondTerminal!.sessionId,
-      firstTerminal!.sessionId,
-    ]);
-    expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
-      firstTerminal!.sessionId,
-    );
-    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
   });
 
   test("should no-op when focusing the already active session", async () => {
@@ -716,7 +530,7 @@ describe("NativeTerminalWorkspaceController", () => {
     ]);
   });
 
-  test("should reject non-focused terminal activation events while projection reconcile is in flight", async () => {
+  test("should ignore observed terminal activation events", async () => {
     const controller = createController();
     const firstSession = await (controller as any).store.createSession({
       alias: "Fixing layout issues",
@@ -728,18 +542,14 @@ describe("NativeTerminalWorkspaceController", () => {
     await (controller as any).store.focusSession(firstSession!.sessionId);
 
     await controller.initialize();
-
-    (controller as any).projectedReconcileDepth = 1;
-    (controller as any).projectedReconcileFocusedSessionId = firstSession!.sessionId;
-
-    await (controller as any).handleProjectedTerminalActivated(secondSession!.sessionId);
+    await testState.backendActivateSessionHandler?.(secondSession!.sessionId);
 
     expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
       firstSession!.sessionId,
     );
   });
 
-  test("should reject external terminal activation events while a focus action is in flight", async () => {
+  test("should serialize focus actions through one transaction queue", async () => {
     const controller = createController();
     const firstSession = await (controller as any).store.createSession({
       alias: "Fixing layout issues",
@@ -747,15 +557,39 @@ describe("NativeTerminalWorkspaceController", () => {
     const secondSession = await (controller as any).store.createSession({
       alias: "Publish to Store",
     });
+    const thirdSession = await (controller as any).store.createSession({
+      alias: "Atlas",
+    });
     await (controller as any).store.setVisibleCount(2);
-    await (controller as any).store.focusSession(secondSession!.sessionId);
+    await (controller as any).store.focusSession(firstSession!.sessionId);
 
     await controller.initialize();
-    (controller as any).setExternalFocusLock(firstSession!.sessionId);
-    await (controller as any).handleProjectedTerminalActivated(secondSession!.sessionId);
+
+    let resolveFirstReconcile: (() => void) | undefined;
+    const firstReconcileSettled = new Promise<void>((resolve) => {
+      resolveFirstReconcile = resolve;
+    });
+    let reconcileCallCount = 0;
+    testState.backend?.reconcileVisibleTerminals.mockImplementation(async () => {
+      reconcileCallCount += 1;
+      if (reconcileCallCount === 1) {
+        await firstReconcileSettled;
+      }
+    });
+
+    const firstFocus = controller.focusSession(secondSession!.sessionId);
+    await Promise.resolve();
+    const secondFocus = controller.focusSession(thirdSession!.sessionId);
+    await Promise.resolve();
+
+    expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalledTimes(1);
+
+    resolveFirstReconcile?.();
+    await firstFocus;
+    await secondFocus;
 
     expect((controller as any).store.getActiveGroup()?.snapshot.focusedSessionId).toBe(
-      secondSession!.sessionId,
+      thirdSession!.sessionId,
     );
   });
 
@@ -806,6 +640,74 @@ describe("NativeTerminalWorkspaceController", () => {
 
     expect(testState.backend?.createOrAttachSession).toHaveBeenCalled();
     expect(testState.backend?.reconcileVisibleTerminals).toHaveBeenCalled();
+  });
+
+  test("should reuse the existing browser session instead of creating another one", async () => {
+    const controller = createController();
+    const existingBrowserSession = await (controller as any).store.createSession({
+      browser: {
+        url: "https://old.example.com",
+      },
+      kind: "browser",
+      title: "Old Browser",
+    });
+    await controller.initialize();
+    testState.backend?.createOrAttachSession.mockClear();
+
+    await (controller as any).createBrowserSession("Docs", "https://example.com/docs");
+
+    const browserSessions = (controller as any).store
+      .getSnapshot()
+      .groups.flatMap((group: any) => group.snapshot.sessions)
+      .filter((session: any) => session.kind === "browser");
+    expect(browserSessions).toHaveLength(1);
+    expect(browserSessions[0]).toMatchObject({
+      browser: {
+        url: "https://example.com/docs",
+      },
+      sessionId: existingBrowserSession!.sessionId,
+      title: "Docs",
+    });
+    expect(testState.backend?.createOrAttachSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browser: {
+          url: "https://example.com/docs",
+        },
+        sessionId: existingBrowserSession!.sessionId,
+        title: "Docs",
+      }),
+    );
+  });
+
+  test("should not re-reveal the focused browser session after browser reconcile", async () => {
+    const controller = createController();
+
+    await (controller as any).createBrowserSession("Docs", "https://example.com/docs");
+
+    expect(testState.browserManager?.reconcileVisibleSessions).toHaveBeenCalled();
+    expect(testState.browserManager?.revealStoredSession).not.toHaveBeenCalled();
+  });
+
+  test("should show the browser watermark icon on browser session cards", async () => {
+    const controller = createController();
+    const browserSession = await (controller as any).store.createSession({
+      browser: {
+        url: "https://example.com/docs",
+      },
+      kind: "browser",
+      title: "Docs",
+    });
+
+    const message = (controller as any).createSidebarMessage("sessionState");
+    const sessions = message.groups[0].sessions;
+
+    expect(
+      sessions.find((session: any) => session.sessionId === browserSession!.sessionId),
+    ).toMatchObject({
+      agentIcon: "browser",
+      detail: "https://example.com/docs",
+      primaryTitle: "Docs",
+    });
   });
 
   test("should switch groups by re-running the single projection pass", async () => {
@@ -907,7 +809,7 @@ describe("NativeTerminalWorkspaceController", () => {
     expect(message.scratchPadContent).toBe("ship small modal\ncapture ideas here");
   });
 
-  test("should render sidebar visibility and focus from observed foreground tabs", async () => {
+  test("should render sidebar visibility and focus from the stored snapshot", async () => {
     const controller = createController();
     const t3Session = await (controller as any).store.createSession({
       kind: "t3",
@@ -923,42 +825,27 @@ describe("NativeTerminalWorkspaceController", () => {
     const secondTerminal = await (controller as any).store.createSession();
     await (controller as any).store.focusSession(secondTerminal!.sessionId);
 
-    (vscode.window.tabGroups.all as any) = [
-      {
-        activeTab: { label: getT3SessionSurfaceTitle(t3Session!) },
-        isActive: false,
-        tabs: [{ isActive: true, label: getT3SessionSurfaceTitle(t3Session!) }],
-        viewColumn: 1,
-      },
-      {
-        activeTab: { label: getTerminalSessionSurfaceTitle(secondTerminal!) },
-        isActive: true,
-        tabs: [{ isActive: true, label: getTerminalSessionSurfaceTitle(secondTerminal!) }],
-        viewColumn: 2,
-      },
-    ];
-    (vscode.window.tabGroups.activeTabGroup as any) = (vscode.window.tabGroups.all as any)[1];
-
     const message = (controller as any).createSidebarMessage("sessionState");
     const expertsGroup = message.groups[0];
+    const activeSnapshot = (controller as any).store.getActiveGroup()?.snapshot;
 
     expect(
       expertsGroup.sessions.find((session: any) => session.sessionId === t3Session!.sessionId),
     ).toMatchObject({
-      isFocused: false,
-      isVisible: true,
+      isFocused: activeSnapshot.focusedSessionId === t3Session!.sessionId,
+      isVisible: activeSnapshot.visibleSessionIds.includes(t3Session!.sessionId),
     });
     expect(
       expertsGroup.sessions.find((session: any) => session.sessionId === firstTerminal!.sessionId),
     ).toMatchObject({
-      isFocused: false,
-      isVisible: false,
+      isFocused: activeSnapshot.focusedSessionId === firstTerminal!.sessionId,
+      isVisible: activeSnapshot.visibleSessionIds.includes(firstTerminal!.sessionId),
     });
     expect(
       expertsGroup.sessions.find((session: any) => session.sessionId === secondTerminal!.sessionId),
     ).toMatchObject({
-      isFocused: true,
-      isVisible: true,
+      isFocused: activeSnapshot.focusedSessionId === secondTerminal!.sessionId,
+      isVisible: activeSnapshot.visibleSessionIds.includes(secondTerminal!.sessionId),
     });
   });
 });

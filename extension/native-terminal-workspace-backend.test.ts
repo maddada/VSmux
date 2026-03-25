@@ -235,9 +235,33 @@ describe("NativeTerminalWorkspaceBackend", () => {
     testState.createTerminal.mockClear();
     testState.executeCommand.mockClear();
     testState.focusEditorGroupByIndex.mockClear();
+    testState.focusEditorGroupByIndex.mockImplementation(async (index: number) => {
+      setActiveGroup(index);
+      return true;
+    });
     testState.moveActiveEditorToNextGroup.mockClear();
+    testState.moveActiveEditorToNextGroup.mockImplementation(async () => {
+      moveActiveEditor(1);
+    });
     testState.moveActiveEditorToPreviousGroup.mockClear();
+    testState.moveActiveEditorToPreviousGroup.mockImplementation(async () => {
+      moveActiveEditor(-1);
+    });
     testState.moveActiveTerminalToEditor.mockClear();
+    testState.moveActiveTerminalToEditor.mockImplementation(async () => {
+      const terminal = testState.activeTerminal;
+      if (!terminal) {
+        return;
+      }
+
+      const group =
+        testState.tabGroupsAll[testState.activeTabGroupIndex] ??
+        createTabGroup(testState.activeTabGroupIndex + 1);
+      testState.tabGroupsAll[testState.activeTabGroupIndex] = group;
+      removeTerminalTabs(terminal);
+      group.tabs.push(createTerminalTab(terminal, group));
+      activateTabByLabel(group.viewColumn - 1, terminal.name);
+    });
     testState.readPersistedSessionStateFromFile.mockClear();
     testState.readPersistedSessionStateFromFile.mockImplementation(async () => ({
       agentName: "codex",
@@ -388,6 +412,73 @@ describe("NativeTerminalWorkspaceBackend", () => {
     ]);
     expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
       getTerminalSessionSurfaceTitle(terminalSession),
+    ]);
+  });
+
+  test("should wait for a terminal move to settle before continuing after transient duplicate tabs", async () => {
+    const leftSession = createTerminalSession(1, 0, "Scratchpad");
+    const movingSession = createTerminalSession(2, 1, "Fixing layout issues");
+    const leftTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(leftSession),
+    });
+    const movingTerminal = createTerminal({
+      env: {},
+      name: getTerminalSessionSurfaceTitle(movingSession),
+    });
+
+    testState.terminals.push(leftTerminal, movingTerminal);
+    testState.tabGroupsAll = [createTabGroup(1, movingTerminal), createTabGroup(2, leftTerminal)];
+    activateTabAtIndex(0, 0);
+    testState.activeTerminal = movingTerminal;
+
+    testState.moveActiveEditorToNextGroup.mockImplementation(async () => {
+      const sourceGroup = testState.tabGroupsAll[testState.activeTabGroupIndex];
+      if (!sourceGroup) {
+        return;
+      }
+
+      const activeTab = sourceGroup.tabs.find((tab) => tab.isActive);
+      if (!activeTab) {
+        return;
+      }
+
+      const targetGroupIndex = testState.activeTabGroupIndex + 1;
+      const targetGroup =
+        testState.tabGroupsAll[targetGroupIndex] ?? createTabGroup(targetGroupIndex + 1);
+      testState.tabGroupsAll[targetGroupIndex] = targetGroup;
+
+      const duplicateTab: MockTab = {
+        ...activeTab,
+        group: targetGroup,
+        isActive: false,
+      };
+      targetGroup.tabs.push(duplicateTab);
+      activateTabAtIndex(targetGroupIndex, targetGroup.tabs.length - 1);
+
+      setTimeout(() => {
+        sourceGroup.tabs = sourceGroup.tabs.filter((tab) => tab !== activeTab);
+      }, 10);
+    });
+
+    const backend = createBackend();
+    await backend.initialize([leftSession, movingSession]);
+
+    await backend.reconcileVisibleTerminals({
+      focusedSessionId: movingSession.sessionId,
+      fullscreenRestoreVisibleCount: undefined,
+      sessions: [leftSession, movingSession],
+      viewMode: "horizontal",
+      visibleCount: 2,
+      visibleSessionIds: [leftSession.sessionId, movingSession.sessionId],
+    });
+
+    expect(testState.moveActiveEditorToNextGroup).toHaveBeenCalledTimes(1);
+    expect(testState.tabGroupsAll[0]?.tabs.map((tab) => tab.label)).toEqual([
+      getTerminalSessionSurfaceTitle(leftSession),
+    ]);
+    expect(testState.tabGroupsAll[1]?.tabs.map((tab) => tab.label)).toEqual([
+      getTerminalSessionSurfaceTitle(movingSession),
     ]);
   });
 
