@@ -2,13 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
-## 1.10.0 - 2026-03-25
+## 1.11.0 - 2026-03-27
 
-- Browser sessions now reconnect to existing VS Code browser tabs more reliably, which reduces duplicate tabs and makes restores/reveals less fragile.
-- Launching the same browser action now reuses the existing browser session instead of creating another duplicate session.
-- Native terminal workspace projection was reworked for more stable focus tracking, session placement, and layout reconciliation across grouped sessions.
-- Embedded T3 session placement and restore behavior is more resilient during session reconcile flows.
-- Sidebar polish across the actions area, scratch pad, browser session cards, and session visuals.
+- VSmux is much more stable now, with a major rework of session projection, focus, restore, and layout reconciliation. This should behave much better on both macOS and Windows.
+- Grouped sessions and split mode are more polished, with better session activation, visibility handling, restore behavior, and previous-session recovery.
+- Browser sessions and embedded T3 sessions are more reliable, especially when reusing tabs, restoring sessions, and keeping the correct session visible and focused.
+- The sidebar UI has been refreshed across session cards, toolbars, overlays, modals, and commands, making multi-session workflows clearer and easier to manage.
 
 ## 1.9.0 - 2026-03-23
 
