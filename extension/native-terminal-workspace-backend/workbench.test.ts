@@ -18,6 +18,7 @@ vi.mock("vscode", () => ({
 
 import * as vscode from "vscode";
 import {
+  findTerminalTabIndex,
   findTerminalGroupIndex,
   getActiveEditorTerminalTabLabel,
   getActivePanelTerminalTabLabel,
@@ -87,7 +88,7 @@ describe("native terminal workbench helpers", () => {
     ]);
 
     expect(getActiveTerminalTabLocation()).toBe("editor");
-    expect(isTerminalTabActive(activeTerminal as unknown as vscode.Terminal)).toBe(true);
+    expect(isTerminalTabActive("editor", activeTerminal as unknown as vscode.Terminal)).toBe(true);
   });
 
   test("should classify an active terminal tab in the panel", () => {
@@ -118,7 +119,28 @@ describe("native terminal workbench helpers", () => {
     };
 
     expect(getActiveTerminalTabLocation()).toBe("other");
-    expect(isTerminalTabActive(activeTerminal as unknown as vscode.Terminal)).toBe(false);
+    expect(isTerminalTabActive("notes", activeTerminal as unknown as vscode.Terminal)).toBe(false);
+  });
+
+  test("should require the exact terminal tab label for active-tab detection", () => {
+    const activeTerminal = createTerminal("editor");
+    getMockWindow().activeTerminal = activeTerminal;
+    getMockWindow().tabGroups.activeTabGroup = createTerminalGroup(1, [
+      { isActive: true, label: "other" },
+    ]);
+
+    expect(isTerminalTabActive("editor", activeTerminal as unknown as vscode.Terminal)).toBe(false);
+  });
+
+  test("should find the terminal tab index inside an editor group", () => {
+    getMockWindow().tabGroups.all = [
+      createTerminalGroup(1, [
+        { isActive: false, label: "first" },
+        { isActive: true, label: "second" },
+      ]),
+    ];
+
+    expect(findTerminalTabIndex("second", 0)).toBe(1);
   });
 
   test("should prefer the exact saved terminal when restoring the panel selection", () => {

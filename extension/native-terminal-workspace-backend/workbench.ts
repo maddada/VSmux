@@ -29,6 +29,27 @@ export function findTerminalGroupIndices(sessionTitle: string | undefined): numb
     .sort((left, right) => left - right);
 }
 
+export function findTerminalTabIndex(
+  sessionTitle: string | undefined,
+  groupIndex: number,
+): number | undefined {
+  if (!sessionTitle) {
+    return undefined;
+  }
+
+  const group = vscode.window.tabGroups.all.find((candidateGroup) => {
+    return candidateGroup.viewColumn === getViewColumn(groupIndex);
+  });
+  if (!group) {
+    return undefined;
+  }
+
+  const tabIndex = group.tabs.findIndex((tab) => {
+    return tab.input instanceof vscode.TabInputTerminal && tab.label === sessionTitle;
+  });
+  return tabIndex >= 0 ? tabIndex : undefined;
+}
+
 export function isTerminalTabForeground(
   sessionTitle: string | undefined,
   groupIndex: number,
@@ -52,9 +73,10 @@ export function isTerminalTabForeground(
 }
 
 export function isTerminalTabActive(
+  sessionTitle: string | undefined,
   terminal: vscode.Terminal,
 ): boolean {
-  if (vscode.window.activeTerminal !== terminal) {
+  if (vscode.window.activeTerminal !== terminal || !sessionTitle) {
     return false;
   }
 
@@ -64,7 +86,7 @@ export function isTerminalTabActive(
     return false;
   }
 
-  return activeTab.input instanceof vscode.TabInputTerminal;
+  return activeTab.input instanceof vscode.TabInputTerminal && activeTab.label === sessionTitle;
 }
 
 export function getActivePanelTerminalTabLabel(
@@ -147,6 +169,56 @@ export async function waitForActiveTerminal(terminal: vscode.Terminal): Promise<
     }
     await delay(WORKBENCH_SETTLE_POLL_MS);
   }
+}
+
+export async function waitForActiveTerminalOrCancel(
+  terminal: vscode.Terminal,
+  isCancelled: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + WORKBENCH_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isCancelled()) {
+      return false;
+    }
+    if (vscode.window.activeTerminal === terminal) {
+      return true;
+    }
+    await delay(WORKBENCH_SETTLE_POLL_MS);
+  }
+
+  return !isCancelled() && vscode.window.activeTerminal === terminal;
+}
+
+export async function waitForTerminalTabForeground(
+  sessionTitle: string | undefined,
+  groupIndex: number,
+): Promise<void> {
+  const deadline = Date.now() + WORKBENCH_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isTerminalTabForeground(sessionTitle, groupIndex)) {
+      return;
+    }
+    await delay(WORKBENCH_SETTLE_POLL_MS);
+  }
+}
+
+export async function waitForTerminalTabForegroundOrCancel(
+  sessionTitle: string | undefined,
+  groupIndex: number,
+  isCancelled: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + WORKBENCH_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isCancelled()) {
+      return false;
+    }
+    if (isTerminalTabForeground(sessionTitle, groupIndex)) {
+      return true;
+    }
+    await delay(WORKBENCH_SETTLE_POLL_MS);
+  }
+
+  return !isCancelled() && isTerminalTabForeground(sessionTitle, groupIndex);
 }
 
 async function delay(ms: number): Promise<void> {
