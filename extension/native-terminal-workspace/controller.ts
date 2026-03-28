@@ -17,7 +17,7 @@ import {
   type VisibleSessionCount,
 } from "../../shared/session-grid-contract";
 import { getSidebarAgentIconById, type SidebarAgentIcon } from "../../shared/sidebar-agents";
-import { NativeTerminalWorkspaceBackend } from "../native-terminal-workspace-backend";
+import type { ExtensionToWorkspacePanelMessage } from "../../shared/workspace-panel-contract";
 import {
   buildSidebarMessage,
   createPreviousSessionEntry,
@@ -44,17 +44,12 @@ import { getFirstBrowserSidebarCommandUrl } from "../../shared/sidebar-commands"
 import { SessionGridStore } from "../session-grid-store";
 import { SessionSidebarViewProvider } from "../session-sidebar-view";
 import {
-  getCurrentEditorLayout,
   getDefaultShell,
   getDefaultWorkspaceCwd,
   getWorkspaceId,
-  haveSameEditorLayoutShape,
   focusEditorGroupByIndex,
-  setEditorLayout,
-  type WorkbenchEditorLayout,
 } from "../terminal-workspace-environment";
 import { T3RuntimeManager } from "../t3-runtime-manager";
-import { T3WebviewManager } from "../t3-webview-manager";
 import { disposeVSmuxDebugLog, logVSmuxDebug, resetVSmuxDebugLog } from "../vsmux-debug-log";
 import {
   findLiveBrowserTabBySessionId,
@@ -72,7 +67,6 @@ import {
 } from "../native-terminal-workspace-session-agent-launch";
 import {
   COMPLETION_BELL_ENABLED_KEY,
-  DISABLE_VS_MUX_MODE_KEY,
   PRIMARY_SESSIONS_CONTAINER_ID,
   SCRATCH_PAD_CONTENT_KEY,
   SECONDARY_SESSIONS_CONTAINER_ID,
@@ -85,12 +79,21 @@ import {
   getShowCloseButtonOnSessionCards,
   getShowHotkeysOnSessionCards,
   getSidebarThemeVariant,
+  getTerminalCursorBlink,
+  getTerminalCursorStyle,
+  getTerminalFontFamily,
+  getTerminalFontSize,
+  getTerminalLetterSpacing,
+  getTerminalLineHeight,
 } from "./settings";
+import { DaemonTerminalWorkspaceBackend } from "../daemon-terminal-workspace-backend";
+import { WorkspacePanelManager } from "../workspace-panel";
+import { WorkspaceAssetServer } from "../workspace-asset-server";
+import { createT3IframeSource } from "../t3-webview-manager/html";
+import { playCloseTerminalOnExitSound } from "../terminal-exit-sound";
 
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
-const EXPLICIT_FOCUS_T3_OBSERVED_FOCUS_GUARD_MS = 750;
-const CODE_MODE_RESTORE_SNAPSHOT_KEY = "VSmux.codeModeRestoreSnapshot";
 const SIMPLE_BROWSER_OPEN_COMMAND = "simpleBrowser.api.open";
 const TOGGLE_MAXIMIZE_EDITOR_GROUP_COMMAND = "workbench.action.toggleMaximizeEditorGroup";
 
@@ -103,51 +106,45 @@ export type NativeTerminalWorkspaceDebugState = {
 };
 
 export class NativeTerminalWorkspaceController implements vscode.Disposable {
-  private readonly backend: NativeTerminalWorkspaceBackend;
+  private readonly backend: DaemonTerminalWorkspaceBackend;
   private readonly disposables: vscode.Disposable[] = [];
   private hasApprovedUntrustedShells = vscode.workspace.isTrusted;
-  private isVsMuxDisabled: boolean;
-  private lastExplicitFocusSessionId: string | undefined;
-  private lastExplicitFocusAt = 0;
   private pendingReconcileRequest: { version: number } | undefined;
   private reconcileRequestVersion = 0;
   private reconcileRunner: Promise<void> | undefined;
   private suppressedObservedFocusDepth = 0;
-  private observedSidebarActiveGroupId: string | undefined;
-  private readonly observedSidebarFocusedSessionIdByGroupId = new Map<string, string>();
   private readonly sidebarAgentIconBySessionId = new Map<string, SidebarAgentIcon>();
   private browserEditorGroupIsMaximized = false;
   private readonly browserDetailBySessionId = new Map<string, string>();
-  private codeModeRestoreSnapshot: GroupedSessionWorkspaceSnapshot | undefined;
-  private isRestoringCodeMode = false;
   private readonly liveBrowserTabsBySessionId = new Map<string, vscode.Tab>();
   private readonly previousSessionHistory: PreviousSessionHistory;
   private readonly sessionAgentLaunchBySessionId: Map<string, StoredSessionAgentLaunch>;
   private readonly store: SessionGridStore;
   private readonly terminalTitleBySessionId = new Map<string, string>();
   private t3Runtime: T3RuntimeManager | undefined;
-  private readonly t3Webviews: T3WebviewManager;
   private readonly workspaceId: string;
+  private readonly workspaceAssetServer: WorkspaceAssetServer;
+  private readonly workspacePanel: WorkspacePanelManager;
   public readonly sidebarProvider: SessionSidebarViewProvider;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
     this.store = new SessionGridStore(context);
     this.previousSessionHistory = new PreviousSessionHistory(context);
-    this.isVsMuxDisabled =
-      context.workspaceState.get<boolean>(DISABLE_VS_MUX_MODE_KEY, false) ?? false;
-    this.codeModeRestoreSnapshot = context.workspaceState.get<GroupedSessionWorkspaceSnapshot>(
-      CODE_MODE_RESTORE_SNAPSHOT_KEY,
-    );
     this.workspaceId = getWorkspaceId();
     this.sessionAgentLaunchBySessionId = loadStoredSessionAgentLaunches(context, this.workspaceId);
-    this.backend = new NativeTerminalWorkspaceBackend({
+    this.backend = new DaemonTerminalWorkspaceBackend({
       context,
       ensureShellSpawnAllowed: async () => vscode.workspace.isTrusted,
       workspaceId: this.workspaceId,
     });
-    this.t3Webviews = new T3WebviewManager({
+    this.workspaceAssetServer = new WorkspaceAssetServer(context);
+    this.workspacePanel = new WorkspacePanelManager({
       context,
-      onDidFocusSession: async (sessionId) => this.handleObservedSessionFocus(sessionId),
+      onMessage: async (message) => {
+        if (message.type === "focusSession") {
+          await this.focusSession(message.sessionId);
+        }
+      },
     });
     this.sidebarProvider = new SessionSidebarViewProvider({
       onMessage: async (message) => this.handleSidebarMessage(message),
@@ -155,19 +152,21 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     this.disposables.push(
       this.backend,
-      this.t3Webviews,
+      this.workspaceAssetServer,
+      this.workspacePanel,
       this.sidebarProvider,
-      this.backend.onDidActivateSession((sessionId) => {
-        void this.handleObservedSessionFocus(sessionId);
-      }),
       this.backend.onDidChangeSessions(() => {
         void this.refreshSidebar();
+        void this.refreshWorkspacePanel();
       }),
       this.backend.onDidChangeSessionTitle(({ sessionId, title }) => {
         this.terminalTitleBySessionId.set(sessionId, title);
         void this.refreshSidebar();
+        void this.refreshWorkspacePanel();
       }),
       vscode.workspace.onDidChangeConfiguration(() => {
+        void this.backend.syncConfiguration();
+        void this.refreshWorkspacePanel();
         void this.refreshSidebar("hydrate");
       }),
       vscode.window.onDidChangeActiveColorTheme(() => {
@@ -187,7 +186,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     logVSmuxDebug("controller.initialize", {
       activeGroupId: this.store.getSnapshot().activeGroupId,
       sessionCount: this.getAllSessionRecords().length,
-      vsMuxDisabled: this.isVsMuxDisabled,
     });
     await this.backend.initialize(this.getAllSessionRecords());
     this.syncSurfaceManagers();
@@ -207,18 +205,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return {
       backend: "native",
       platform: process.platform,
-      terminalUiPath: "VS Code native shell terminals",
+      terminalUiPath: "Ghostty workspace webview",
     };
   }
 
   public async openWorkspace(): Promise<void> {
     await this.revealSidebar();
+    await this.workspacePanel.reveal();
     if (this.getAllSessionRecords().length === 0) {
       await this.createSession();
       return;
     }
 
-    await this.reconcileProjectedSessions();
+    await this.refreshWorkspacePanel();
     await this.refreshSidebar();
   }
 
@@ -270,8 +269,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessionId,
       sessionKind: sessionRecord.kind,
     });
-    this.lastExplicitFocusSessionId = sessionId;
-    this.lastExplicitFocusAt = Date.now();
     const hadLiveTerminal =
       sessionRecord.kind === "terminal" && this.backend.hasLiveTerminal(sessionRecord.sessionId);
     const shouldReattachDetachedTerminal =
@@ -290,9 +287,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           await this.resumeDetachedTerminalSession(sessionRecord);
         }
       }
-      if (source === "sidebar" && sessionRecord.kind === "t3") {
-        this.t3Webviews.focusComposer(sessionId);
-      }
       if (acknowledgedAttention) {
         await this.refreshSidebar();
       }
@@ -303,9 +297,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.afterStateChange();
     if (shouldResumeDeadTerminal) {
       await this.resumeDetachedTerminalSession(sessionRecord);
-    }
-    if (source === "sidebar" && sessionRecord.kind === "t3") {
-      this.t3Webviews.focusComposer(sessionId);
     }
   }
 
@@ -345,8 +336,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
     await this.persistSessionAgentLaunchState();
     await this.store.reset();
-    await this.context.workspaceState.update(DISABLE_VS_MUX_MODE_KEY, false);
-    this.isVsMuxDisabled = false;
     await this.afterStateChange();
   }
 
@@ -358,8 +347,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     if (sessionRecord.kind === "terminal") {
       await this.backend.restartSession(sessionRecord);
-    } else {
-      this.t3Webviews.disposeSession(sessionRecord.sessionId);
     }
 
     await this.afterStateChange();
@@ -754,58 +741,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.afterStateChange();
   }
 
-  protected async toggleVsMuxDisabled(): Promise<void> {
-    if (!this.isVsMuxDisabled) {
-      this.codeModeRestoreSnapshot = cloneWorkspaceSnapshot(this.store.getSnapshot());
-      await this.context.workspaceState.update(
-        CODE_MODE_RESTORE_SNAPSHOT_KEY,
-        this.codeModeRestoreSnapshot,
-      );
-      this.isVsMuxDisabled = true;
-      logVSmuxDebug("controller.toggleVsMuxDisabled", {
-        nextDisabled: this.isVsMuxDisabled,
-      });
-      await this.context.workspaceState.update(DISABLE_VS_MUX_MODE_KEY, this.isVsMuxDisabled);
-      this.backend.clearObservedEditorGroupPlacement();
-      await this.backend.parkAllEditorTerminalsToPanel();
-      this.t3Webviews.disposeAllSessions();
-      await this.refreshSidebar("hydrate");
-      return;
-    }
-
-    this.isRestoringCodeMode = true;
-    logVSmuxDebug("controller.toggleVsMuxDisabled", {
-      nextDisabled: false,
-    });
-    try {
-      if (this.codeModeRestoreSnapshot) {
-        await this.store.replaceSnapshot(this.codeModeRestoreSnapshot);
-        this.codeModeRestoreSnapshot = undefined;
-        await this.context.workspaceState.update(CODE_MODE_RESTORE_SNAPSHOT_KEY, undefined);
-      }
-      this.backend.clearObservedEditorGroupPlacement();
-      await this.backend.restoreAllManagedTerminalsToEditor();
-      this.backend.clearObservedEditorGroupPlacement();
-      this.isVsMuxDisabled = false;
-      await this.context.workspaceState.update(DISABLE_VS_MUX_MODE_KEY, this.isVsMuxDisabled);
-      this.isRestoringCodeMode = false;
-      await this.afterStateChange();
-    } finally {
-      this.isRestoringCodeMode = false;
-    }
-  }
-
   private async afterStateChange(): Promise<void> {
     this.clearObservedSidebarFocusState();
     this.syncSurfaceManagers();
     logVSmuxDebug("controller.afterStateChange", {
       activeGroupId: this.store.getSnapshot().activeGroupId,
       snapshot: this.describeActiveSnapshot(),
-      vsMuxDisabled: this.isVsMuxDisabled,
     });
-    if (!this.isVsMuxDisabled) {
-      await this.reconcileProjectedSessions();
-    }
+    await this.reconcileProjectedSessions();
+    await this.refreshWorkspacePanel();
     await this.refreshSidebar();
   }
 
@@ -857,7 +801,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       syncSidebarCommandOrder: async (commandIds) => this.syncSidebarCommandOrder(commandIds),
       toggleCompletionBell: async () => this.toggleCompletionBell(),
       toggleFullscreenSession: async () => this.toggleFullscreenSession(),
-      toggleVsMuxDisabled: async () => this.toggleVsMuxDisabled(),
     });
   }
 
@@ -898,7 +841,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getSidebarAgentIconById(derivedAgentName),
       getT3ActivityState: (sessionRecord) => ({
         activity: "idle",
-        isRunning: this.t3Webviews.hasLivePanel(sessionRecord.sessionId),
+        isRunning: this.isSessionVisibleInWorkspace(sessionRecord.sessionId),
       }),
       getTerminalTitle: (sessionId) => this.terminalTitleBySessionId.get(sessionId),
       hud: createSidebarHudState(
@@ -912,13 +855,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getClampedCompletionSoundSetting(),
         getSidebarAgentButtons(),
         getSidebarCommandButtons(this.context),
-        this.isVsMuxDisabled || this.isRestoringCodeMode,
       ),
-      ownsNativeTerminalControl: true,
+      ownsNativeTerminalControl: false,
       platform: SHORTCUT_LABEL_PLATFORM,
       previousSessions: this.previousSessionHistory.getItems(),
       scratchPadContent: this.getScratchPadContent(),
-      terminalHasLiveProjection: (sessionId) => this.backend.hasAttachedTerminal(sessionId),
+      terminalHasLiveProjection: (sessionId) => this.backend.hasLiveTerminal(sessionId),
       type,
       workspaceId: this.workspaceId,
       workspaceSnapshot,
@@ -926,10 +868,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private refreshLiveBrowserTabs() {
-    const t3PanelTitles = new Set(this.t3Webviews.getLivePanelTitles());
-    const browserTabs = getLiveBrowserTabs().filter(
-      (browserTab) => !t3PanelTitles.has(browserTab.label),
-    );
+    const browserTabs = getLiveBrowserTabs();
     this.liveBrowserTabsBySessionId.clear();
     const liveBrowserSessionIds = new Set(browserTabs.map((browserTab) => browserTab.sessionId));
     for (const browserTab of browserTabs) {
@@ -1069,56 +1008,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.browserEditorGroupIsMaximized = true;
   }
 
-  private async handleObservedSessionFocus(sessionId: string): Promise<void> {
-    const sessionRecord = this.store.getSession(sessionId);
-    if (!sessionRecord) {
-      return;
-    }
-
-    if (this.isVsMuxDisabled || this.isRestoringCodeMode) {
-      logVSmuxDebug("controller.handleObservedSessionFocus.ignoredDuringCodeMode", {
-        isRestoringCodeMode: this.isRestoringCodeMode,
-        sessionId,
-        snapshot: this.describeActiveSnapshot(),
-      });
-      return;
-    }
-
-    if (this.suppressedObservedFocusDepth > 0) {
-      logVSmuxDebug("controller.handleObservedSessionFocus.ignoredDuringReconcile", {
-        sessionId,
-        snapshot: this.describeActiveSnapshot(),
-      });
-      return;
-    }
-
-    if (this.shouldIgnoreObservedFocus(sessionRecord)) {
-      logVSmuxDebug("controller.handleObservedSessionFocus.ignoredAfterExplicitFocus", {
-        explicitFocusAgeMs: Date.now() - this.lastExplicitFocusAt,
-        lastExplicitFocusSessionId: this.lastExplicitFocusSessionId,
-        sessionId,
-        snapshot: this.describeActiveSnapshot(),
-      });
-      return;
-    }
-
-    logVSmuxDebug("controller.handleObservedSessionFocus", {
-      sessionId,
-      snapshot: this.describeActiveSnapshot(),
-    });
-    const acknowledgedAttention = await this.acknowledgeSessionAttentionIfNeeded(sessionId);
-    const changed = this.applyObservedSidebarFocus(sessionId);
-    if (!changed) {
-      if (acknowledgedAttention) {
-        await this.refreshSidebar();
-      }
-      logVSmuxDebug("controller.handleObservedSessionFocus.noChange", { sessionId });
-      return;
-    }
-
-    await this.refreshSidebar();
-  }
-
   private async reconcileProjectedSessions(): Promise<void> {
     const version = ++this.reconcileRequestVersion;
     this.pendingReconcileRequest = { version };
@@ -1126,32 +1015,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.reconcileRunner = this.runReconcileLoop();
     }
     await this.reconcileRunner;
-  }
-
-  private shouldIgnoreObservedFocus(sessionRecord: SessionRecord): boolean {
-    if (sessionRecord.kind !== "t3") {
-      return false;
-    }
-
-    if (!this.lastExplicitFocusSessionId) {
-      return false;
-    }
-
-    if (this.lastExplicitFocusSessionId === sessionRecord.sessionId) {
-      return false;
-    }
-
-    const explicitFocusAgeMs = Date.now() - this.lastExplicitFocusAt;
-    if (explicitFocusAgeMs > EXPLICIT_FOCUS_T3_OBSERVED_FOCUS_GUARD_MS) {
-      return false;
-    }
-
-    const focusedSession = this.store.getFocusedSession();
-    if (!focusedSession || focusedSession.sessionId !== this.lastExplicitFocusSessionId) {
-      return false;
-    }
-
-    return true;
   }
 
   private async runReconcileLoop(): Promise<void> {
@@ -1180,9 +1043,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         return;
       }
       this.syncSurfaceManagers();
-      if (this.isVsMuxDisabled) {
-        return;
-      }
 
       const activeSnapshot = this.getActiveSnapshot();
       const visibleSessions = activeSnapshot.visibleSessionIds
@@ -1196,118 +1056,30 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           sessionId: sessionRecord.sessionId,
         })),
       });
-      const expectedPaneCount = visibleSessions.length >= 2 ? 2 : 1;
-      await this.ensureEditorLayout(expectedPaneCount);
+      for (const sessionRecord of visibleSessions) {
+        if (this.isReconcileCancelled(requestVersion)) {
+          logVSmuxDebug("controller.reconcile.cancelled", {
+            reason: "superseded-before-ensure",
+            sessionId: sessionRecord.sessionId,
+            version: requestVersion,
+          });
+          return;
+        }
+        await this.createSurfaceIfNeeded(sessionRecord);
+      }
+
       if (this.isReconcileCancelled(requestVersion)) {
         logVSmuxDebug("controller.reconcile.cancelled", {
-          reason: "superseded-after-layout",
+          reason: "superseded-before-render",
           version: requestVersion,
         });
         return;
       }
 
-      const focusedSessionId = activeSnapshot.focusedSessionId;
-      const projectedVisibleSessions = visibleSessions.map((sessionRecord, groupIndex) => ({
-        groupIndex,
-        sessionRecord,
-      }));
-      const revealOrder = [
-        ...projectedVisibleSessions.filter(
-          ({ sessionRecord }) => sessionRecord.sessionId !== focusedSessionId,
-        ),
-        ...projectedVisibleSessions.filter(
-          ({ sessionRecord }) => sessionRecord.sessionId === focusedSessionId,
-        ),
-      ];
-      const correctlyProjectedCount = projectedVisibleSessions.filter(
-        ({ groupIndex, sessionRecord }) =>
-          this.isSessionProjectedCorrectly(sessionRecord, groupIndex),
-      ).length;
-      const shouldUseIncrementalReveal =
-        correctlyProjectedCount > 0 && correctlyProjectedCount < projectedVisibleSessions.length;
-      const initialRevealTargets = shouldUseIncrementalReveal
-        ? revealOrder.filter(
-            ({ groupIndex, sessionRecord }) =>
-              !this.isSessionProjectedCorrectly(sessionRecord, groupIndex),
-          )
-        : revealOrder;
-      logVSmuxDebug("controller.reconcile.plan", {
-        correctlyProjectedCount,
-        initialRevealSessionIds: initialRevealTargets.map(
-          ({ sessionRecord }) => sessionRecord.sessionId,
-        ),
-        projectedSessionIds: projectedVisibleSessions.map(
-          ({ sessionRecord }) => sessionRecord.sessionId,
-        ),
-        shouldUseIncrementalReveal,
-      });
-
-      for (const { groupIndex, sessionRecord } of initialRevealTargets) {
-        if (this.isReconcileCancelled(requestVersion)) {
-          logVSmuxDebug("controller.reconcile.cancelled", {
-            reason: "superseded-before-reveal",
-            sessionId: sessionRecord.sessionId,
-            version: requestVersion,
-          });
-          return;
-        }
-        const shouldFocusAfterReveal = this.shouldFocusAfterReveal(sessionRecord, focusedSessionId);
-        logVSmuxDebug("controller.reconcile.reveal", {
-          groupIndex,
-          shouldFocusAfterReveal,
-          sessionId: sessionRecord.sessionId,
-          version: requestVersion,
-        });
-        await this.revealSessionInPane(sessionRecord, groupIndex, shouldFocusAfterReveal, () =>
-          this.isReconcileCancelled(requestVersion),
-        );
-        if (this.isReconcileCancelled(requestVersion)) {
-          logVSmuxDebug("controller.reconcile.cancelled", {
-            reason: "superseded-after-reveal",
-            sessionId: sessionRecord.sessionId,
-            version: requestVersion,
-          });
-          return;
-        }
+      if (!this.workspacePanel.isVisible() && visibleSessions.length > 0) {
+        await this.workspacePanel.reveal();
       }
-
-      const retryTargets = revealOrder.filter(
-        ({ groupIndex, sessionRecord }) =>
-          !this.isSessionProjectedCorrectly(sessionRecord, groupIndex),
-      );
-      for (const { groupIndex, sessionRecord } of retryTargets) {
-        if (this.isReconcileCancelled(requestVersion)) {
-          logVSmuxDebug("controller.reconcile.cancelled", {
-            reason: "superseded-before-retry",
-            sessionId: sessionRecord.sessionId,
-            version: requestVersion,
-          });
-          return;
-        }
-        if (this.isSessionProjectedCorrectly(sessionRecord, groupIndex)) {
-          continue;
-        }
-        const shouldFocusAfterReveal = this.shouldFocusAfterReveal(sessionRecord, focusedSessionId);
-        logVSmuxDebug("controller.reconcile.retry", {
-          groupIndex,
-          shouldFocusAfterReveal,
-          projection: this.describeProjection(sessionRecord),
-          sessionId: sessionRecord.sessionId,
-          version: requestVersion,
-        });
-        await this.revealSessionInPane(sessionRecord, groupIndex, shouldFocusAfterReveal, () =>
-          this.isReconcileCancelled(requestVersion),
-        );
-        if (this.isReconcileCancelled(requestVersion)) {
-          logVSmuxDebug("controller.reconcile.cancelled", {
-            reason: "superseded-after-retry",
-            sessionId: sessionRecord.sessionId,
-            version: requestVersion,
-          });
-          return;
-        }
-      }
-
+      await this.refreshWorkspacePanel();
       logVSmuxDebug("controller.reconcile.complete", {
         snapshot: this.describeActiveSnapshot(),
         version: requestVersion,
@@ -1321,64 +1093,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
   }
 
-  private async revealSessionInPane(
-    sessionRecord: SessionRecord,
-    groupIndex: number,
-    shouldFocusAfterReveal: boolean,
-    isCancelled: () => boolean,
-  ): Promise<void> {
-    if (sessionRecord.kind === "terminal") {
-      await this.backend.createOrAttachSession(sessionRecord);
-      if (isCancelled()) {
-        return;
-      }
-      await this.backend.revealSessionInGroup(sessionRecord, groupIndex, isCancelled);
-      return;
-    }
-
-    if (sessionRecord.kind !== "t3") {
-      return;
-    }
-
-    await this.ensureT3Ready(sessionRecord);
-    await this.t3Webviews.revealSessionInGroup(sessionRecord, groupIndex, shouldFocusAfterReveal);
-  }
-
-  private shouldFocusAfterReveal(
-    sessionRecord: SessionRecord,
-    focusedSessionId: string | undefined,
-  ): boolean {
-    return sessionRecord.sessionId !== focusedSessionId;
-  }
-
   private isReconcileCancelled(requestVersion: number): boolean {
     return requestVersion !== this.reconcileRequestVersion;
-  }
-
-  private isSessionProjectedCorrectly(sessionRecord: SessionRecord, groupIndex: number): boolean {
-    if (sessionRecord.kind === "terminal") {
-      return (
-        this.backend.getObservedGroupIndex(sessionRecord.sessionId) === groupIndex &&
-        this.backend.isSessionForegroundVisible(sessionRecord.sessionId)
-      );
-    }
-
-    return (
-      this.t3Webviews.getObservedViewColumn(sessionRecord.sessionId) === groupIndex + 1 &&
-      this.t3Webviews.isSessionForegroundVisible(sessionRecord.sessionId)
-    );
-  }
-
-  private async ensureEditorLayout(visiblePaneCount: number): Promise<void> {
-    const expectedLayout = createExpectedLayout(visiblePaneCount);
-    const currentLayout = await getCurrentEditorLayout();
-    if (haveSameEditorLayoutShape(currentLayout, expectedLayout)) {
-      return;
-    }
-    logVSmuxDebug("controller.ensureEditorLayout", {
-      visiblePaneCount,
-    });
-    await setEditorLayout(expectedLayout);
   }
 
   private async createSurfaceIfNeeded(sessionRecord: SessionRecord): Promise<void> {
@@ -1420,16 +1136,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async disposeSurface(sessionRecord: SessionRecord): Promise<void> {
     if (sessionRecord.kind === "terminal") {
       await this.backend.killSession(sessionRecord.sessionId);
-      return;
     }
-
-    this.t3Webviews.disposeSession(sessionRecord.sessionId);
   }
 
   private syncSurfaceManagers(): void {
     const sessions = this.getAllSessionRecords();
     this.backend.syncSessions(sessions);
-    this.t3Webviews.syncSessions(sessions);
   }
 
   private clearSessionPresentationState(sessionId: string): void {
@@ -1461,14 +1173,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getSidebarAgentIconById(derivedAgentName),
       getT3ActivityState: (candidateSessionRecord) => ({
         activity: "idle",
-        isRunning: this.t3Webviews.hasLivePanel(candidateSessionRecord.sessionId),
+        isRunning: this.isSessionVisibleInWorkspace(candidateSessionRecord.sessionId),
       }),
       getTerminalTitle: (sessionId) => this.terminalTitleBySessionId.get(sessionId),
       group,
-      ownsNativeTerminalControl: true,
+      ownsNativeTerminalControl: false,
       platform: SHORTCUT_LABEL_PLATFORM,
       sessionRecord,
-      terminalHasLiveProjection: (sessionId) => this.backend.hasAttachedTerminal(sessionId),
+      terminalHasLiveProjection: (sessionId) => this.backend.hasLiveTerminal(sessionId),
       workspaceId: this.workspaceId,
     });
   }
@@ -1576,7 +1288,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }
 
       clearInterval(interval);
-      terminal.dispose();
+      void playCloseTerminalOnExitSound().finally(() => {
+        terminal.dispose();
+      });
     }, COMMAND_TERMINAL_EXIT_POLL_MS);
   }
 
@@ -1585,25 +1299,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private getPresentedWorkspaceSnapshot(): GroupedSessionWorkspaceSnapshot {
-    const snapshot = cloneWorkspaceSnapshot(this.store.getSnapshot());
-    if (
-      this.observedSidebarActiveGroupId &&
-      snapshot.groups.some((group) => group.groupId === this.observedSidebarActiveGroupId)
-    ) {
-      snapshot.activeGroupId = this.observedSidebarActiveGroupId;
-    }
-
-    for (const group of snapshot.groups) {
-      const observedFocusedSessionId = this.observedSidebarFocusedSessionIdByGroupId.get(group.groupId);
-      if (
-        observedFocusedSessionId &&
-        group.snapshot.sessions.some((session) => session.sessionId === observedFocusedSessionId)
-      ) {
-        group.snapshot.focusedSessionId = observedFocusedSessionId;
-      }
-    }
-
-    return snapshot;
+    return cloneWorkspaceSnapshot(this.store.getSnapshot());
   }
 
   private getEmptySnapshot(): SessionGridSnapshot {
@@ -1668,49 +1364,94 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     };
   }
 
-  private describeProjection(sessionRecord: SessionRecord): {
-    observedGroupIndex?: number;
-    observedViewColumn?: number;
-    sessionId: string;
-    visible: boolean;
-  } {
-    if (sessionRecord.kind === "terminal") {
+  private clearObservedSidebarFocusState(): void {
+    return;
+  }
+
+  private async refreshWorkspacePanel(): Promise<void> {
+    await this.workspacePanel.postMessage(await this.createWorkspacePanelMessage("sessionState"));
+  }
+
+  private async createWorkspacePanelMessage(
+    type: "hydrate" | "sessionState",
+  ): Promise<ExtensionToWorkspacePanelMessage> {
+    const workspaceSnapshot = this.store.getSnapshot();
+    const activeSnapshot = this.getActiveSnapshot();
+    const visibleSessions = activeSnapshot.visibleSessionIds
+      .map((sessionId) => this.store.getSession(sessionId))
+      .filter((sessionRecord): sessionRecord is SessionRecord => sessionRecord !== undefined);
+    const connection = await this.backend.getConnection();
+    const panes = (
+      await Promise.all(
+      visibleSessions.map(async (sessionRecord) => {
+        if (sessionRecord.kind === "terminal") {
+          return {
+            kind: "terminal" as const,
+            sessionId: sessionRecord.sessionId,
+            sessionRecord,
+            snapshot: this.backend.getSessionSnapshot(sessionRecord.sessionId),
+          };
+        }
+
+        if (sessionRecord.kind !== "t3") {
+          return undefined;
+        }
+
+        return {
+          kind: "t3" as const,
+          sessionId: sessionRecord.sessionId,
+          sessionRecord,
+          html: await createT3IframeSource(
+            this.context,
+            sessionRecord,
+            this.workspaceAssetServer,
+          ),
+        };
+      }),
+      )
+    ).filter((pane): pane is NonNullable<typeof pane> => pane !== undefined);
+
+    if (type === "hydrate") {
       return {
-        observedGroupIndex: this.backend.getObservedGroupIndex(sessionRecord.sessionId),
-        sessionId: sessionRecord.sessionId,
-        visible: this.backend.isSessionForegroundVisible(sessionRecord.sessionId),
+        activeGroupId: workspaceSnapshot.activeGroupId,
+        connection,
+        focusedSessionId: activeSnapshot.focusedSessionId,
+        panes,
+        terminalAppearance: this.getWorkspaceTerminalAppearance(),
+        type: "hydrate",
+        viewMode: activeSnapshot.viewMode,
+        visibleCount: activeSnapshot.visibleCount,
+        workspaceSnapshot,
       };
     }
 
     return {
-      observedViewColumn: this.t3Webviews.getObservedViewColumn(sessionRecord.sessionId),
-      sessionId: sessionRecord.sessionId,
-      visible: this.t3Webviews.isSessionForegroundVisible(sessionRecord.sessionId),
+      activeGroupId: workspaceSnapshot.activeGroupId,
+      connection,
+      focusedSessionId: activeSnapshot.focusedSessionId,
+      panes,
+      terminalAppearance: this.getWorkspaceTerminalAppearance(),
+      type: "sessionState",
+      viewMode: activeSnapshot.viewMode,
+      visibleCount: activeSnapshot.visibleCount,
+      workspaceSnapshot,
     };
   }
 
-  private clearObservedSidebarFocusState(): void {
-    this.observedSidebarActiveGroupId = undefined;
-    this.observedSidebarFocusedSessionIdByGroupId.clear();
+  private getWorkspaceTerminalAppearance() {
+    return {
+      cursorBlink: getTerminalCursorBlink(),
+      cursorStyle: getTerminalCursorStyle(),
+      fontFamily: getTerminalFontFamily(),
+      fontSize: getTerminalFontSize(),
+      letterSpacing: getTerminalLetterSpacing(),
+      lineHeight: getTerminalLineHeight(),
+    };
   }
 
-  private applyObservedSidebarFocus(sessionId: string): boolean {
-    const snapshot = this.store.getSnapshot();
-    const owningGroup = snapshot.groups.find((group) =>
-      group.snapshot.sessions.some((session) => session.sessionId === sessionId),
-    );
-    if (!owningGroup) {
-      return false;
-    }
-
-    const currentActiveGroupId = this.observedSidebarActiveGroupId ?? snapshot.activeGroupId;
-    const currentFocusedSessionId =
-      this.observedSidebarFocusedSessionIdByGroupId.get(owningGroup.groupId) ??
-      owningGroup.snapshot.focusedSessionId;
-
-    this.observedSidebarActiveGroupId = owningGroup.groupId;
-    this.observedSidebarFocusedSessionIdByGroupId.set(owningGroup.groupId, sessionId);
-    return currentActiveGroupId !== owningGroup.groupId || currentFocusedSessionId !== sessionId;
+  private isSessionVisibleInWorkspace(sessionId: string): boolean {
+    const activeSnapshot = this.getActiveSnapshot();
+    return activeSnapshot.visibleSessionIds.includes(sessionId);
   }
 }
 
@@ -1732,11 +1473,4 @@ function getCommandTerminalShellArgs(shellPath: string, command: string): string
   }
 
   return ["-l", "-c", command];
-}
-
-function createExpectedLayout(visiblePaneCount: number): WorkbenchEditorLayout {
-  return {
-    groups: Array.from({ length: Math.max(1, Math.min(2, visiblePaneCount)) }, () => ({})),
-    orientation: 0,
-  };
 }

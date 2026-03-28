@@ -26,8 +26,13 @@ export const DEBUGGING_MODE_SETTING = "debuggingMode";
 export const COMPLETION_SOUND_SETTING = "completionSound";
 export const DEFAULT_BROWSER_LAUNCH_URL_SETTING = "defaultBrowserLaunchUrl";
 export const AGENTS_SETTING = "agents";
+export const TERMINAL_FONT_FAMILY_SETTING = "terminalFontFamily";
+export const TERMINAL_FONT_SIZE_SETTING = "terminalFontSize";
+export const TERMINAL_LINE_HEIGHT_SETTING = "terminalLineHeight";
+export const TERMINAL_LETTER_SPACING_SETTING = "terminalLetterSpacing";
+export const TERMINAL_CURSOR_STYLE_SETTING = "terminalCursorStyle";
+export const TERMINAL_CURSOR_BLINK_SETTING = "terminalCursorBlink";
 export const COMPLETION_BELL_ENABLED_KEY = "VSmux.completionBellEnabled";
-export const DISABLE_VS_MUX_MODE_KEY = "VSmux.disableVsMuxMode";
 export const SCRATCH_PAD_CONTENT_KEY = "VSmux.sidebarScratchPadContent";
 export const NATIVE_TERMINAL_DEBUG_STATE_KEY = "VSmux.nativeTerminalDebugState";
 export const SIDEBAR_WELCOME_DISMISSED_KEY = "VSmux.sidebarWelcomeDismissed";
@@ -157,4 +162,61 @@ export function getDefaultBrowserLaunchUrl(): string {
     DEFAULT_BROWSER_LAUNCH_URL;
 
   return value.trim() || DEFAULT_BROWSER_LAUNCH_URL;
+}
+
+export function getTerminalFontFamily(): string {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<string>(TERMINAL_FONT_FAMILY_SETTING, "MesloLGL Nerd Font Mono") ??
+    "MesloLGL Nerd Font Mono";
+
+  return value.trim() || "MesloLGL Nerd Font Mono";
+}
+
+export function getTerminalFontSize(): number {
+  const value =
+    vscode.workspace.getConfiguration(SETTINGS_SECTION).get<number>(TERMINAL_FONT_SIZE_SETTING, 14) ??
+    14;
+  return clampNumber(value, 8, 32, 14);
+}
+
+export function getTerminalLineHeight(): number {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(TERMINAL_LINE_HEIGHT_SETTING, 1.1) ?? 1.1;
+  return clampNumber(value, 1, 2, 1.1);
+}
+
+export function getTerminalLetterSpacing(): number {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(TERMINAL_LETTER_SPACING_SETTING, 0) ?? 0;
+  return clampNumber(value, -2, 8, 0);
+}
+
+export function getTerminalCursorStyle(): "bar" | "block" | "underline" {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<string>(TERMINAL_CURSOR_STYLE_SETTING, "bar") ?? "bar";
+  return value === "block" || value === "underline" ? value : "bar";
+}
+
+export function getTerminalCursorBlink(): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<boolean>(TERMINAL_CURSOR_BLINK_SETTING, true) ?? true
+  );
+}
+
+function clampNumber(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, value));
 }

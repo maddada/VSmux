@@ -56,7 +56,6 @@ export type SidebarMessageHandlers = {
   syncSidebarCommandOrder: (commandIds: readonly string[]) => Promise<void>;
   toggleCompletionBell: () => Promise<void>;
   toggleFullscreenSession: () => Promise<void>;
-  toggleVsMuxDisabled: () => Promise<void>;
 };
 
 export async function dispatchSidebarMessage(
@@ -91,9 +90,6 @@ export async function dispatchSidebarMessage(
       return;
     case "toggleCompletionBell":
       await handlers.toggleCompletionBell();
-      return;
-    case "toggleVsMuxDisabled":
-      await handlers.toggleVsMuxDisabled();
       return;
     case "moveSidebarToOtherSide":
       await handlers.moveSidebarToOtherSide();

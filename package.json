@@ -17,17 +17,19 @@
   "files": [
     "media/**",
     "forks/t3code-embed/dist/**",
+    "out/workspace/**",
     "out/**"
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "vscode:prepublish": "vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
+    "vscode:prepublish": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "sidebar:build": "vp build --config vite.sidebar.config.ts",
     "debug-panel:build": "vp build --config vite.debug-panel.config.ts",
+    "workspace:build": "vp build --config vite.workspace.config.ts",
     "storybook": "vp exec storybook dev -p 6006 --no-open",
     "storybook:build": "vp exec storybook build",
     "storybook:test": "node ./scripts/storybook-test.mjs",
-    "compile": "vp run sidebar:build && vp run debug-panel:build && tsc -p ./tsconfig.extension.json",
+    "compile": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "t3:embed:build": "node ./scripts/build-t3-embed.mjs",
     "lint": "vp lint",
@@ -44,9 +46,12 @@
     "@dnd-kit/dom": "0.3.2",
     "@dnd-kit/helpers": "0.3.2",
     "@dnd-kit/react": "0.3.2",
+    "@lydell/node-pty": "1.2.0-beta.3",
     "@tabler/icons-react": "^3.40.0",
+    "ghostty-web": "^0.4.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@storybook/react-vite": "^10.3.0",
@@ -55,6 +60,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.105.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
     "@vscode/vsce": "^3.7.1",
     "storybook": "^10.3.0",
@@ -252,6 +258,58 @@
           "maximum": 200,
           "default": 100,
           "description": "Zoom percentage used by the VSmux agent manager sidebar UI. 100 is default size, 95 or 90 zoom out, and values above 100 zoom in."
+        },
+        "VSmux.terminalFontFamily": {
+          "title": "Terminal Font Family",
+          "type": "string",
+          "default": "MesloLGL Nerd Font Mono",
+          "description": "Font family used by VSmux Ghostty terminals in the workspace webview."
+        },
+        "VSmux.terminalFontSize": {
+          "title": "Terminal Font Size",
+          "type": "number",
+          "minimum": 8,
+          "maximum": 32,
+          "default": 14,
+          "description": "Font size used by VSmux Ghostty terminals."
+        },
+        "VSmux.terminalLineHeight": {
+          "title": "Terminal Line Height",
+          "type": "number",
+          "minimum": 1,
+          "maximum": 2,
+          "default": 1.1,
+          "description": "Line height multiplier used by VSmux Ghostty terminals."
+        },
+        "VSmux.terminalLetterSpacing": {
+          "title": "Terminal Letter Spacing",
+          "type": "number",
+          "minimum": -2,
+          "maximum": 8,
+          "default": 0,
+          "description": "Letter spacing used by VSmux Ghostty terminals."
+        },
+        "VSmux.terminalCursorStyle": {
+          "title": "Terminal Cursor Style",
+          "type": "string",
+          "default": "bar",
+          "enum": [
+            "bar",
+            "block",
+            "underline"
+          ],
+          "enumItemLabels": [
+            "Line",
+            "Block",
+            "Underline"
+          ],
+          "description": "Cursor style used by VSmux Ghostty terminals."
+        },
+        "VSmux.terminalCursorBlink": {
+          "title": "Terminal Cursor Blink",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the VSmux terminal cursor blinks."
         },
         "VSmux.debuggingMode": {
           "title": "Debugging Mode",
@@ -494,7 +552,8 @@
   },
   "activationEvents": [
     "onStartupFinished",
-    "onView:VSmux.sessions"
+    "onView:VSmux.sessions",
+    "onWebviewPanel:vsmux.workspace"
   ],
   "icon": "media/VSmux-marketplace-icon.png",
   "engines": {

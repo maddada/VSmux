@@ -55,7 +55,6 @@ export type SidebarHudState = {
   debuggingMode: boolean;
   focusedSessionTitle?: string;
   isFocusModeActive: boolean;
-  isVsMuxDisabled: boolean;
   showCloseButtonOnSessionCards: boolean;
   showHotkeysOnSessionCards: boolean;
   theme:
@@ -116,9 +115,6 @@ export type SidebarToExtensionMessage =
     }
   | {
       type: "toggleCompletionBell";
-    }
-  | {
-      type: "toggleVsMuxDisabled";
     }
   | {
       type: "moveSidebarToOtherSide";

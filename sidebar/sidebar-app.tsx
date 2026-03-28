@@ -70,7 +70,6 @@ const INITIAL_STATE: SidebarState = {
     focusedSessionTitle: undefined,
     highlightedVisibleCount: 1,
     isFocusModeActive: false,
-    isVsMuxDisabled: false,
     showCloseButtonOnSessionCards: false,
     showHotkeysOnSessionCards: false,
     theme: getInitialSidebarTheme(),
@@ -198,8 +197,7 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     applySidebarMessage(nextMessage);
   };
 
-  const isSidebarInteractionBlocked =
-    serverState.hud.isVsMuxDisabled || isStartupInteractionBlocked;
+  const isSidebarInteractionBlocked = isStartupInteractionBlocked;
 
   const requestNewSession = () => {
     if (isSidebarInteractionBlocked) {
@@ -594,7 +592,6 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
         <CommandsPanel
           commands={serverState.hud.commands}
           createRequestId={commandCreateRequestId}
-          isVsMuxDisabled={serverState.hud.isVsMuxDisabled}
           titlebarActions={
             <div
               className="sidebar-titlebar-controls"
@@ -745,8 +742,6 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
         <section
           className="session-groups-panel"
           ref={sessionGroupsPanelRef}
-          aria-disabled={serverState.hud.isVsMuxDisabled}
-          data-dimmed={String(serverState.hud.isVsMuxDisabled)}
         >
           <div className="section-titlebar" data-empty-space-blocking="true">
             <div aria-hidden="true" className="section-titlebar-line" />

@@ -8,7 +8,6 @@ export type TerminalWorkspaceBackendTitleChange = {
 };
 
 export type TerminalWorkspaceBackend = vscode.Disposable & {
-  readonly onDidActivateSession: vscode.Event<string>;
   readonly onDidChangeSessions: vscode.Event<void>;
   readonly onDidChangeSessionTitle: vscode.Event<TerminalWorkspaceBackendTitleChange>;
   hasAttachedTerminal: (sessionId: string) => boolean;
@@ -18,17 +17,6 @@ export type TerminalWorkspaceBackend = vscode.Disposable & {
   acknowledgeAttention: (sessionId: string) => Promise<boolean>;
   createOrAttachSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
   focusSession: (sessionId: string) => Promise<boolean>;
-  getObservedGroupIndex: (sessionId: string) => number | undefined;
-  isSessionForegroundVisible: (sessionId: string) => boolean;
-  parkAllEditorTerminalsToPanel: () => Promise<void>;
-  clearObservedEditorGroupPlacement: () => void;
-  restoreAllManagedTerminalsToEditor: () => Promise<void>;
-  revealSessionInGroup: (
-    sessionRecord: SessionRecord,
-    targetGroupIndex: number,
-    isCancelled?: () => boolean,
-  ) => Promise<boolean>;
-  syncRunningTerminalTitles: () => Promise<void>;
   getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
   killSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionRecord: SessionRecord) => Promise<void>;

@@ -99,6 +99,8 @@ if (!existsSync(installerDir)) {
 
 const vsixPath = resolveVsixPath(installerDir, extensionName, extensionVersion);
 
+run("pnpm", ["run", "compile"]);
+
 run("vp", [
   "exec",
   "vsce",

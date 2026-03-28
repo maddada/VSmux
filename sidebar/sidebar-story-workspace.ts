@@ -33,7 +33,6 @@ type SidebarStoryWorkspaceOptions = {
   completionBellEnabled: boolean;
   completionSound: SidebarHydrateMessage["hud"]["completionSound"];
   debuggingMode: boolean;
-  isVsMuxDisabled: boolean;
   scratchPadContent: string;
   showCloseButtonOnSessionCards: boolean;
   showHotkeysOnSessionCards: boolean;
@@ -60,7 +59,6 @@ export function createSidebarStoryWorkspace(message: SidebarHydrateMessage): Sid
       completionBellEnabled: message.hud.completionBellEnabled,
       completionSound: message.hud.completionSound,
       debuggingMode: message.hud.debuggingMode,
-      isVsMuxDisabled: message.hud.isVsMuxDisabled,
       scratchPadContent: message.scratchPadContent,
       showCloseButtonOnSessionCards: message.hud.showCloseButtonOnSessionCards,
       showHotkeysOnSessionCards: message.hud.showHotkeysOnSessionCards,
@@ -134,7 +132,6 @@ export function createSidebarStoryMessage(
       workspace.options.completionSound,
       workspace.options.agents,
       workspace.options.commands,
-      workspace.options.isVsMuxDisabled,
     ),
     scratchPadContent: workspace.options.scratchPadContent,
     type,
@@ -196,15 +193,6 @@ export function reduceSidebarStoryWorkspace(
       return {
         ...workspace,
         snapshot: toggleFullscreenSessionInWorkspace(workspace.snapshot),
-      };
-
-    case "toggleVsMuxDisabled":
-      return {
-        ...workspace,
-        options: {
-          ...workspace.options,
-          isVsMuxDisabled: !workspace.options.isVsMuxDisabled,
-        },
       };
 
     case "saveScratchPad":

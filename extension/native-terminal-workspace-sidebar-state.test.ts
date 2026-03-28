@@ -117,7 +117,6 @@ function createSidebarHudState(): SidebarHydrateMessage["hud"] {
     focusedSessionTitle: undefined,
     highlightedVisibleCount: 1,
     isFocusModeActive: false,
-    isVsMuxDisabled: false,
     showCloseButtonOnSessionCards: false,
     showHotkeysOnSessionCards: false,
     theme: "dark-blue",

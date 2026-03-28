@@ -59,7 +59,6 @@ export function createSidebarStoryMessage(args: SidebarStoryArgs): SidebarHydrat
     focusedSessionTitle: getFocusedSessionTitle(groups),
     highlightedVisibleCount: args.highlightedVisibleCount,
     isFocusModeActive: args.isFocusModeActive,
-    isVsMuxDisabled: false,
     showCloseButtonOnSessionCards: args.showCloseButtonOnSessionCards,
     showHotkeysOnSessionCards: args.showHotkeysOnSessionCards,
     theme: args.theme,

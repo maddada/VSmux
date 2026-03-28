@@ -182,7 +182,6 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
       );
     case "openSettings":
     case "toggleCompletionBell":
-    case "toggleVsMuxDisabled":
     case "moveSidebarToOtherSide":
     case "createSession":
     case "openBrowser":

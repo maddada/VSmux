@@ -40,6 +40,7 @@ export type TerminalHostCreateOrAttachRequest = {
   cols: number;
   cwd: string;
   rows: number;
+  sessionStateFilePath: string;
   shell: string;
 };
 
