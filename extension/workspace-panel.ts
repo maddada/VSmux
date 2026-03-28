@@ -5,6 +5,7 @@ import type {
 } from "../shared/workspace-panel-contract";
 
 const WORKSPACE_PANEL_TYPE = "vsmux.workspace";
+const WORKSPACE_PANEL_TITLE = "VSmux";
 
 type WorkspacePanelOptions = {
   context: vscode.ExtensionContext;
@@ -76,7 +77,7 @@ export class WorkspacePanelManager implements vscode.Disposable {
 
     const panel = vscode.window.createWebviewPanel(
       WORKSPACE_PANEL_TYPE,
-      "VSmux Workspace",
+      WORKSPACE_PANEL_TITLE,
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -93,6 +94,8 @@ export class WorkspacePanelManager implements vscode.Disposable {
   }
 
   private configurePanel(panel: vscode.WebviewPanel): void {
+    panel.title = WORKSPACE_PANEL_TITLE;
+    panel.iconPath = vscode.Uri.joinPath(this.options.context.extensionUri, "media", "icon.svg");
     panel.webview.html = getWorkspaceHtml(panel.webview, this.options.context.extensionUri);
     panel.onDidDispose(() => {
       if (this.panel === panel) {
@@ -139,7 +142,7 @@ function getWorkspaceHtml(webview: vscode.Webview, extensionUri: vscode.Uri): st
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VSmux Workspace</title>
+    <title>${WORKSPACE_PANEL_TITLE}</title>
     <link href="${styleUri}" rel="stylesheet" />
   </head>
   <body>

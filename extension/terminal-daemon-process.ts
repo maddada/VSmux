@@ -258,7 +258,7 @@ async function handleListSessionsRequest(
   request: TerminalHostListSessionsRequest,
 ): Promise<void> {
   const sessionSnapshots = await Promise.all(
-    [...sessions.values()].map((session) => buildSnapshot(session, true)),
+    [...sessions.values()].map((session) => buildSnapshot(session, false)),
   );
   socket.send(JSON.stringify(okResponse(request.requestId, { sessions: sessionSnapshots })));
 }
@@ -427,7 +427,7 @@ function broadcastSessionMessage(
   sessionId: string,
   message: TerminalOutputMessage | TerminalStateMessage,
 ): void {
-  const payload = JSON.stringify(message);
+  const payload = message.type === "terminalOutput" ? message.data : JSON.stringify(message);
   for (const socket of sessionSocketsBySessionId.get(sessionId) ?? []) {
     socket.send(payload);
   }
@@ -447,15 +447,20 @@ async function sendSessionState(
 }
 
 async function handleSessionMessage(sessionId: string, rawMessage: string): Promise<void> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  if (!rawMessage.startsWith("{")) {
+    session.pty.write(rawMessage);
+    return;
+  }
+
   let message: TerminalInputMessage | TerminalResizeMessage | undefined;
   try {
     message = JSON.parse(rawMessage) as TerminalInputMessage | TerminalResizeMessage;
   } catch {
-    return;
-  }
-
-  const session = sessions.get(sessionId);
-  if (!session) {
     return;
   }
 

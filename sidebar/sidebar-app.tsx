@@ -45,6 +45,7 @@ import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import type { WebviewApi } from "./webview-api";
 
 export type SidebarAppProps = {
+  messageSource?: Pick<Window, "addEventListener" | "removeEventListener">;
   vscode: WebviewApi;
 };
 
@@ -115,7 +116,7 @@ function getInitialSidebarTheme(): SidebarTheme {
     : "dark-blue";
 }
 
-export function SidebarApp({ vscode }: SidebarAppProps) {
+export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) {
   const [serverState, setServerState] = useState<SidebarState>(INITIAL_STATE);
   const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
   const [autoEditingGroupId, setAutoEditingGroupId] = useState<string>();
@@ -245,12 +246,12 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       applySidebarMessage(event.data);
     };
 
-    window.addEventListener("message", handleMessage);
+    messageSource.addEventListener("message", handleMessage as EventListener);
 
     return () => {
-      window.removeEventListener("message", handleMessage);
+      messageSource.removeEventListener("message", handleMessage as EventListener);
     };
-  }, []);
+  }, [messageSource]);
 
   useEffect(() => {
     draggedSessionIdRef.current = draggedSessionId;

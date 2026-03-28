@@ -108,4 +108,97 @@ describe("getLiveBrowserTabs", () => {
 
     expect(browserTabs).toEqual([]);
   });
+
+  test("should ignore the VSmux workspace webview", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputWebview("vsmux.workspace"),
+            isActive: true,
+            label: "VSmux",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should ignore restored VSmux custom tabs without an http url", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputCustom(
+              {
+                toString: () => "vscode-webview://workspace-panel",
+              },
+              "some.restored.custom",
+            ),
+            isActive: true,
+            label: "VSmux",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should ignore VSmux localhost asset tabs", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputCustom(
+              {
+                toString: () => "http://127.0.0.1:41111/workspace/index.html",
+              },
+              "simpleBrowser.view",
+            ),
+            isActive: true,
+            label: "VSmux",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should still allow real browser tabs titled VSmux", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputCustom(
+              {
+                toString: () => "https://example.com/vsmux",
+              },
+              "simpleBrowser.view",
+            ),
+            isActive: true,
+            label: "VSmux",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toHaveLength(1);
+    expect(browserTabs[0]).toEqual(
+      expect.objectContaining({
+        detail: "https://example.com/vsmux",
+        label: "VSmux",
+      }),
+    );
+  });
 });

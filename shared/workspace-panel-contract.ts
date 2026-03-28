@@ -8,6 +8,7 @@ import type { TerminalSessionSnapshot } from "./terminal-host-protocol";
 
 export type WorkspacePanelConnection = {
   baseUrl: string;
+  mock?: boolean;
   token: string;
 };
 
@@ -42,6 +43,7 @@ export type WorkspacePanelHydrateMessage = {
   type: "hydrate";
   activeGroupId: string;
   connection: WorkspacePanelConnection;
+  debuggingMode: boolean;
   focusedSessionId?: string;
   panes: WorkspacePanelPane[];
   terminalAppearance: WorkspacePanelTerminalAppearance;

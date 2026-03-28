@@ -271,7 +271,6 @@ function haveSameTerminalSessionSnapshot(
     left.endedAt === right.endedAt &&
     left.errorMessage === right.errorMessage &&
     left.exitCode === right.exitCode &&
-    left.history === right.history &&
     left.restoreState === right.restoreState &&
     left.rows === right.rows &&
     left.sessionId === right.sessionId &&

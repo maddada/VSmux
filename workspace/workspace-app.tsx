@@ -1,25 +1,43 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ExtensionToWorkspacePanelMessage,
   WorkspacePanelPane,
 } from "../shared/workspace-panel-contract";
+import { logWorkspaceDebug } from "./workspace-debug";
 import { TerminalPane } from "./terminal-pane";
 import { T3Pane } from "./t3-pane";
 
+type MessageSource = Pick<Window, "addEventListener" | "removeEventListener">;
+const INITIAL_TERMINAL_REMOUNT_DELAY_MS = 120;
+const INITIAL_TERMINAL_REVEAL_DELAY_MS = 240;
+
 export type WorkspaceAppProps = {
+  messageSource?: MessageSource;
   vscode: {
     postMessage: (message: unknown) => void;
   };
 };
 
-export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ vscode }) => {
+export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = window, vscode }) => {
+  const [isInitialTerminalRevealReady, setIsInitialTerminalRevealReady] = useState(false);
+  const [initialTerminalPaneRenderVersion, setInitialTerminalPaneRenderVersion] = useState(0);
   const [serverState, setServerState] = useState<ExtensionToWorkspacePanelMessage | undefined>();
+  const [fitVersion, setFitVersion] = useState(0);
+  const [localFocusedSessionId, setLocalFocusedSessionId] = useState<string | undefined>();
+  const previousFocusedSessionIdRef = useRef<string | undefined>(undefined);
+  const hasStartedInitialRevealRef = useRef(false);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ExtensionToWorkspacePanelMessage>) => {
       if (!event.data || (event.data.type !== "hydrate" && event.data.type !== "sessionState")) {
         return;
       }
+      logWorkspaceDebug(event.data.debuggingMode, "message.received", {
+        activeGroupId: event.data.activeGroupId,
+        focusedSessionId: event.data.focusedSessionId,
+        paneIds: event.data.panes.map((pane) => pane.sessionId),
+        type: event.data.type,
+      });
       setServerState(event.data);
     };
 
@@ -34,17 +52,120 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ vscode }) => {
       });
     };
 
-    window.addEventListener("message", handleMessage);
+    messageSource.addEventListener("message", handleMessage as EventListener);
     window.addEventListener("message", handleIframeFocus);
     vscode.postMessage({ type: "ready" });
 
     return () => {
-      window.removeEventListener("message", handleMessage);
+      messageSource.removeEventListener("message", handleMessage as EventListener);
       window.removeEventListener("message", handleIframeFocus);
     };
-  }, [vscode]);
+  }, [messageSource, vscode]);
 
   const panes = useMemo(() => serverState?.panes ?? [], [serverState?.panes]);
+  const presentedFocusedSessionId = localFocusedSessionId ?? serverState?.focusedSessionId;
+
+  useEffect(() => {
+    setLocalFocusedSessionId(serverState?.focusedSessionId);
+  }, [serverState?.activeGroupId, serverState?.focusedSessionId]);
+
+  useEffect(() => {
+    if (!serverState || hasStartedInitialRevealRef.current) {
+      return;
+    }
+
+    hasStartedInitialRevealRef.current = true;
+    const remountTimeoutId = window.setTimeout(() => {
+      logWorkspaceDebug(serverState.debuggingMode, "workspace.initialTerminalRemountRequested", {
+        delayMs: INITIAL_TERMINAL_REMOUNT_DELAY_MS,
+        paneIds: serverState.panes.map((pane) => pane.sessionId),
+      });
+      setInitialTerminalPaneRenderVersion((currentVersion) => currentVersion + 1);
+    }, INITIAL_TERMINAL_REMOUNT_DELAY_MS);
+
+    const revealTimeoutId = window.setTimeout(() => {
+      logWorkspaceDebug(serverState.debuggingMode, "workspace.initialTerminalRevealRequested", {
+        delayMs: INITIAL_TERMINAL_REVEAL_DELAY_MS,
+        paneIds: serverState.panes.map((pane) => pane.sessionId),
+      });
+      setIsInitialTerminalRevealReady(true);
+    }, INITIAL_TERMINAL_REVEAL_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(remountTimeoutId);
+      window.clearTimeout(revealTimeoutId);
+    };
+  }, [serverState]);
+
+  useEffect(() => {
+    if (!isInitialTerminalRevealReady || !presentedFocusedSessionId) {
+      return;
+    }
+
+    const previousFocusedSessionId = previousFocusedSessionIdRef.current;
+    previousFocusedSessionIdRef.current = presentedFocusedSessionId;
+    if (!previousFocusedSessionId || previousFocusedSessionId === presentedFocusedSessionId) {
+      return;
+    }
+
+    logWorkspaceDebug(serverState?.debuggingMode, "focus.refitRequested", {
+      focusedSessionId: presentedFocusedSessionId,
+      paneIds: panes.map((pane) => pane.sessionId),
+    });
+    requestTerminalRefit({ dispatchBrowserResize: true });
+  }, [isInitialTerminalRevealReady, panes, presentedFocusedSessionId, serverState?.debuggingMode]);
+
+  useEffect(() => {
+    let settleTimeoutId: number | undefined;
+    let trailingTimeoutId: number | undefined;
+
+    const handleWindowResize = () => {
+      logWorkspaceDebug(serverState?.debuggingMode, "window.resizeRefitRequested", {
+        paneIds: panes.map((pane) => pane.sessionId),
+      });
+      requestTerminalRefit();
+      if (settleTimeoutId !== undefined) {
+        window.clearTimeout(settleTimeoutId);
+      }
+      if (trailingTimeoutId !== undefined) {
+        window.clearTimeout(trailingTimeoutId);
+      }
+
+      settleTimeoutId = window.setTimeout(() => {
+        logWorkspaceDebug(serverState?.debuggingMode, "window.resizeSettleRefitRequested", {
+          paneIds: panes.map((pane) => pane.sessionId),
+        });
+        requestTerminalRefit();
+      }, 120);
+
+      trailingTimeoutId = window.setTimeout(() => {
+        logWorkspaceDebug(serverState?.debuggingMode, "window.resizeTrailingRefitRequested", {
+          paneIds: panes.map((pane) => pane.sessionId),
+        });
+        requestTerminalRefit();
+      }, 260);
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+    window.visualViewport?.addEventListener("resize", handleWindowResize);
+    return () => {
+      window.removeEventListener("resize", handleWindowResize);
+      window.visualViewport?.removeEventListener("resize", handleWindowResize);
+      if (settleTimeoutId !== undefined) {
+        window.clearTimeout(settleTimeoutId);
+      }
+      if (trailingTimeoutId !== undefined) {
+        window.clearTimeout(trailingTimeoutId);
+      }
+    };
+  }, [panes, serverState?.debuggingMode]);
+
+  function requestTerminalRefit(options?: { dispatchBrowserResize?: boolean }) {
+    if (options?.dispatchBrowserResize) {
+      window.dispatchEvent(new Event("resize"));
+    }
+    setFitVersion((currentVersion) => currentVersion + 1);
+  }
 
   if (!serverState) {
     return (
@@ -69,8 +190,14 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ vscode }) => {
       {panes.map((pane) => (
         <WorkspacePaneView
           connection={serverState.connection}
-          isFocused={serverState.focusedSessionId === pane.sessionId}
+          debuggingMode={serverState.debuggingMode}
+          fitVersion={fitVersion}
+          isFocused={presentedFocusedSessionId === pane.sessionId}
+          isInitialTerminalRevealReady={isInitialTerminalRevealReady}
           key={pane.sessionId}
+          onLocalFocus={() => {
+            setLocalFocusedSessionId(pane.sessionId);
+          }}
           onFocus={() =>
             vscode.postMessage({
               sessionId: pane.sessionId,
@@ -78,6 +205,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ vscode }) => {
             })
           }
           pane={pane}
+          terminalPaneRenderVersion={initialTerminalPaneRenderVersion}
           terminalAppearance={serverState.terminalAppearance}
         />
       ))}
@@ -87,21 +215,30 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ vscode }) => {
 
 type WorkspacePaneViewProps = {
   connection: ExtensionToWorkspacePanelMessage["connection"];
+  debuggingMode: boolean;
+  fitVersion: number;
   isFocused: boolean;
+  isInitialTerminalRevealReady: boolean;
+  onLocalFocus: () => void;
   onFocus: () => void;
   pane: WorkspacePanelPane;
+  terminalPaneRenderVersion: number;
   terminalAppearance: ExtensionToWorkspacePanelMessage["terminalAppearance"];
 };
 
 const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   connection,
+  debuggingMode,
+  fitVersion,
   isFocused,
+  isInitialTerminalRevealReady,
+  onLocalFocus,
   onFocus,
   pane,
+  terminalPaneRenderVersion,
   terminalAppearance,
 }) => {
   const primaryTitle = pane.sessionRecord.title.trim() || pane.sessionRecord.alias;
-  const surfaceLabel = pane.kind === "terminal" ? "Terminal" : "T3";
 
   return (
     <section
@@ -110,17 +247,16 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
     >
       <header className="workspace-pane-header">
         <div className="workspace-pane-title">{primaryTitle}</div>
-        <div className="workspace-pane-meta">
-          <span>{pane.sessionRecord.displayId}</span>
-          <span>{surfaceLabel}</span>
-        </div>
       </header>
       <div className="workspace-pane-body">
         {pane.kind === "terminal" ? (
           <TerminalPane
             connection={connection}
-            isFocused={isFocused}
-            onFocus={onFocus}
+            debuggingMode={debuggingMode}
+            fitVersion={fitVersion}
+            isVisible={isInitialTerminalRevealReady}
+            key={`${pane.sessionId}:${String(terminalPaneRenderVersion)}`}
+            onActivate={onLocalFocus}
             pane={pane}
             terminalAppearance={terminalAppearance}
           />

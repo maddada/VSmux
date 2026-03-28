@@ -6,11 +6,14 @@ import {
   normalizeUrl,
 } from "./browser-session-manager/helpers";
 import { T3_PANEL_TYPE } from "./t3-webview-manager/helpers";
+import { WORKSPACE_PANEL_TYPE } from "./workspace-panel";
 
 export const BROWSER_SIDEBAR_GROUP_ID = "browser-tabs";
 
 const BROWSER_SIDEBAR_SESSION_PREFIX = "browser-tab:";
 const SIMPLE_BROWSER_VIEW_TYPE = "simpleBrowser.view";
+const VSMUX_LABEL = "vsmux";
+const VSMUX_VIEW_TYPE_PREFIX = "vsmux.";
 
 export type LiveBrowserTabEntry = {
   detail?: string;
@@ -121,11 +124,12 @@ function getLiveBrowserTabMetadata(tab: vscode.Tab):
     }
   | undefined {
   const viewType = getTabViewType(tab.input);
-  if (viewType === T3_PANEL_TYPE) {
+  const url = normalizeSidebarBrowserUrl(getBrowserTabUrl(tab));
+
+  if (isVSmuxOwnedTab(tab, viewType, url)) {
     return undefined;
   }
 
-  const url = normalizeSidebarBrowserUrl(getBrowserTabUrl(tab));
   if (url) {
     return {
       detail: url,
@@ -156,12 +160,39 @@ function getLiveBrowserTabMetadata(tab: vscode.Tab):
   return undefined;
 }
 
+function isVSmuxOwnedTab(
+  tab: vscode.Tab,
+  viewType: string | undefined,
+  url: string | undefined,
+): boolean {
+  const normalizedViewType = viewType?.toLowerCase();
+  if (viewType === T3_PANEL_TYPE || viewType === WORKSPACE_PANEL_TYPE) {
+    return true;
+  }
+
+  if (normalizedViewType?.startsWith(VSMUX_VIEW_TYPE_PREFIX)) {
+    return true;
+  }
+
+  if (tab.label.trim().toLowerCase() !== VSMUX_LABEL) {
+    return false;
+  }
+
+  return url === undefined || isVSmuxLocalAssetUrl(url);
+}
+
 function isBrowserWebviewViewType(viewType: string): boolean {
   const normalizedViewType = viewType.toLowerCase();
   return (
     normalizedViewType === SIMPLE_BROWSER_VIEW_TYPE.toLowerCase() ||
     normalizedViewType.includes("browser") ||
     normalizedViewType.includes("preview")
+  );
+}
+
+function isVSmuxLocalAssetUrl(url: string): boolean {
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/(?:workspace|t3-embed)(?:\/|$)/i.test(
+    url,
   );
 }
 

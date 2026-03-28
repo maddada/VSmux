@@ -157,7 +157,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.sidebarProvider,
       this.backend.onDidChangeSessions(() => {
         void this.refreshSidebar();
-        void this.refreshWorkspacePanel();
       }),
       this.backend.onDidChangeSessionTitle(({ sessionId, title }) => {
         this.terminalTitleBySessionId.set(sessionId, title);
@@ -1415,6 +1414,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return {
         activeGroupId: workspaceSnapshot.activeGroupId,
         connection,
+        debuggingMode: getDebuggingMode(),
         focusedSessionId: activeSnapshot.focusedSessionId,
         panes,
         terminalAppearance: this.getWorkspaceTerminalAppearance(),
@@ -1428,6 +1428,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return {
       activeGroupId: workspaceSnapshot.activeGroupId,
       connection,
+      debuggingMode: getDebuggingMode(),
       focusedSessionId: activeSnapshot.focusedSessionId,
       panes,
       terminalAppearance: this.getWorkspaceTerminalAppearance(),
