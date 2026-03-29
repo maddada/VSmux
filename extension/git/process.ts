@@ -11,6 +11,7 @@ export type ShellCommandResult = {
 
 type RunShellCommandOptions = {
   cwd: string;
+  interactiveShell?: boolean;
   stdin?: string;
   timeoutMs?: number;
 };
@@ -22,7 +23,7 @@ export async function runShellCommand(
   const shellPath = getDefaultShell();
 
   return new Promise((resolve, reject) => {
-    const child = spawn(shellPath, getShellCommandArgs(shellPath, command), {
+    const child = spawn(shellPath, getShellCommandArgs(shellPath, command, options.interactiveShell), {
       cwd: options.cwd,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -96,14 +97,27 @@ export async function runGitStdout(
 }
 
 export function buildCommandLine(command: string, args: readonly string[]): string {
-  if (args.length === 0) {
-    return `exec ${command}`;
-  }
-
-  return `exec ${command} ${args.map((argument) => quoteShellLiteral(argument)).join(" ")}`;
+  return buildShellInvocation(command, args, true);
 }
 
-function getShellCommandArgs(shellPath: string, command: string): string[] {
+export function buildShellCommand(command: string, args: readonly string[]): string {
+  return buildShellInvocation(command, args, false);
+}
+
+function buildShellInvocation(
+  command: string,
+  args: readonly string[],
+  replaceShell: boolean,
+): string {
+  if (args.length === 0) {
+    return replaceShell ? `exec ${command}` : command;
+  }
+
+  const commandLine = `${command} ${args.map((argument) => quoteShellLiteral(argument)).join(" ")}`;
+  return replaceShell ? `exec ${commandLine}` : commandLine;
+}
+
+function getShellCommandArgs(shellPath: string, command: string, interactiveShell = false): string[] {
   const shellName = basename(shellPath).toLowerCase();
 
   if (process.platform === "win32") {
@@ -114,5 +128,5 @@ function getShellCommandArgs(shellPath: string, command: string): string[] {
     return ["-NoLogo", "-NoProfile", "-Command", command];
   }
 
-  return ["-l", "-c", command];
+  return interactiveShell ? ["-l", "-i", "-c", command] : ["-l", "-c", command];
 }

@@ -10,6 +10,7 @@ export type WorkspacePanelConnection = {
   baseUrl: string;
   mock?: boolean;
   token: string;
+  workspaceId: string;
 };
 
 export type WorkspacePanelTerminalCursorStyle = "bar" | "block" | "underline";

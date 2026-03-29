@@ -172,6 +172,7 @@ async function primeLiveSessions() {
       data: `${session.command}\r`,
       sessionId: session.sessionId,
       type: "write",
+      workspaceId: LIVE_WORKSPACE_ID,
     });
   }
 
@@ -220,6 +221,7 @@ async function startLiveServer() {
           connection: {
             baseUrl: `ws://127.0.0.1:${String(daemonInfo.port)}`,
             token: daemonInfo.token,
+            workspaceId: LIVE_WORKSPACE_ID,
           },
           sessions: liveSessions.map(({ alias, displayId, sessionId, title }) => ({
             alias,

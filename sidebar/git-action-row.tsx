@@ -57,6 +57,13 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
     vscode.postMessage({ type: "refreshGitState" });
   };
 
+  const setPrimaryAction = (action: SidebarGitAction) => {
+    vscode.postMessage({
+      action,
+      type: "setSidebarGitPrimaryAction",
+    });
+  };
+
   const runAction = (action: SidebarGitAction) => {
     setIsMenuOpen(false);
     vscode.postMessage({
@@ -71,8 +78,8 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
         <button
           aria-label={primaryDescription}
           className="git-action-main-button"
+          data-disabled={String(primaryAction.disabled)}
           data-empty-space-blocking="true"
-          disabled={primaryAction.disabled}
           onClick={() => runAction(primaryAction.action)}
           title={primaryDescription}
           type="button"
@@ -118,9 +125,16 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
             <button
               aria-label={item.disabledReason ?? item.label}
               className="git-action-menu-item"
-              disabled={item.disabled}
+              data-disabled={String(item.disabled)}
               key={item.action}
-              onClick={() => runAction(item.action)}
+              onClick={() => {
+                setPrimaryAction(item.action);
+                if (!item.disabled) {
+                  runAction(item.action);
+                  return;
+                }
+                setIsMenuOpen(false);
+              }}
               role="menuitem"
               title={item.disabledReason ?? item.label}
               type="button"

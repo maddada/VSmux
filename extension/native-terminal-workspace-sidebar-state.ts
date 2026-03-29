@@ -64,7 +64,6 @@ type BuildSidebarMessageOptions = {
     derivedAgentName: string | undefined,
   ) => SidebarAgentIcon | undefined;
   hud: SidebarHydrateMessage["hud"];
-  ownsNativeTerminalControl: boolean;
   platform: "default" | "mac";
   previousSessions: SidebarPreviousSessionItem[];
   scratchPadContent: string;
@@ -85,7 +84,6 @@ type CreatePreviousSessionEntryOptions = Pick<
   | "getSidebarAgentIcon"
   | "getT3ActivityState"
   | "getTerminalTitle"
-  | "ownsNativeTerminalControl"
   | "platform"
   | "terminalHasLiveProjection"
   | "workspaceId"
@@ -104,7 +102,6 @@ type CreateSidebarSessionItemOptions = Pick<
   | "getSidebarAgentIcon"
   | "getT3ActivityState"
   | "getTerminalTitle"
-  | "ownsNativeTerminalControl"
   | "platform"
   | "terminalHasLiveProjection"
   | "workspaceId"
@@ -244,14 +241,13 @@ function buildSidebarItem(
     | "debuggingMode"
     | "getEffectiveSessionActivity"
     | "getSessionAgentLaunch"
-    | "getSessionSnapshot"
-    | "getSidebarAgentIcon"
-    | "getT3ActivityState"
-    | "getTerminalTitle"
-    | "ownsNativeTerminalControl"
-    | "platform"
-    | "terminalHasLiveProjection"
-    | "workspaceId"
+  | "getSessionSnapshot"
+  | "getSidebarAgentIcon"
+  | "getT3ActivityState"
+  | "getTerminalTitle"
+  | "platform"
+  | "terminalHasLiveProjection"
+  | "workspaceId"
   > & { activeGroupId: string },
 ): SidebarSessionItem {
   const isActiveGroup = options.activeGroupId === group.groupId;
@@ -325,9 +321,7 @@ function buildSidebarItem(
     ),
     alias: sessionRecord.alias,
     column: sessionRecord.column,
-    detail: options.ownsNativeTerminalControl
-      ? sessionSnapshot.errorMessage
-      : "Managed in another VS Code window",
+    detail: sessionSnapshot.errorMessage,
     isFocused,
     isRunning:
       sessionSnapshot.status === "running" &&

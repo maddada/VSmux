@@ -111,6 +111,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
       const socketUrl = new URL("/session", connection.baseUrl);
       socketUrl.searchParams.set("token", connection.token);
+      socketUrl.searchParams.set("workspaceId", connection.workspaceId);
       socketUrl.searchParams.set("sessionId", pane.sessionId);
       socketUrl.searchParams.set("cols", String(terminal.cols));
       socketUrl.searchParams.set("rows", String(terminal.rows));

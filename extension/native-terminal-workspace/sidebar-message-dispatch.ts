@@ -18,6 +18,8 @@ export type SidebarMessageHandlers = {
   createSession: () => Promise<void>;
   createSessionInGroup: (groupId: string) => Promise<void>;
   deletePreviousSession: (historyId: string) => Promise<void>;
+  killDaemonSession: (workspaceId: string, sessionId: string) => Promise<void>;
+  killTerminalDaemon: () => Promise<void>;
   deleteSidebarAgent: (agentId: string) => Promise<void>;
   deleteSidebarCommand: (commandId: string) => Promise<void>;
   focusGroup: (groupId: string) => Promise<void>;
@@ -31,6 +33,7 @@ export type SidebarMessageHandlers = {
   renameGroup: (groupId: string, title: string) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   refreshGitState: () => Promise<void>;
+  refreshDaemonSessions: () => Promise<void>;
   restartSession: (sessionId: string) => Promise<void>;
   restorePreviousSession: (historyId: string) => Promise<void>;
   runSidebarAgent: (agentId: string) => Promise<void>;
@@ -52,6 +55,7 @@ export type SidebarMessageHandlers = {
     url?: string,
   ) => Promise<void>;
   syncSidebarAgentOrder: (agentIds: readonly string[]) => Promise<void>;
+  setSidebarGitPrimaryAction: (action: SidebarGitAction) => Promise<void>;
   setViewMode: (viewMode: TerminalViewMode) => Promise<void>;
   setVisibleCount: (visibleCount: VisibleSessionCount) => Promise<void>;
   syncGroupOrder: (groupIds: readonly string[]) => Promise<void>;
@@ -94,6 +98,15 @@ export async function dispatchSidebarMessage(
     case "toggleCompletionBell":
       await handlers.toggleCompletionBell();
       return;
+    case "refreshDaemonSessions":
+      await handlers.refreshDaemonSessions();
+      return;
+    case "killTerminalDaemon":
+      await handlers.killTerminalDaemon();
+      return;
+    case "killDaemonSession":
+      await handlers.killDaemonSession(message.workspaceId, message.sessionId);
+      return;
     case "moveSidebarToOtherSide":
       await handlers.moveSidebarToOtherSide();
       return;
@@ -105,6 +118,9 @@ export async function dispatchSidebarMessage(
       return;
     case "runSidebarGitAction":
       await handlers.runSidebarGitAction(message.action);
+      return;
+    case "setSidebarGitPrimaryAction":
+      await handlers.setSidebarGitPrimaryAction(message.action);
       return;
     case "refreshGitState":
       await handlers.refreshGitState();

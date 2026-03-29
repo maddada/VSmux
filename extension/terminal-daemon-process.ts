@@ -17,6 +17,7 @@ import {
   getTitleDerivedSessionActivityFromTransition,
   type TitleDerivedSessionActivity,
 } from "./session-title-activity";
+import { createTerminalDaemonSessionKey } from "./terminal-daemon-session-scope";
 import { parseTerminalTitleFromOutputChunk } from "./terminal-workspace-history";
 import type {
   TerminalHostAcknowledgeAttentionRequest,
@@ -57,6 +58,7 @@ type ManagedSession = {
   pty: pty.IPty;
   rows: number;
   sessionId: string;
+  sessionKey: string;
   sessionStateFilePath: string;
   shell: string;
   snapshot: TerminalSessionSnapshot;
@@ -76,7 +78,7 @@ const infoFilePath = path.join(stateDir, INFO_FILE_NAME);
 
 const sessions = new Map<string, ManagedSession>();
 const controlClients = new Set<ControlClient>();
-const sessionSocketsBySessionId = new Map<string, Set<WebSocket>>();
+const sessionSocketsBySessionKey = new Map<string, Set<WebSocket>>();
 
 let idleShutdownTimeoutMs: number | null = DEFAULT_IDLE_SHUTDOWN_TIMEOUT_MS;
 let idleShutdownTimer: NodeJS.Timeout | undefined;
@@ -157,21 +159,23 @@ function attachSessionSocket(
   sessionId: string | null,
   searchParams: URLSearchParams,
 ): void {
-  if (!sessionId) {
+  const workspaceId = searchParams.get("workspaceId");
+  if (!sessionId || !workspaceId) {
     socket.close();
     return;
   }
 
-  const session = sessions.get(sessionId);
+  const sessionKey = createTerminalDaemonSessionKey(workspaceId, sessionId);
+  const session = sessions.get(sessionKey);
   if (!session) {
     socket.close();
     return;
   }
 
   clearIdleShutdownTimer();
-  const sockets = sessionSocketsBySessionId.get(sessionId) ?? new Set<WebSocket>();
+  const sockets = sessionSocketsBySessionKey.get(sessionKey) ?? new Set<WebSocket>();
   sockets.add(socket);
-  sessionSocketsBySessionId.set(sessionId, sockets);
+  sessionSocketsBySessionKey.set(sessionKey, sockets);
 
   const initialCols = parsePositiveNumber(searchParams.get("cols"));
   const initialRows = parsePositiveNumber(searchParams.get("rows"));
@@ -182,19 +186,19 @@ function attachSessionSocket(
   void sendSessionState(socket, session, true);
 
   socket.on("message", (buffer: Buffer) => {
-    void handleSessionMessage(sessionId, buffer.toString());
+    void handleSessionMessage(sessionKey, buffer.toString());
   });
   socket.on("close", () => {
     sockets.delete(socket);
     if (sockets.size === 0) {
-      sessionSocketsBySessionId.delete(sessionId);
+      sessionSocketsBySessionKey.delete(sessionKey);
     }
     scheduleIdleShutdownIfNeeded();
   });
   socket.on("error", () => {
     sockets.delete(socket);
     if (sockets.size === 0) {
-      sessionSocketsBySessionId.delete(sessionId);
+      sessionSocketsBySessionKey.delete(sessionKey);
     }
     scheduleIdleShutdownIfNeeded();
   });
@@ -252,7 +256,8 @@ async function handleCreateOrAttachRequest(
   socket: WebSocket,
   request: TerminalHostCreateOrAttachRequest,
 ): Promise<void> {
-  const existingSession = sessions.get(request.sessionId);
+  const sessionKey = createTerminalDaemonSessionKey(request.workspaceId, request.sessionId);
+  const existingSession = sessions.get(sessionKey);
   const session =
     existingSession && existingSession.snapshot.status !== "exited"
       ? existingSession
@@ -262,7 +267,7 @@ async function handleCreateOrAttachRequest(
     resizeSession(session, request.cols, request.rows);
   }
 
-  sessions.set(request.sessionId, session);
+  sessions.set(sessionKey, session);
   const snapshot = await buildSnapshot(session, true);
   socket.send(JSON.stringify(okResponse(request.requestId, { session: snapshot })));
   broadcastControlSessionState(snapshot);
@@ -273,13 +278,17 @@ async function handleListSessionsRequest(
   request: TerminalHostListSessionsRequest,
 ): Promise<void> {
   const sessionSnapshots = await Promise.all(
-    [...sessions.values()].map((session) => buildSnapshot(session, false)),
+    [...sessions.values()]
+      .filter((session) => !request.workspaceId || session.workspaceId === request.workspaceId)
+      .map((session) => buildSnapshot(session, false)),
   );
   socket.send(JSON.stringify(okResponse(request.requestId, { sessions: sessionSnapshots })));
 }
 
 async function handleWriteRequest(socket: WebSocket, request: TerminalHostWriteRequest): Promise<void> {
-  const session = sessions.get(request.sessionId);
+  const session = sessions.get(
+    createTerminalDaemonSessionKey(request.workspaceId, request.sessionId),
+  );
   if (session) {
     session.pty.write(request.data);
   }
@@ -290,21 +299,24 @@ async function handleResizeRequest(
   socket: WebSocket,
   request: TerminalHostResizeRequest,
 ): Promise<void> {
-  const session = sessions.get(request.sessionId);
+  const session = sessions.get(
+    createTerminalDaemonSessionKey(request.workspaceId, request.sessionId),
+  );
   if (session) {
     resizeSession(session, request.cols, request.rows);
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(session.sessionId, snapshot);
+    broadcastSessionState(session.sessionKey, snapshot);
   }
   socket.send(JSON.stringify(okResponse(undefined, undefined, request)));
 }
 
 async function handleKillRequest(socket: WebSocket, request: TerminalHostKillRequest): Promise<void> {
-  const session = sessions.get(request.sessionId);
+  const sessionKey = createTerminalDaemonSessionKey(request.workspaceId, request.sessionId);
+  const session = sessions.get(sessionKey);
   if (session) {
     session.pty.kill();
-    sessions.delete(request.sessionId);
+    sessions.delete(sessionKey);
   }
   socket.send(JSON.stringify(okResponse(undefined, undefined, request)));
 }
@@ -313,7 +325,9 @@ async function handleAcknowledgeAttentionRequest(
   socket: WebSocket,
   request: TerminalHostAcknowledgeAttentionRequest,
 ): Promise<void> {
-  const session = sessions.get(request.sessionId);
+  const session = sessions.get(
+    createTerminalDaemonSessionKey(request.workspaceId, request.sessionId),
+  );
   if (session) {
     if (session.titleActivity?.activity === "attention") {
       session.titleActivity = acknowledgeTitleDerivedSessionActivity(session.titleActivity);
@@ -326,12 +340,13 @@ async function handleAcknowledgeAttentionRequest(
     }
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(session.sessionId, snapshot);
+    broadcastSessionState(session.sessionKey, snapshot);
   }
   socket.send(JSON.stringify({ type: "response", ok: true, requestId: request.sessionId }));
 }
 
 function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSession {
+  const sessionKey = createTerminalDaemonSessionKey(request.workspaceId, request.sessionId);
   const spawnedPty = pty.spawn(request.shell, [], {
     cols: request.cols,
     cwd: request.cwd,
@@ -355,6 +370,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     pty: spawnedPty,
     rows: request.rows,
     sessionId: request.sessionId,
+    sessionKey,
     sessionStateFilePath: request.sessionStateFilePath,
     shell: request.shell,
     snapshot: {
@@ -383,7 +399,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
       sessionId: session.sessionId,
       type: "terminalOutput",
     };
-    broadcastSessionMessage(session.sessionId, outputMessage);
+    broadcastSessionMessage(session.sessionKey, outputMessage);
     if (didChangeTitle) {
       // Title changes only need to reach control clients; the terminal pane
       // itself does not consume live title updates after initial history sync.
@@ -401,7 +417,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     };
     void buildSnapshot(session, false).then((snapshot) => {
       broadcastControlSessionState(snapshot);
-      broadcastSessionState(session.sessionId, snapshot);
+      broadcastSessionState(session.sessionKey, snapshot);
     });
   });
 
@@ -446,20 +462,20 @@ function broadcastControlSessionState(snapshot: TerminalSessionSnapshot): void {
   }
 }
 
-function broadcastSessionState(sessionId: string, snapshot: TerminalSessionSnapshot): void {
+function broadcastSessionState(sessionKey: string, snapshot: TerminalSessionSnapshot): void {
   const event: TerminalStateMessage = {
     session: snapshot,
     type: "terminalSessionState",
   };
-  broadcastSessionMessage(sessionId, event);
+  broadcastSessionMessage(sessionKey, event);
 }
 
 function broadcastSessionMessage(
-  sessionId: string,
+  sessionKey: string,
   message: TerminalOutputMessage | TerminalStateMessage,
 ): void {
   const payload = message.type === "terminalOutput" ? message.data : JSON.stringify(message);
-  for (const socket of sessionSocketsBySessionId.get(sessionId) ?? []) {
+  for (const socket of sessionSocketsBySessionKey.get(sessionKey) ?? []) {
     socket.send(payload);
   }
 }
@@ -477,8 +493,8 @@ async function sendSessionState(
   socket.send(JSON.stringify(message));
 }
 
-async function handleSessionMessage(sessionId: string, rawMessage: string): Promise<void> {
-  const session = sessions.get(sessionId);
+async function handleSessionMessage(sessionKey: string, rawMessage: string): Promise<void> {
+  const session = sessions.get(sessionKey);
   if (!session) {
     return;
   }
@@ -504,7 +520,7 @@ async function handleSessionMessage(sessionId: string, rawMessage: string): Prom
     resizeSession(session, message.cols, message.rows);
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(sessionId, snapshot);
+    broadcastSessionState(sessionKey, snapshot);
   }
 }
 
@@ -632,7 +648,7 @@ function clearIdleShutdownTimer(): void {
 function getConnectedClientCount(): number {
   return (
     controlClients.size +
-    [...sessionSocketsBySessionId.values()].reduce((count, sockets) => count + sockets.size, 0)
+    [...sessionSocketsBySessionKey.values()].reduce((count, sockets) => count + sockets.size, 0)
   );
 }
 

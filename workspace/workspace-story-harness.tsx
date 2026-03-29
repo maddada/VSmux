@@ -28,6 +28,7 @@ const STORYBOOK_CONNECTION = {
   baseUrl: "ws://127.0.0.1:0",
   mock: true,
   token: "storybook",
+  workspaceId: "storybook-workspace",
 } as const;
 
 export function WorkspaceStoryHarness({

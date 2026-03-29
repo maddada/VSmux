@@ -182,16 +182,35 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
       );
     case "openSettings":
     case "toggleCompletionBell":
+    case "refreshDaemonSessions":
+    case "killTerminalDaemon":
     case "moveSidebarToOtherSide":
     case "createSession":
     case "openBrowser":
       return true;
+    case "killDaemonSession":
+      return (
+        typeof message.sessionId === "string" &&
+        message.sessionId.length > 0 &&
+        typeof message.workspaceId === "string" &&
+        message.workspaceId.length > 0
+      );
     case "toggleFullscreenSession":
       return true;
 
     case "runSidebarCommand":
     case "deleteSidebarCommand":
       return typeof message.commandId === "string" && message.commandId.length > 0;
+
+    case "runSidebarGitAction":
+    case "setSidebarGitPrimaryAction":
+      return (
+        typeof message.action === "string" &&
+        ["commit", "push", "pr"].includes(message.action)
+      );
+
+    case "refreshGitState":
+      return true;
 
     case "syncSidebarCommandOrder":
       return (

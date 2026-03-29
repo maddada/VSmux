@@ -172,7 +172,6 @@ function createBuildSidebarMessageOptions(
     }),
     getTerminalTitle: () => undefined,
     hud: createSidebarHudState(),
-    ownsNativeTerminalControl: true,
     platform: "default" as const,
     previousSessions: [],
     scratchPadContent: "",

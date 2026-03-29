@@ -104,11 +104,45 @@ export type SidebarPlayCompletionSoundMessage = {
   type: "playCompletionSound";
 };
 
+export type SidebarDaemonInfo = {
+  pid: number;
+  port: number;
+  protocolVersion: number;
+  startedAt: string;
+};
+
+export type SidebarDaemonSessionItem = {
+  agentName?: string;
+  agentStatus: "idle" | "working" | "attention";
+  cols: number;
+  cwd: string;
+  endedAt?: string;
+  errorMessage?: string;
+  exitCode?: number;
+  isCurrentWorkspace: boolean;
+  restoreState: "live" | "replayed";
+  rows: number;
+  sessionId: string;
+  shell: string;
+  startedAt: string;
+  status: "starting" | "running" | "exited" | "error" | "disconnected";
+  title?: string;
+  workspaceId: string;
+};
+
+export type SidebarDaemonSessionsStateMessage = {
+  daemon?: SidebarDaemonInfo;
+  errorMessage?: string;
+  sessions: SidebarDaemonSessionItem[];
+  type: "daemonSessionsState";
+};
+
 export type ExtensionToSidebarMessage =
   | SidebarHydrateMessage
   | SidebarSessionStateMessage
   | SidebarSessionPresentationChangedMessage
-  | SidebarPlayCompletionSoundMessage;
+  | SidebarPlayCompletionSoundMessage
+  | SidebarDaemonSessionsStateMessage;
 
 export type SidebarToExtensionMessage =
   | {
@@ -124,6 +158,17 @@ export type SidebarToExtensionMessage =
     }
   | {
       type: "toggleCompletionBell";
+    }
+  | {
+      type: "refreshDaemonSessions";
+    }
+  | {
+      type: "killTerminalDaemon";
+    }
+  | {
+      type: "killDaemonSession";
+      sessionId: string;
+      workspaceId: string;
     }
   | {
       type: "moveSidebarToOtherSide";
@@ -228,6 +273,10 @@ export type SidebarToExtensionMessage =
   | {
       action: SidebarGitAction;
       type: "runSidebarGitAction";
+    }
+  | {
+      action: SidebarGitAction;
+      type: "setSidebarGitPrimaryAction";
     }
   | {
       type: "refreshGitState";

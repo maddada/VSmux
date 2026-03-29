@@ -23,6 +23,7 @@ import { createDefaultSidebarAgentButtons, getSidebarAgentIconById } from "../sh
 import { createDefaultSidebarCommandButtons } from "../shared/sidebar-commands";
 import { createDefaultSidebarGitState } from "../shared/sidebar-git";
 import {
+  type SidebarDaemonSessionsStateMessage,
   MAX_GROUP_COUNT,
   type ExtensionToSidebarMessage,
   type SidebarHydrateMessage,
@@ -38,6 +39,7 @@ import {
 import { playCompletionSound } from "./completion-sound-player";
 import { AgentsPanel } from "./agents-panel";
 import { CommandsPanel } from "./commands-panel";
+import { DaemonSessionsModal } from "./daemon-sessions-modal";
 import { CreateGroupDropTarget } from "./create-group-drop-target";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
@@ -123,6 +125,8 @@ function getInitialSidebarTheme(): SidebarTheme {
 
 export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) {
   const [serverState, setServerState] = useState<SidebarState>(INITIAL_STATE);
+  const [daemonSessionsState, setDaemonSessionsState] =
+    useState<SidebarDaemonSessionsStateMessage>();
   const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
   const [autoEditingGroupId, setAutoEditingGroupId] = useState<string>();
   const [groupIds, setGroupIds] = useState<string[]>([]);
@@ -132,6 +136,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [agentCreateRequestId, setAgentCreateRequestId] = useState(0);
   const [commandCreateRequestId, setCommandCreateRequestId] = useState(0);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
+  const [isDaemonSessionsOpen, setIsDaemonSessionsOpen] = useState(false);
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const pendingCreateGroupRef = useRef(false);
@@ -574,6 +579,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         return;
       }
 
+      if (event.data.type === "daemonSessionsState") {
+        setDaemonSessionsState(event.data);
+        return;
+      }
+
       if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
         return;
       }
@@ -994,6 +1004,25 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                     className="session-context-menu-item"
                     onClick={() => {
                       setIsOverflowMenuOpen(false);
+                      setIsPreviousSessionsOpen(false);
+                      setIsScratchPadOpen(false);
+                      setIsDaemonSessionsOpen(true);
+                      vscode.postMessage({ type: "refreshDaemonSessions" });
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconHistory
+                      aria-hidden="true"
+                      className="session-context-menu-icon"
+                      size={14}
+                    />
+                    Running
+                  </button>
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
                       vscode.postMessage({ type: "toggleCompletionBell" });
                     }}
                     role="menuitem"
@@ -1029,7 +1058,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                       size={14}
                       stroke={1.8}
                     />
-                    Move to Other Side
+                    Change Sidebar
                   </button>
                   <button
                     className="session-context-menu-item"
@@ -1070,6 +1099,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                     data-empty-space-blocking="true"
                     data-selected={String(isScratchPadOpen)}
                     onClick={() => {
+                      setIsDaemonSessionsOpen(false);
                       setIsPreviousSessionsOpen(false);
                       setIsScratchPadOpen((previous) => !previous);
                     }}
@@ -1104,6 +1134,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 className="floating-toolbar-button section-titlebar-action-button"
                 isSelected={isPreviousSessionsOpen}
                 onClick={() => {
+                  setIsDaemonSessionsOpen(false);
                   setIsScratchPadOpen(false);
                   setIsPreviousSessionsOpen((previous) => !previous);
                 }}
@@ -1200,6 +1231,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           previousSessions={serverState.previousSessions}
           showDebugSessionNumbers={serverState.hud.debuggingMode}
           showHotkeys={serverState.hud.showHotkeysOnSessionCards}
+          vscode={sidebarVscode}
+        />
+        <DaemonSessionsModal
+          isOpen={isDaemonSessionsOpen}
+          onClose={() => setIsDaemonSessionsOpen(false)}
+          state={daemonSessionsState}
           vscode={sidebarVscode}
         />
         <ScratchPadModal
@@ -1420,5 +1457,5 @@ function OverflowIcon() {
 }
 
 function getCompletionBellMenuLabel(hud: SidebarHudState): string {
-  return hud.completionBellEnabled ? "Disable Notifications" : "Enable Notifications";
+  return hud.completionBellEnabled ? "Disable Notifying" : "Enable Notifying";
 }

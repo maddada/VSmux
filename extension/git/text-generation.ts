@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SidebarAgentButton } from "../../shared/sidebar-agents";
-import { buildCommandLine, runShellCommand } from "./process";
+import { buildShellCommand, runShellCommand } from "./process";
 
 const GIT_TEXT_GENERATION_TIMEOUT_MS = 180_000;
 
@@ -116,7 +116,7 @@ async function runCodexJson(
   try {
     await writeFile(schemaPath, JSON.stringify(jsonSchema), "utf8");
     await writeFile(outputPath, "", "utf8");
-    const command = `${agent.command} ${[
+    const command = buildShellCommand(agent.command, [
       "exec",
       "--ephemeral",
       "-s",
@@ -126,14 +126,15 @@ async function runCodexJson(
       "--output-last-message",
       quotePath(outputPath),
       "-",
-    ].join(" ")}`;
+    ]);
     const result = await runShellCommand(command, {
       cwd,
+      interactiveShell: true,
       stdin: prompt,
       timeoutMs: GIT_TEXT_GENERATION_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || result.stdout.trim() || "Codex command failed.");
+      throw createAgentCommandError(agent, result, "Codex command failed.");
     }
 
     return parseJsonObject(await readFile(outputPath, "utf8"));
@@ -149,22 +150,23 @@ async function runClaudeJson(
   jsonSchema: object,
 ): Promise<Record<string, unknown>> {
   const result = await runShellCommand(
-    `${agent.command} ${[
+    buildShellCommand(agent.command, [
       "-p",
       "--output-format",
       "json",
       "--json-schema",
       quotePath(JSON.stringify(jsonSchema)),
       "--dangerously-skip-permissions",
-    ].join(" ")}`,
+    ]),
     {
       cwd,
+      interactiveShell: true,
       stdin: prompt,
       timeoutMs: GIT_TEXT_GENERATION_TIMEOUT_MS,
     },
   );
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() || result.stdout.trim() || "Claude command failed.");
+    throw createAgentCommandError(agent, result, "Claude command failed.");
   }
 
   const parsed = parseJsonObject(result.stdout);
@@ -179,13 +181,14 @@ async function runGenericJson(
   cwd: string,
   prompt: string,
 ): Promise<Record<string, unknown>> {
-  const result = await runShellCommand(buildCommandLine(agent.command, []), {
+  const result = await runShellCommand(buildShellCommand(agent.command, []), {
     cwd,
+    interactiveShell: true,
     stdin: prompt,
     timeoutMs: GIT_TEXT_GENERATION_TIMEOUT_MS,
   });
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() || result.stdout.trim() || "Agent command failed.");
+    throw createAgentCommandError(agent, result, "Agent command failed.");
   }
 
   const parsed = parseJsonObject(result.stdout);
@@ -297,4 +300,18 @@ function limitSection(value: string, maxLength: number): string {
 
 function quotePath(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function createAgentCommandError(
+  agent: RunnableSidebarAgentButton,
+  result: {
+    stderr: string;
+    stdout: string;
+  },
+  fallbackMessage: string,
+): Error {
+  const detail = result.stderr.trim() || result.stdout.trim() || fallbackMessage;
+  return new Error(
+    `Git text generation via "${agent.name}" failed for command "${agent.command}": ${detail}`,
+  );
 }

@@ -26,6 +26,15 @@ type DaemonInfo = {
   token: string;
 };
 
+export type TerminalDaemonInfo = Omit<DaemonInfo, "token">;
+
+export type TerminalDaemonState = {
+  daemon?: TerminalDaemonInfo;
+  errorMessage?: string;
+  isRunning: boolean;
+  sessions: TerminalSessionSnapshot[];
+};
+
 type PendingRequest = {
   reject: (error: Error) => void;
   resolve: (value: TerminalHostResponse) => void;
@@ -116,11 +125,12 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     return response.session;
   }
 
-  public async listSessions(): Promise<TerminalSessionSnapshot[]> {
+  public async listSessions(workspaceId?: string): Promise<TerminalSessionSnapshot[]> {
     await this.ensureReady();
     const request: TerminalHostListSessionsRequest = {
       requestId: this.nextRequestId(),
       type: "listSessions",
+      workspaceId,
     };
     const response = await this.sendRequest(request);
     if (!("sessions" in response) || !response.sessions) {
@@ -129,66 +139,120 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     return response.sessions;
   }
 
-  public async write(sessionId: string, data: string): Promise<void> {
+  public async listExistingSessions(workspaceId?: string): Promise<TerminalDaemonState> {
+    const daemonInfo = await this.ensureExistingReady();
+    if (!daemonInfo) {
+      return {
+        isRunning: false,
+        sessions: [],
+      };
+    }
+
+    try {
+      const sessions = await this.listSessions(workspaceId);
+      return {
+        daemon: toTerminalDaemonInfo(daemonInfo),
+        isRunning: true,
+        sessions,
+      };
+    } catch (error) {
+      return {
+        daemon: toTerminalDaemonInfo(daemonInfo),
+        errorMessage: error instanceof Error ? error.message : String(error),
+        isRunning: true,
+        sessions: [],
+      };
+    }
+  }
+
+  public async write(workspaceId: string, sessionId: string, data: string): Promise<void> {
     await this.ensureReady();
     const request: TerminalHostWriteRequest = {
       data,
       sessionId,
       type: "write",
+      workspaceId,
     };
     this.controlSocket?.send(JSON.stringify(request));
   }
 
-  public async resize(sessionId: string, cols: number, rows: number): Promise<void> {
+  public async resize(
+    workspaceId: string,
+    sessionId: string,
+    cols: number,
+    rows: number,
+  ): Promise<void> {
     await this.ensureReady();
     const request: TerminalHostResizeRequest = {
       cols,
       rows,
       sessionId,
       type: "resize",
+      workspaceId,
     };
     this.controlSocket?.send(JSON.stringify(request));
   }
 
-  public async kill(sessionId: string): Promise<void> {
+  public async kill(workspaceId: string, sessionId: string): Promise<void> {
     await this.ensureReady();
     const request: TerminalHostKillRequest = {
       sessionId,
       type: "kill",
+      workspaceId,
     };
     this.controlSocket?.send(JSON.stringify(request));
   }
 
-  public async acknowledgeAttention(sessionId: string): Promise<void> {
+  public async killExistingSession(workspaceId: string, sessionId: string): Promise<boolean> {
+    const daemonInfo = await this.ensureExistingReady();
+    if (!daemonInfo) {
+      return false;
+    }
+
+    const request: TerminalHostKillRequest = {
+      sessionId,
+      type: "kill",
+      workspaceId,
+    };
+    this.controlSocket?.send(JSON.stringify(request));
+    return Boolean(daemonInfo);
+  }
+
+  public async acknowledgeAttention(workspaceId: string, sessionId: string): Promise<void> {
     await this.ensureReady();
     const request: TerminalHostAcknowledgeAttentionRequest = {
       sessionId,
       type: "acknowledgeAttention",
+      workspaceId,
     };
     this.controlSocket?.send(JSON.stringify(request));
   }
 
+  public async shutdownExistingDaemon(): Promise<boolean> {
+    const daemonInfo = await this.getExistingDaemonInfo();
+    if (!daemonInfo) {
+      return false;
+    }
+
+    try {
+      process.kill(daemonInfo.pid, "SIGTERM");
+    } catch {
+      return false;
+    }
+
+    this.controlSocket?.close();
+    this.controlSocket = undefined;
+    this.daemonInfo = undefined;
+    for (const pendingRequest of this.pendingRequests.values()) {
+      pendingRequest.reject(new Error("VSmux daemon shut down."));
+    }
+    this.pendingRequests.clear();
+    return true;
+  }
+
   private async connectControlSocket(): Promise<WebSocket> {
     const daemonInfo = await this.ensureDaemonProcess();
-    const socket = await this.openWebSocket(
-      `ws://127.0.0.1:${String(daemonInfo.port)}/control?token=${encodeURIComponent(
-        daemonInfo.token,
-      )}`,
-    );
-    this.daemonInfo = daemonInfo;
-    this.controlSocket = socket;
-
-    socket.on("message", (buffer: WebSocket.RawData) => {
-      this.handleControlMessage(buffer.toString());
-    });
-    socket.on("close", () => {
-      this.controlSocket = undefined;
-    });
-    socket.on("error", () => {
-      this.controlSocket = undefined;
-    });
-
-    return socket;
+    return this.openControlSocket(daemonInfo);
   }
 
   private async ensureDaemonProcess(): Promise<DaemonInfo> {
@@ -245,6 +309,55 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     } catch {
       return false;
     }
+  }
+
+  private async ensureExistingReady(): Promise<DaemonInfo | undefined> {
+    if (this.daemonInfo && this.controlSocket?.readyState === WebSocket.OPEN) {
+      return this.daemonInfo;
+    }
+
+    const existingInfo = await this.getExistingDaemonInfo();
+    if (!existingInfo) {
+      return undefined;
+    }
+
+    await this.openControlSocket(existingInfo);
+    return existingInfo;
+  }
+
+  private async getExistingDaemonInfo(): Promise<DaemonInfo | undefined> {
+    const existingInfo = await this.readDaemonInfo();
+    if (
+      !existingInfo ||
+      existingInfo.protocolVersion !== TERMINAL_HOST_PROTOCOL_VERSION ||
+      !(await this.canReachDaemon(existingInfo))
+    ) {
+      return undefined;
+    }
+
+    return existingInfo;
+  }
+
+  private async openControlSocket(daemonInfo: DaemonInfo): Promise<WebSocket> {
+    const socket = await this.openWebSocket(
+      `ws://127.0.0.1:${String(daemonInfo.port)}/control?token=${encodeURIComponent(
+        daemonInfo.token,
+      )}`,
+    );
+    this.daemonInfo = daemonInfo;
+    this.controlSocket = socket;
+
+    socket.on("message", (buffer: WebSocket.RawData) => {
+      this.handleControlMessage(buffer.toString());
+    });
+    socket.on("close", () => {
+      this.controlSocket = undefined;
+    });
+    socket.on("error", () => {
+      this.controlSocket = undefined;
+    });
+
+    return socket;
   }
 
   private openWebSocket(url: string): Promise<WebSocket> {
@@ -316,6 +429,15 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     this.requestNumber += 1;
     return `request-${String(this.requestNumber)}`;
   }
+}
+
+function toTerminalDaemonInfo(daemonInfo: DaemonInfo): TerminalDaemonInfo {
+  return {
+    pid: daemonInfo.pid,
+    port: daemonInfo.port,
+    protocolVersion: daemonInfo.protocolVersion,
+    startedAt: daemonInfo.startedAt,
+  };
 }
 
 async function delay(durationMs: number): Promise<void> {

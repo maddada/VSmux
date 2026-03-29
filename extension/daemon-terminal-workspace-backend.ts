@@ -8,7 +8,11 @@ import {
 import type {
   TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
-import { DaemonTerminalRuntime, type DaemonTerminalConnection } from "./daemon-terminal-runtime";
+import {
+  DaemonTerminalRuntime,
+  type DaemonTerminalConnection,
+  type TerminalDaemonState,
+} from "./daemon-terminal-runtime";
 import type {
   TerminalWorkspaceBackend,
   TerminalWorkspaceBackendPresentationChange,
@@ -20,6 +24,7 @@ import {
   getDefaultShell,
   getDefaultWorkspaceCwd,
 } from "./terminal-workspace-environment";
+import { indexWorkspaceTerminalSnapshotsBySessionId } from "./terminal-daemon-session-scope";
 import { getWorkspaceStorageKey } from "./terminal-workspace-environment";
 import { logVSmuxDebug } from "./vsmux-debug-log";
 
@@ -57,6 +62,9 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     await this.runtime.ensureReady();
     await this.runtime.configure(this.getIdleShutdownTimeoutMs());
     this.runtime.onDidChangeSessionState((snapshot) => {
+      if (snapshot.workspaceId !== this.options.workspaceId) {
+        return;
+      }
       const previousSnapshot = this.sessions.get(snapshot.sessionId);
       const previousTitle = this.sessionTitleBySessionId.get(snapshot.sessionId);
       this.sessions.set(snapshot.sessionId, snapshot);
@@ -123,7 +131,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return false;
     }
 
-    await this.runtime.acknowledgeAttention(sessionId);
+    await this.runtime.acknowledgeAttention(this.options.workspaceId, sessionId);
     this.sessions.set(sessionId, {
       ...snapshot,
       agentStatus: "idle",
@@ -176,7 +184,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public async killSession(sessionId: string): Promise<void> {
-    await this.runtime.kill(sessionId);
+    await this.runtime.kill(this.options.workspaceId, sessionId);
     this.sessions.delete(sessionId);
     this.changeSessionsEmitter.fire();
   }
@@ -220,17 +228,56 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   public async writeText(sessionId: string, data: string, shouldExecute = true): Promise<void> {
     const text = shouldExecute ? `${data}\n` : data;
-    await this.runtime.write(sessionId, text);
+    await this.runtime.write(this.options.workspaceId, sessionId, text);
   }
 
   public async getConnection(): Promise<DaemonTerminalConnection> {
     return this.runtime.getConnection();
   }
 
+  public async listGlobalSessions(): Promise<TerminalDaemonState> {
+    return this.runtime.listExistingSessions();
+  }
+
+  public async killGlobalSession(workspaceId: string, sessionId: string): Promise<void> {
+    const didKill = await this.runtime.killExistingSession(workspaceId, sessionId);
+    if (!didKill) {
+      return;
+    }
+    if (workspaceId !== this.options.workspaceId) {
+      return;
+    }
+
+    const sessionRecord = this.sessionRecordBySessionId.get(sessionId);
+    if (!sessionRecord) {
+      return;
+    }
+
+    this.sessions.set(sessionId, createDisconnectedSessionSnapshot(sessionId, this.options.workspaceId));
+    this.changeSessionsEmitter.fire();
+  }
+
+  public async shutdownDaemon(): Promise<boolean> {
+    const didShutdown = await this.runtime.shutdownExistingDaemon();
+    if (!didShutdown) {
+      return false;
+    }
+
+    for (const sessionRecord of this.sessionRecordBySessionId.values()) {
+      this.sessions.set(
+        sessionRecord.sessionId,
+        createDisconnectedSessionSnapshot(sessionRecord.sessionId, this.options.workspaceId),
+      );
+    }
+    this.changeSessionsEmitter.fire();
+    return true;
+  }
+
   private async refreshSessionSnapshots(): Promise<void> {
-    const daemonSessions = await this.runtime.listSessions();
-    const nextSnapshotsBySessionId = new Map(
-      daemonSessions.map((snapshot) => [snapshot.sessionId, snapshot]),
+    const daemonSessions = await this.runtime.listSessions(this.options.workspaceId);
+    const nextSnapshotsBySessionId = indexWorkspaceTerminalSnapshotsBySessionId(
+      daemonSessions,
+      this.options.workspaceId,
     );
     let didChange = false;
 

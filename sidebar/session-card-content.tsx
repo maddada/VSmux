@@ -41,9 +41,14 @@ export function SessionCardContent({
     terminalTitle ??
     session.activityLabel ??
     getSidebarAgentNameByIcon(session.agentIcon);
-  const titleTooltip = [headingText, secondaryText].filter(Boolean).join("\n");
   const showDebugSessionNumber = showDebugSessionNumbers && session.sessionNumber !== undefined;
-  const showMeta = showHotkeys || showDebugSessionNumber;
+  const debugSessionNumberTooltip = showDebugSessionNumber
+    ? `Session number: ${session.sessionNumber}`
+    : undefined;
+  const titleTooltip = [headingText, secondaryText, debugSessionNumberTooltip]
+    .filter(Boolean)
+    .join("\n");
+  const showMeta = showHotkeys;
 
   return (
     <>
@@ -73,13 +78,10 @@ export function SessionCardContent({
           textRef={aliasHeadingRef}
           text={headingText}
           tooltip={titleTooltip}
-          tooltipWhen={secondaryText ? "always" : "overflow"}
+          tooltipWhen={secondaryText || debugSessionNumberTooltip ? "always" : "overflow"}
         />
         <div className="session-head-actions">
           <div className="session-meta" data-visible={String(showMeta)}>
-            {showDebugSessionNumber ? (
-              <span className="session-debug-number">{session.sessionNumber}</span>
-            ) : null}
             {showHotkeys ? (
               <span className="session-shortcut-label">{session.shortcutLabel}</span>
             ) : null}

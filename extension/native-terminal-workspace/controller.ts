@@ -12,6 +12,7 @@ import {
   type GroupedSessionWorkspaceSnapshot,
   type SessionGridSnapshot,
   type SessionRecord,
+  type SidebarDaemonSessionItem,
   type SidebarHydrateMessage,
   type SidebarSessionStateMessage,
   type SidebarToExtensionMessage,
@@ -630,6 +631,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
   }
 
+  public async setSidebarGitPrimaryAction(action: SidebarGitAction): Promise<void> {
+    await savePrimarySidebarGitAction(this.context, this.workspaceId, action);
+    this.invalidateSidebarGitHudState();
+    await this.refreshSidebar();
+  }
+
   public async runSidebarAgent(agentId: string): Promise<void> {
     const agentButton = getSidebarAgentButtonById(agentId);
     if (!agentButton?.command) {
@@ -880,6 +887,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       createSession: async () => this.createSession(),
       createSessionInGroup: async (groupId) => this.createSessionInGroup(groupId),
       deletePreviousSession: async (historyId) => this.deletePreviousSession(historyId),
+      killDaemonSession: async (workspaceId, sessionId) =>
+        this.killDaemonSession(workspaceId, sessionId),
+      killTerminalDaemon: async () => this.killTerminalDaemon(),
       deleteSidebarAgent: async (agentId) => this.deleteSidebarAgent(agentId),
       deleteSidebarCommand: async (commandId) => this.deleteSidebarCommand(commandId),
       focusGroup: async (groupId) => this.focusGroup(groupId),
@@ -890,6 +900,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       openBrowser: async () => this.openDefaultBrowserUrl(),
       openSettings: async () => this.openSettings(),
       promptRenameSession: async (sessionId) => this.promptRenameSession(sessionId),
+      refreshDaemonSessions: async () => this.refreshDaemonSessions(),
       refreshGitState: async () => this.refreshGitState(),
       refreshSidebarHydrate: async () => this.refreshSidebar("hydrate"),
       renameGroup: async (groupId, title) => this.renameGroup(groupId, title),
@@ -911,6 +922,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           command,
           url,
         ),
+      setSidebarGitPrimaryAction: async (action) => this.setSidebarGitPrimaryAction(action),
       setViewMode: async (viewMode) => this.setViewMode(viewMode),
       setVisibleCount: async (visibleCount) => this.setVisibleCount(visibleCount),
       syncSidebarAgentOrder: async (agentIds) => this.syncSidebarAgentOrder(agentIds),
@@ -926,6 +938,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     type: SidebarHydrateMessage["type"] | SidebarSessionStateMessage["type"] = "sessionState",
   ): Promise<void> {
     await this.sidebarProvider.postMessage(await this.createSidebarMessage(type));
+  }
+
+  private async refreshDaemonSessions(): Promise<void> {
+    await this.sidebarProvider.postMessage(await this.createDaemonSessionsMessage());
   }
 
   private async createSidebarMessage(
@@ -982,7 +998,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         this.getPendingSidebarAgentIds(),
         gitState,
       ),
-      ownsNativeTerminalControl: false,
       platform: SHORTCUT_LABEL_PLATFORM,
       previousSessions: this.previousSessionHistory.getItems(),
       scratchPadContent: this.getScratchPadContent(),
@@ -991,6 +1006,55 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       workspaceId: this.workspaceId,
       workspaceSnapshot,
     });
+  }
+
+  private async createDaemonSessionsMessage(): Promise<ExtensionToSidebarMessage> {
+    const daemonState = await this.backend.listGlobalSessions();
+    return {
+      daemon: daemonState.daemon,
+      errorMessage: daemonState.errorMessage,
+      sessions: daemonState.sessions
+        .map<SidebarDaemonSessionItem>((session) => ({
+          agentName: session.agentName,
+          agentStatus: session.agentStatus,
+          cols: session.cols,
+          cwd: session.cwd,
+          endedAt: session.endedAt,
+          errorMessage: session.errorMessage,
+          exitCode: session.exitCode,
+          isCurrentWorkspace: session.workspaceId === this.workspaceId,
+          restoreState: session.restoreState,
+          rows: session.rows,
+          sessionId: session.sessionId,
+          shell: session.shell,
+          startedAt: session.startedAt,
+          status: session.status,
+          title: session.title,
+          workspaceId: session.workspaceId,
+        }))
+        .sort(compareSidebarDaemonSessions),
+      type: "daemonSessionsState",
+    };
+  }
+
+  private async killDaemonSession(workspaceId: string, sessionId: string): Promise<void> {
+    try {
+      await this.backend.killGlobalSession(workspaceId, sessionId);
+    } catch (error) {
+      void vscode.window.showWarningMessage(
+        `Unable to terminate daemon session: ${getErrorMessage(error)}`,
+      );
+    }
+
+    await this.refreshDaemonSessions();
+  }
+
+  private async killTerminalDaemon(): Promise<void> {
+    const didShutdown = await this.backend.shutdownDaemon();
+    if (!didShutdown) {
+      void vscode.window.showInformationMessage("No VSmux daemon is currently running.");
+    }
+    await this.refreshDaemonSessions();
   }
 
   private async postSessionPresentationMessage(sessionId: string): Promise<void> {
@@ -1031,7 +1095,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }),
       getTerminalTitle: (candidateSessionId) =>
         this.terminalTitleBySessionId.get(candidateSessionId),
-      ownsNativeTerminalControl: false,
       platform: SHORTCUT_LABEL_PLATFORM,
       sessionRecord,
       terminalHasLiveProjection: (candidateSessionId) =>
@@ -1412,7 +1475,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }),
       getTerminalTitle: (sessionId) => this.terminalTitleBySessionId.get(sessionId),
       group,
-      ownsNativeTerminalControl: false,
       platform: SHORTCUT_LABEL_PLATFORM,
       sessionRecord,
       terminalHasLiveProjection: (sessionId) => this.backend.hasLiveTerminal(sessionId),
@@ -1665,7 +1727,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const visibleSessions = activeSnapshot.visibleSessionIds
       .map((sessionId) => this.store.getSession(sessionId))
       .filter((sessionRecord): sessionRecord is SessionRecord => sessionRecord !== undefined);
-    const connection = await this.backend.getConnection();
+    const connection = {
+      ...(await this.backend.getConnection()),
+      workspaceId: this.workspaceId,
+    };
     const panes = (
       await Promise.all(
         visibleSessions.map(async (sessionRecord) => {
@@ -1855,6 +1920,50 @@ function cloneWorkspaceSnapshot(
   snapshot: GroupedSessionWorkspaceSnapshot,
 ): GroupedSessionWorkspaceSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as GroupedSessionWorkspaceSnapshot;
+}
+
+function compareSidebarDaemonSessions(
+  left: SidebarDaemonSessionItem,
+  right: SidebarDaemonSessionItem,
+): number {
+  if (left.isCurrentWorkspace !== right.isCurrentWorkspace) {
+    return left.isCurrentWorkspace ? -1 : 1;
+  }
+
+  const statusPriority = getSidebarDaemonStatusPriority(left.status) - getSidebarDaemonStatusPriority(right.status);
+  if (statusPriority !== 0) {
+    return statusPriority;
+  }
+
+  if (left.workspaceId !== right.workspaceId) {
+    return left.workspaceId.localeCompare(right.workspaceId);
+  }
+
+  const startedAtComparison = right.startedAt.localeCompare(left.startedAt);
+  if (startedAtComparison !== 0) {
+    return startedAtComparison;
+  }
+
+  return left.sessionId.localeCompare(right.sessionId);
+}
+
+function getSidebarDaemonStatusPriority(
+  status: SidebarDaemonSessionItem["status"],
+): number {
+  switch (status) {
+    case "running":
+      return 0;
+    case "starting":
+      return 1;
+    case "error":
+      return 2;
+    case "disconnected":
+      return 3;
+    case "exited":
+      return 4;
+    default:
+      return 5;
+  }
 }
 
 function getCommandTerminalShellArgs(shellPath: string, command: string): string[] {

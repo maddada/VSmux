@@ -14,6 +14,7 @@
 }
 
 .git-action-row {
+  container-type: inline-size;
   position: relative;
 }
 
@@ -44,7 +45,7 @@
   outline: none;
 }
 
-.git-action-main-button:disabled,
+.git-action-main-button[data-disabled="true"],
 .git-action-toggle-button:disabled {
   cursor: default;
   opacity: 0.66;
@@ -95,6 +96,7 @@
   font-size: 10px;
   font-weight: 700;
   gap: 1px;
+  margin-right: 5px;
 }
 
 .git-action-diff-stat-additions {
@@ -145,7 +147,7 @@
   outline: none;
 }
 
-.git-action-menu-item:disabled {
+.git-action-menu-item[data-disabled="true"] {
   cursor: default;
   opacity: 0.56;
 }
@@ -160,6 +162,12 @@
 .git-action-menu-item-trailing-icon {
   color: color-mix(in srgb, var(--app-muted) 84%, var(--app-foreground) 16%);
   flex: none;
+}
+
+@container (max-width: 240px) {
+  .git-action-main-label {
+    display: none;
+  }
 }
 
 .agents-grid,
