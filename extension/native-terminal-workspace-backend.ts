@@ -245,6 +245,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       ...snapshot,
       agentName: persistedState?.agentName ?? snapshot.agentName,
       agentStatus: persistedState?.agentStatus ?? "idle",
+      isAttached: this.hasAttachedTerminal(sessionId),
     } satisfies TerminalSessionSnapshot;
     this.sessions.set(sessionId, nextSnapshot);
 
@@ -1414,6 +1415,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           createDisconnectedSessionSnapshot(sessionId, this.options.workspaceId)),
         agentName: persistedState.agentName,
         agentStatus: persistedState.agentStatus,
+        isAttached: false,
         restoreState: "live",
         status: projection?.terminal.exitStatus ? "exited" : "disconnected",
       };
@@ -1423,6 +1425,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           createDisconnectedSessionSnapshot(sessionId, this.options.workspaceId)),
         agentName: persistedState.agentName,
         agentStatus: persistedState.agentStatus,
+        isAttached: this.hasAttachedTerminal(sessionId),
         restoreState: "live",
         startedAt: this.sessions.get(sessionId)?.startedAt ?? new Date().toISOString(),
         status: "running",
@@ -1660,6 +1663,7 @@ function haveSameTerminalSessionSnapshot(
     left?.endedAt === right.endedAt &&
     left?.errorMessage === right.errorMessage &&
     left?.exitCode === right.exitCode &&
+    left?.isAttached === right.isAttached &&
     left?.restoreState === right.restoreState &&
     left?.rows === right.rows &&
     left?.sessionId === right.sessionId &&

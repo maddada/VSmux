@@ -122,9 +122,9 @@ async function runCodexJson(
       "-s",
       "read-only",
       "--output-schema",
-      quotePath(schemaPath),
+      schemaPath,
       "--output-last-message",
-      quotePath(outputPath),
+      outputPath,
       "-",
     ]);
     const result = await runShellCommand(command, {
@@ -155,7 +155,7 @@ async function runClaudeJson(
       "--output-format",
       "json",
       "--json-schema",
-      quotePath(JSON.stringify(jsonSchema)),
+      JSON.stringify(jsonSchema),
       "--dangerously-skip-permissions",
     ]),
     {
@@ -296,10 +296,6 @@ function sanitizePrTitle(value: string): string {
 
 function limitSection(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : value.slice(0, maxLength).trimEnd();
-}
-
-function quotePath(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function createAgentCommandError(

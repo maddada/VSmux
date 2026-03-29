@@ -142,6 +142,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const pendingCreateGroupRef = useRef(false);
   const optimisticGroupCounterRef = useRef(0);
   const optimisticSessionCounterRef = useRef(0);
+  const closingSessionIdsRef = useRef<Set<string>>(new Set());
   const overflowControlsRef = useRef<HTMLDivElement>(null);
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const draggedSessionIdRef = useRef<string>();
@@ -163,10 +164,31 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   };
 
   const applySidebarMessage = (message: SidebarHydrateMessage | SidebarSessionStateMessage) => {
+    const nextClosingSessionIds = new Set(closingSessionIdsRef.current);
+    const filteredGroups = message.groups.map((group) => ({
+      ...group,
+      sessions: group.sessions.filter((session) => {
+        if (!nextClosingSessionIds.has(session.sessionId)) {
+          return true;
+        }
+
+        return false;
+      }),
+    }));
+    for (const closingSessionId of [...nextClosingSessionIds]) {
+      if (!message.groups.some((group) => group.sessions.some((session) => session.sessionId === closingSessionId))) {
+        nextClosingSessionIds.delete(closingSessionId);
+      }
+    }
+    closingSessionIdsRef.current = nextClosingSessionIds;
+    const filteredMessage = {
+      ...message,
+      groups: filteredGroups,
+    };
     logSidebarDebug("state.messageApplied", {
       draggedSessionId: draggedSessionIdRef.current,
-      messageType: message.type,
-      nextGroups: summarizeSidebarGroups(message.groups),
+      messageType: filteredMessage.type,
+      nextGroups: summarizeSidebarGroups(filteredMessage.groups),
       optimisticGroupIds: [...groupIdsRef.current],
       optimisticSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
       pendingCreateGroup: pendingCreateGroupRef.current,
@@ -176,7 +198,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     startTransition(() => {
       setServerState((previous) => {
         if (pendingCreateGroupRef.current) {
-          const nextGroupId = findCreatedGroupId(previous.groups, message.groups);
+          const nextGroupId = findCreatedGroupId(previous.groups, filteredMessage.groups);
           if (nextGroupId) {
             setAutoEditingGroupId(nextGroupId);
             pendingCreateGroupRef.current = false;
@@ -184,19 +206,23 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         }
 
         return {
-          groups: message.groups,
-          hud: message.hud,
-          previousSessions: message.previousSessions ?? [],
-          scratchPadContent: message.scratchPadContent ?? "",
+          groups: filteredMessage.groups,
+          hud: filteredMessage.hud,
+          previousSessions: filteredMessage.previousSessions ?? [],
+          scratchPadContent: filteredMessage.scratchPadContent ?? "",
         };
       });
-      const workspaceGroups = getWorkspaceSidebarGroups(message.groups);
+      const workspaceGroups = getWorkspaceSidebarGroups(filteredMessage.groups);
       setGroupIds(workspaceGroups.map((group) => group.groupId));
       setSessionIdsByGroup(createSessionIdsByGroup(workspaceGroups));
     });
   };
 
   const applySessionPresentationMessage = (message: SidebarSessionPresentationChangedMessage) => {
+    if (closingSessionIdsRef.current.has(message.session.sessionId)) {
+      return;
+    }
+
     startTransition(() => {
       setServerState((previous) => ({
         ...previous,
@@ -314,6 +340,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   };
 
   const optimisticallyCloseSession = (sessionId: string) => {
+    closingSessionIdsRef.current = new Set(closingSessionIdsRef.current).add(sessionId);
     setServerState((previous) => ({
       ...previous,
       groups: previous.groups.map((group) => {

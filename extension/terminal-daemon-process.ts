@@ -183,6 +183,10 @@ function attachSessionSocket(
     resizeSession(session, initialCols, initialRows);
   }
 
+  void buildSnapshot(session, false).then((snapshot) => {
+    broadcastControlSessionState(snapshot);
+    broadcastSessionState(session.sessionKey, snapshot);
+  });
   void sendSessionState(socket, session, true);
 
   socket.on("message", (buffer: Buffer) => {
@@ -193,6 +197,10 @@ function attachSessionSocket(
     if (sockets.size === 0) {
       sessionSocketsBySessionKey.delete(sessionKey);
     }
+    void buildSnapshot(session, false).then((snapshot) => {
+      broadcastControlSessionState(snapshot);
+      broadcastSessionState(session.sessionKey, snapshot);
+    });
     scheduleIdleShutdownIfNeeded();
   });
   socket.on("error", () => {
@@ -200,6 +208,10 @@ function attachSessionSocket(
     if (sockets.size === 0) {
       sessionSocketsBySessionKey.delete(sessionKey);
     }
+    void buildSnapshot(session, false).then((snapshot) => {
+      broadcastControlSessionState(snapshot);
+      broadcastSessionState(session.sessionKey, snapshot);
+    });
     scheduleIdleShutdownIfNeeded();
   });
 }
@@ -378,6 +390,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
       agentStatus: "idle",
       cols: request.cols,
       cwd: request.cwd,
+      isAttached: false,
       restoreState: "live",
       rows: request.rows,
       sessionId: request.sessionId,
@@ -446,6 +459,7 @@ async function buildSnapshot(
     agentName: session.titleActivity?.agentName ?? persistedState.agentName,
     agentStatus: session.titleActivity?.activity ?? persistedState.agentStatus,
     history: includeHistory ? session.history : undefined,
+    isAttached: (sessionSocketsBySessionKey.get(session.sessionKey)?.size ?? 0) > 0,
     title: session.liveTitle ?? persistedState.title,
   };
   return session.snapshot;

@@ -1,4 +1,4 @@
-export const TERMINAL_HOST_PROTOCOL_VERSION = 10;
+export const TERMINAL_HOST_PROTOCOL_VERSION = 11;
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error" | "disconnected";
 
@@ -13,6 +13,7 @@ export type TerminalSessionSnapshot = {
   cwd: string;
   exitCode?: number;
   history?: string;
+  isAttached: boolean;
   restoreState: TerminalSessionRestoreState;
   rows: number;
   sessionId: string;

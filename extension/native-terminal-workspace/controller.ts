@@ -31,6 +31,7 @@ import {
   createSidebarSessionItem,
   createPreviousSessionEntry,
 } from "../native-terminal-workspace-sidebar-state";
+import { getInterestingTitleSymbols } from "../session-title-activity";
 import { getEffectiveSessionActivity } from "./activity";
 import {
   PreviousSessionHistory,
@@ -138,6 +139,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly sessionAgentLaunchBySessionId: Map<string, StoredSessionAgentLaunch>;
   private readonly store: SessionGridStore;
   private readonly terminalTitleBySessionId = new Map<string, string>();
+  private readonly loggedTitleSymbolKeys = new Set<string>();
   private readonly pendingT3SessionIds = new Set<string>();
   private gitActionInProgress = false;
   private gitHudStateCache: { updatedAt: number; value: SidebarGitState } | undefined;
@@ -190,6 +192,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }),
       this.backend.onDidChangeSessionPresentation(({ sessionId, title }) => {
         const snapshot = this.backend.getSessionSnapshot(sessionId);
+        this.logSessionTitleSymbols(sessionId, title ?? snapshot?.title, snapshot?.agentName);
         logVSmuxDebug("controller.sessionPresentationChanged", {
           agentName: snapshot?.agentName,
           agentStatus: snapshot?.agentStatus,
@@ -282,6 +285,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
+    this.syncSurfaceManagers();
+    await this.refreshSidebar();
     await this.createSurfaceIfNeeded(sessionRecord);
     await this.afterStateChange();
   }
@@ -661,6 +666,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       command: agentButton.command,
     });
     await this.persistSessionAgentLaunchState();
+    this.syncSurfaceManagers();
+    await this.refreshSidebar();
     await this.backend.createOrAttachSession(sessionRecord);
     await this.afterStateChange();
     await this.backend.writeText(sessionRecord.sessionId, agentButton.command, true);
@@ -1130,6 +1137,39 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       snapshot: this.backend.getSessionSnapshot(sessionId),
       terminalTitle: this.terminalTitleBySessionId.get(sessionId),
       type: "terminalPresentationChanged",
+    });
+  }
+
+  private logSessionTitleSymbols(
+    sessionId: string,
+    title: string | undefined,
+    snapshotAgentName: string | undefined,
+  ): void {
+    const normalizedTitle = title?.trim();
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const symbols = getInterestingTitleSymbols(normalizedTitle);
+    if (symbols.length === 0) {
+      return;
+    }
+
+    const agentHint =
+      snapshotAgentName?.trim().toLowerCase() ||
+      this.sessionAgentLaunchBySessionId.get(sessionId)?.agentId.trim().toLowerCase() ||
+      "unknown";
+    const symbolKey = `${agentHint}:${symbols.join("")}`;
+    if (this.loggedTitleSymbolKeys.has(symbolKey)) {
+      return;
+    }
+
+    this.loggedTitleSymbolKeys.add(symbolKey);
+    logVSmuxDebug("controller.titleSymbolsObserved", {
+      agentHint,
+      sessionId,
+      symbols,
+      title: normalizedTitle,
     });
   }
 

@@ -15,6 +15,8 @@ export type TitleDerivedSessionActivity = {
   lastTitleChangeAt?: number;
 };
 
+const ASCII_SYMBOL_LOG_ALLOWLIST = new Set(["*"]);
+
 export function getTitleDerivedSessionActivity(
   title: string,
   previousDerivedActivity?: TitleDerivedSessionActivity,
@@ -121,6 +123,26 @@ export function acknowledgeTitleDerivedSessionActivity(
     activity: "idle",
     isAcknowledged: true,
   };
+}
+
+export function getInterestingTitleSymbols(title: string): string[] {
+  const symbols: string[] = [];
+
+  for (const character of title) {
+    if (/\s/u.test(character) || /[\p{L}\p{N}]/u.test(character)) {
+      continue;
+    }
+
+    if (character.codePointAt(0)! <= 0x7f && !ASCII_SYMBOL_LOG_ALLOWLIST.has(character)) {
+      continue;
+    }
+
+    if (!symbols.includes(character)) {
+      symbols.push(character);
+    }
+  }
+
+  return symbols;
 }
 
 function getTitleState(

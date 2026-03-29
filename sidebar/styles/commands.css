@@ -164,7 +164,7 @@
   flex: none;
 }
 
-@container (max-width: 240px) {
+@container (max-width: 180px) {
   .git-action-main-label {
     display: none;
   }

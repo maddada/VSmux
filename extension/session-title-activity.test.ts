@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/tes
 import {
   TITLE_ACTIVITY_WINDOW_MS,
   acknowledgeTitleDerivedSessionActivity,
+  getInterestingTitleSymbols,
   getTitleDerivedSessionActivity,
   getTitleDerivedSessionActivityFromTransition,
 } from "./session-title-activity";
@@ -16,6 +17,13 @@ afterEach(() => {
 });
 
 describe("getTitleDerivedSessionActivity", () => {
+  test("should extract interesting title symbols for debug logging", () => {
+    expect(getInterestingTitleSymbols("⠸ Review repository...")).toEqual(["⠸"]);
+    expect(getInterestingTitleSymbols("✳ Claude Code")).toEqual(["✳"]);
+    expect(getInterestingTitleSymbols("* Claude Code")).toEqual(["*"]);
+    expect(getInterestingTitleSymbols("plain words 123")).toEqual([]);
+  });
+
   test("should detect Codex spinner titles as working", () => {
     const firstActivity = getTitleDerivedSessionActivityFromTransition(undefined, "⠸ OpenAI Codex");
     expect(getTitleDerivedSessionActivity("⠸ OpenAI Codex", firstActivity)).toEqual({

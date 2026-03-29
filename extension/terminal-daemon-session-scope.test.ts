@@ -36,6 +36,7 @@ function createSnapshot(workspaceId: string, sessionId: string): TerminalSession
     agentStatus: "idle",
     cols: 120,
     cwd: "/tmp",
+    isAttached: false,
     restoreState: "live",
     rows: 34,
     sessionId,

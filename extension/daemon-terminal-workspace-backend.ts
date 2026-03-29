@@ -113,7 +113,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public hasAttachedTerminal(sessionId: string): boolean {
-    return this.hasLiveTerminal(sessionId);
+    return this.sessions.get(sessionId)?.isAttached ?? false;
   }
 
   public getLastTerminalActivityAt(_sessionId: string): number | undefined {
@@ -374,6 +374,7 @@ function haveSameTerminalSessionSnapshot(
     left.endedAt === right.endedAt &&
     left.errorMessage === right.errorMessage &&
     left.exitCode === right.exitCode &&
+    left.isAttached === right.isAttached &&
     left.restoreState === right.restoreState &&
     left.rows === right.rows &&
     left.sessionId === right.sessionId &&

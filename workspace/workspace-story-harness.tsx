@@ -200,6 +200,7 @@ function createTerminalSnapshot(sessionId: string): TerminalSessionSnapshot {
     cols: 120,
     cwd: "/Users/madda/dev/_active/agent-tiler",
     history: getTerminalHistory(sessionId),
+    isAttached: true,
     restoreState: "live",
     rows: 34,
     sessionId,
