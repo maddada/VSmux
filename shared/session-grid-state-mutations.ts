@@ -1,10 +1,14 @@
 import {
+  isNumericSessionAlias,
   type SessionGridSnapshot,
   type SessionRecord,
   type TerminalViewMode,
   type VisibleSessionCount,
 } from "./session-grid-contract";
-import { reindexSessionsInOrder, restoreLayoutVisibleCountInSnapshot } from "./session-grid-state-helpers";
+import {
+  reindexSessionsInOrder,
+  restoreLayoutVisibleCountInSnapshot,
+} from "./session-grid-state-helpers";
 import { normalizeSessionGridSnapshot } from "./session-grid-state-normalize";
 
 export function setVisibleCountInSnapshot(
@@ -111,7 +115,12 @@ export function renameSessionAliasInSnapshot(
   sessionId: string,
   alias: string,
 ): { changed: boolean; snapshot: SessionGridSnapshot } {
-  return updateSession(snapshot, sessionId, alias.trim(), "alias");
+  const normalizedAlias = alias.trim();
+  if (!normalizedAlias || isNumericSessionAlias(normalizedAlias)) {
+    return { changed: false, snapshot: normalizeSessionGridSnapshot(snapshot) };
+  }
+
+  return updateSession(snapshot, sessionId, normalizedAlias, "alias");
 }
 
 export function setSessionTitleInSnapshot(
@@ -165,7 +174,9 @@ export function removeSessionInSnapshot(
   sessionId: string,
 ): { changed: boolean; snapshot: SessionGridSnapshot } {
   const normalizedSnapshot = normalizeSessionGridSnapshot(snapshot);
-  if (!normalizedSnapshot.sessions.some((session: SessionRecord) => session.sessionId === sessionId)) {
+  if (
+    !normalizedSnapshot.sessions.some((session: SessionRecord) => session.sessionId === sessionId)
+  ) {
     return { changed: false, snapshot: normalizedSnapshot };
   }
 

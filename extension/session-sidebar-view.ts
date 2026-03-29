@@ -4,6 +4,7 @@ import type {
   ExtensionToSidebarMessage,
   SidebarToExtensionMessage,
 } from "../shared/session-grid-contract";
+import { logVSmuxDebug } from "./vsmux-debug-log";
 
 const EXTENSION_ID = "maddada.VSmux";
 
@@ -72,6 +73,16 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           return;
         }
 
+        if (message.type === "sidebarDebugLog") {
+          logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
+          return;
+        }
+
+        if (message.type === "promptRenameSession") {
+          logVSmuxDebug("sidebar.webview.received.promptRenameSession", {
+            sessionId: message.sessionId,
+          });
+        }
         void this.options.onMessage(message);
       }),
     );
@@ -162,12 +173,20 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
   const message = candidate as Partial<SidebarToExtensionMessage>;
   switch (message.type) {
     case "ready":
+      return true;
+    case "sidebarDebugLog":
+      return (
+        typeof message.event === "string" &&
+        message.event.length > 0 &&
+        (message.details === undefined || typeof message.details === "string")
+      );
     case "openSettings":
-    case "openDebugInspector":
     case "toggleCompletionBell":
     case "toggleVsMuxDisabled":
     case "moveSidebarToOtherSide":
     case "createSession":
+    case "openBrowser":
+      return true;
     case "toggleFullscreenSession":
       return true;
 
@@ -187,6 +206,12 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
     case "deleteSidebarAgent":
       return typeof message.agentId === "string" && message.agentId.length > 0;
 
+    case "syncSidebarAgentOrder":
+      return (
+        Array.isArray(message.agentIds) &&
+        message.agentIds.every((agentId) => typeof agentId === "string" && agentId.length > 0)
+      );
+
     case "createSessionInGroup":
       return typeof message.groupId === "string" && message.groupId.length > 0;
 
@@ -194,11 +219,7 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
       return typeof message.groupId === "string" && message.groupId.length > 0;
 
     case "focusSession":
-      return (
-        typeof message.sessionId === "string" &&
-        message.sessionId.length > 0 &&
-        (message.preserveFocus === undefined || typeof message.preserveFocus === "boolean")
-      );
+      return typeof message.sessionId === "string" && message.sessionId.length > 0;
 
     case "promptRenameSession":
     case "restartSession":
@@ -231,10 +252,7 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
       );
 
     case "setVisibleCount":
-      return (
-        typeof message.visibleCount === "number" &&
-        [1, 2, 3, 4, 6, 9].includes(message.visibleCount)
-      );
+      return typeof message.visibleCount === "number" && [1, 2].includes(message.visibleCount);
 
     case "setViewMode":
       return (
@@ -293,7 +311,8 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
         (message.agentId === undefined ||
           (typeof message.agentId === "string" && message.agentId.length > 0)) &&
         typeof message.name === "string" &&
-        typeof message.command === "string"
+        typeof message.command === "string" &&
+        (message.icon === undefined || typeof message.icon === "string")
       );
 
     default:

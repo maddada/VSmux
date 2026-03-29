@@ -1,9 +1,12 @@
 import {
+  DEFAULT_AGENT_MANAGER_ZOOM_PERCENT,
   DEFAULT_MAIN_GROUP_ID,
   DEFAULT_MAIN_GROUP_TITLE,
   GRID_COLUMN_COUNT,
+  MAX_AGENT_MANAGER_ZOOM_PERCENT,
   MAX_SESSION_COUNT,
   MAX_SESSION_DISPLAY_ID_COUNT,
+  MIN_AGENT_MANAGER_ZOOM_PERCENT,
   type BaseSessionRecord,
   type CreateSessionRecordOptions,
   type GroupedSessionWorkspaceSnapshot,
@@ -52,6 +55,17 @@ export function clampTerminalViewMode(value: string | undefined): TerminalViewMo
     default:
       return "grid";
   }
+}
+
+export function clampAgentManagerZoomPercent(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_AGENT_MANAGER_ZOOM_PERCENT;
+  }
+
+  return Math.min(
+    MAX_AGENT_MANAGER_ZOOM_PERCENT,
+    Math.max(MIN_AGENT_MANAGER_ZOOM_PERCENT, Math.round(value)),
+  );
 }
 
 export function clampSidebarThemeSetting(value: string | undefined): SidebarThemeSetting {
@@ -177,17 +191,25 @@ export function getSessionShortcutLabel(slotIndex: number, platform: "default" |
   return platform === "mac" ? `⌘⌥${shortcutNumber}` : `⌃⌥${shortcutNumber}`;
 }
 
-export function createSessionAlias(sessionNumber: number, slotIndex: number): string {
-  const words = ["Atlas", "Beacon", "Comet", "Drift", "Ember", "Field", "Grove", "Harbor", "Lattice", "Mosaic", "Signal", "Vale"];
-  return words[(sessionNumber * 11 + slotIndex * 3) % words.length] ?? words[0]!;
+export function createSessionAlias(
+  sessionNumber: number,
+  slotIndex: number,
+  displayId?: string | number,
+): string {
+  void slotIndex;
+  return formatSessionDisplayId(displayId ?? sessionNumber - 1);
+}
+
+export function isNumericSessionAlias(alias: string | undefined): boolean {
+  return /^\d+$/.test(alias?.trim() ?? "");
 }
 
 export function isGeneratedSessionAlias(
-  session: Pick<BaseSessionRecord, "alias" | "sessionId" | "slotIndex">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex">,
 ): boolean {
   return (
     session.alias.trim() ===
-    createSessionAlias(parseSessionNumber(session.sessionId), session.slotIndex)
+    createSessionAlias(getSessionNumber(session), session.slotIndex, session.displayId)
   );
 }
 
@@ -197,9 +219,9 @@ export function createSessionRecord(
   options?: CreateSessionRecordOptions,
 ): SessionRecord {
   const position = getSlotPosition(slotIndex);
-  const alias = createSessionAlias(sessionNumber, slotIndex);
-  const createdAt = new Date().toISOString();
   const displayId = formatSessionDisplayId(options?.displayId ?? sessionNumber - 1);
+  const alias = createSessionAlias(sessionNumber, slotIndex, displayId);
+  const createdAt = new Date().toISOString();
   const sessionId = `session-${sessionNumber}`;
   const title = options?.title?.trim() || `Session ${sessionNumber}`;
 
@@ -247,15 +269,31 @@ export function createSessionRecord(
 }
 
 export function getTerminalSessionSurfaceTitle(
-  session: Pick<BaseSessionRecord, "alias" | "displayId">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex" | "title">,
 ): string {
-  return `${formatSessionDisplayId(session.displayId)}_ ${session.alias}`;
+  return formatSessionSurfaceTitle(session);
 }
 
 export function getT3SessionSurfaceTitle(
-  session: Pick<BaseSessionRecord, "alias" | "displayId">,
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex" | "title">,
 ): string {
-  return `${formatSessionDisplayId(session.displayId)}_ T3: ${session.alias}`;
+  return formatSessionSurfaceTitle(session);
+}
+
+export function getSessionNumberFromSessionId(sessionId: string): number | undefined {
+  const match = /^session-(\d+)$/.exec(sessionId);
+  if (!match) {
+    return undefined;
+  }
+
+  const parsedNumber = Number.parseInt(match[1], 10);
+  return Number.isInteger(parsedNumber) && parsedNumber > 0 ? parsedNumber : undefined;
+}
+
+export function getVisibleSessionNumber(
+  session: Pick<BaseSessionRecord, "displayId" | "sessionId" | "slotIndex">,
+): string {
+  return formatSessionDisplayId(session.displayId ?? getSessionNumber(session) - 1);
 }
 
 export function getVisiblePrimaryTitle(title: string): string | undefined {
@@ -283,12 +321,18 @@ export function isT3Session(session: SessionRecord): session is T3SessionRecord 
   return session.kind === "t3";
 }
 
-function parseSessionNumber(sessionId: string): number {
-  const match = /^session-(\d+)$/.exec(sessionId);
-  if (!match) {
-    return 1;
+function getSessionNumber(session: Pick<BaseSessionRecord, "sessionId" | "slotIndex">): number {
+  return getSessionNumberFromSessionId(session.sessionId) ?? session.slotIndex + 1;
+}
+
+function formatSessionSurfaceTitle(
+  session: Pick<BaseSessionRecord, "alias" | "displayId" | "sessionId" | "slotIndex" | "title">,
+): string {
+  const displayId = formatSessionDisplayId(session.displayId ?? getSessionNumber(session) - 1);
+  const visiblePrimaryTitle = getVisiblePrimaryTitle(session.title);
+  if (visiblePrimaryTitle) {
+    return `${displayId}. ${visiblePrimaryTitle}`;
   }
 
-  const parsedNumber = Number.parseInt(match[1], 10);
-  return Number.isInteger(parsedNumber) && parsedNumber > 0 ? parsedNumber : 1;
+  return isGeneratedSessionAlias(session) ? displayId : `${displayId} ${session.alias}`;
 }

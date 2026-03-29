@@ -1,13 +1,13 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { KeyboardSensor, PointerActivationConstraints, PointerSensor } from "@dnd-kit/dom";
 import { move } from "@dnd-kit/helpers";
-import { DragDropProvider, type DragDropEventHandlers } from "@dnd-kit/react";
+import { DragDropProvider, DragOverlay, type DragDropEventHandlers } from "@dnd-kit/react";
 import {
   IconBell,
   IconBellOff,
-  IconBug,
   IconHistory,
   IconLayoutSidebar,
+  IconPencil,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
@@ -38,6 +38,7 @@ import { CommandsPanel } from "./commands-panel";
 import { CreateGroupDropTarget } from "./create-group-drop-target";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
+import { SessionCardContent } from "./session-card-content";
 import { getSidebarDropData } from "./sidebar-dnd";
 import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
@@ -59,6 +60,7 @@ type SessionIdsByGroup = Record<string, string[]>;
 const INITIAL_STATE: SidebarState = {
   groups: [],
   hud: {
+    agentManagerZoomPercent: 100,
     agents: createDefaultSidebarAgentButtons(),
     commands: createDefaultSidebarCommandButtons(),
     completionBellEnabled: false,
@@ -105,6 +107,8 @@ const sensors = [
   KeyboardSensor,
 ];
 
+const SIDEBAR_STARTUP_INTERACTION_BLOCK_MS = 1500;
+
 function getInitialSidebarTheme(): SidebarTheme {
   return document.body.classList.contains("vscode-light") ||
     document.body.classList.contains("vscode-high-contrast-light")
@@ -114,17 +118,19 @@ function getInitialSidebarTheme(): SidebarTheme {
 
 export function SidebarApp({ vscode }: SidebarAppProps) {
   const [serverState, setServerState] = useState<SidebarState>(INITIAL_STATE);
+  const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
   const [autoEditingGroupId, setAutoEditingGroupId] = useState<string>();
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [sessionIdsByGroup, setSessionIdsByGroup] = useState<SessionIdsByGroup>({});
   const [draggedSessionId, setDraggedSessionId] = useState<string>();
+  const [dragOverlayWidth, setDragOverlayWidth] = useState<number>();
   const [agentCreateRequestId, setAgentCreateRequestId] = useState(0);
   const [commandCreateRequestId, setCommandCreateRequestId] = useState(0);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const pendingCreateGroupRef = useRef(false);
-  const floatingControlsRef = useRef<HTMLDivElement>(null);
+  const overflowControlsRef = useRef<HTMLDivElement>(null);
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const draggedSessionIdRef = useRef<string>();
   const groupIdsRef = useRef<string[]>([]);
@@ -132,7 +138,29 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   const sessionDragSnapshotRef = useRef<SessionIdsByGroup>();
   const deferredSidebarMessageRef = useRef<SidebarHydrateMessage | SidebarSessionStateMessage>();
 
+  const logSidebarDebug = (event: string, details: Record<string, unknown>) => {
+    if (!serverState.hud.debuggingMode) {
+      return;
+    }
+
+    vscode.postMessage({
+      details: safeSerializeSidebarDebugDetails(details),
+      event,
+      type: "sidebarDebugLog",
+    });
+  };
+
   const applySidebarMessage = (message: SidebarHydrateMessage | SidebarSessionStateMessage) => {
+    logSidebarDebug("state.messageApplied", {
+      draggedSessionId: draggedSessionIdRef.current,
+      messageType: message.type,
+      nextGroups: summarizeSidebarGroups(message.groups),
+      optimisticGroupIds: [...groupIdsRef.current],
+      optimisticSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+      pendingCreateGroup: pendingCreateGroupRef.current,
+      previousGroups: summarizeSidebarGroups(serverState.groups),
+    });
+
     startTransition(() => {
       setServerState((previous) => {
         if (pendingCreateGroupRef.current) {
@@ -150,8 +178,9 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
           scratchPadContent: message.scratchPadContent ?? "",
         };
       });
-      setGroupIds(message.groups.map((group) => group.groupId));
-      setSessionIdsByGroup(createSessionIdsByGroup(message.groups));
+      const workspaceGroups = getWorkspaceSidebarGroups(message.groups);
+      setGroupIds(workspaceGroups.map((group) => group.groupId));
+      setSessionIdsByGroup(createSessionIdsByGroup(workspaceGroups));
     });
   };
 
@@ -169,8 +198,11 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     applySidebarMessage(nextMessage);
   };
 
+  const isSidebarInteractionBlocked =
+    serverState.hud.isVsMuxDisabled || isStartupInteractionBlocked;
+
   const requestNewSession = () => {
-    if (serverState.hud.isVsMuxDisabled) {
+    if (isSidebarInteractionBlocked) {
       return;
     }
 
@@ -202,6 +234,12 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       }
 
       if (draggedSessionIdRef.current) {
+        logSidebarDebug("state.messageDeferred", {
+          draggedSessionId: draggedSessionIdRef.current,
+          messageType: event.data.type,
+          nextGroups: summarizeSidebarGroups(event.data.groups),
+          optimisticSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+        });
         deferredSidebarMessageRef.current = event.data;
         return;
       }
@@ -220,6 +258,16 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     draggedSessionIdRef.current = draggedSessionId;
     flushDeferredSidebarMessage();
   }, [draggedSessionId]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setIsStartupInteractionBlocked(false);
+    }, SIDEBAR_STARTUP_INTERACTION_BLOCK_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
 
   useEffect(() => {
     groupIdsRef.current = groupIds;
@@ -242,12 +290,23 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   }, [serverState.hud.theme]);
 
   useEffect(() => {
+    document.body.style.setProperty(
+      "--vsmux-agent-manager-zoom",
+      `${serverState.hud.agentManagerZoomPercent}%`,
+    );
+
+    return () => {
+      document.body.style.removeProperty("--vsmux-agent-manager-zoom");
+    };
+  }, [serverState.hud.agentManagerZoomPercent]);
+
+  useEffect(() => {
     if (!sessionGroupsPanelRef.current) {
       return;
     }
 
-    sessionGroupsPanelRef.current.inert = serverState.hud.isVsMuxDisabled;
-  }, [serverState.hud.isVsMuxDisabled]);
+    sessionGroupsPanelRef.current.inert = isSidebarInteractionBlocked;
+  }, [isSidebarInteractionBlocked]);
 
   useEffect(() => {
     if (!isOverflowMenuOpen) {
@@ -260,7 +319,7 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
         return;
       }
 
-      if (floatingControlsRef.current?.contains(target)) {
+      if (overflowControlsRef.current?.contains(target)) {
         return;
       }
 
@@ -283,9 +342,10 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
   }, [isOverflowMenuOpen]);
 
   const orderedGroups = useMemo(() => {
-    const groupById = new Map(serverState.groups.map((group) => [group.groupId, group] as const));
+    const workspaceGroups = getWorkspaceSidebarGroups(serverState.groups);
+    const groupById = new Map(workspaceGroups.map((group) => [group.groupId, group] as const));
     const sessionById = new Map(
-      serverState.groups.flatMap((group) =>
+      workspaceGroups.flatMap((group) =>
         group.sessions.map((session) => [session.sessionId, session] as const),
       ),
     );
@@ -299,13 +359,39 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       }));
   }, [groupIds, serverState.groups, sessionIdsByGroup]);
 
+  const fixedGroups = useMemo(
+    () => serverState.groups.filter((group) => group.kind === "browser"),
+    [serverState.groups],
+  );
+
+  const draggedSession = useMemo(() => {
+    if (!draggedSessionId) {
+      return undefined;
+    }
+
+    return orderedGroups
+      .flatMap((group) => group.orderedSessions)
+      .find((session) => session.sessionId === draggedSessionId);
+  }, [draggedSessionId, orderedGroups]);
+
   const handleDragStart = ((event) => {
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     if (sourceData?.kind !== "session") {
       return;
     }
 
+    const sourceElement = (event.operation.source as { element?: Element | undefined }).element;
+    if (sourceElement instanceof HTMLElement) {
+      setDragOverlayWidth(sourceElement.getBoundingClientRect().width);
+    }
+
     sessionDragSnapshotRef.current = cloneSessionIdsByGroup(sessionIdsByGroupRef.current);
+    logSidebarDebug("dragStart.session", {
+      groupId: sourceData.groupId,
+      sessionId: sourceData.sessionId,
+      sessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+      snapshot: summarizeSessionIdsByGroup(sessionDragSnapshotRef.current),
+    });
     setDraggedSessionId(sourceData.sessionId);
   }) satisfies DragDropEventHandlers["onDragStart"];
 
@@ -320,11 +406,23 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       return;
     }
 
-    setSessionIdsByGroup((items) => move(items, event));
+    const nextSessionIdsByGroup = move(sessionIdsByGroupRef.current, event);
+    if (haveSameSessionIdsByGroup(sessionIdsByGroupRef.current, nextSessionIdsByGroup)) {
+      return;
+    }
+
+    logSidebarDebug("dragOver.session", {
+      nextSessionIdsByGroup: summarizeSessionIdsByGroup(nextSessionIdsByGroup),
+      previousSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+      source: sourceData,
+      target: targetData,
+    });
+    setSessionIdsByGroup(nextSessionIdsByGroup);
   }) satisfies DragDropEventHandlers["onDragOver"];
 
   const handleDragEnd = ((event) => {
     setDraggedSessionId(undefined);
+    setDragOverlayWidth(undefined);
 
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     const targetData = getSidebarDropData(event.operation.target as { data?: unknown });
@@ -368,12 +466,21 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     };
 
     if (event.canceled) {
+      logSidebarDebug("dragEnd.sessionCanceled", {
+        snapshot: summarizeSessionIdsByGroup(snapshot),
+        source: sourceData,
+        target: targetData,
+      });
       restoreSnapshot();
       sessionDragSnapshotRef.current = undefined;
       return;
     }
 
     if (targetData?.kind === "create-group") {
+      logSidebarDebug("dragEnd.sessionCreateGroup", {
+        snapshot: summarizeSessionIdsByGroup(snapshot),
+        source: sourceData,
+      });
       restoreSnapshot();
       sessionDragSnapshotRef.current = undefined;
       pendingCreateGroupRef.current = true;
@@ -385,12 +492,23 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     }
 
     if (!targetData) {
+      logSidebarDebug("dragEnd.sessionNoTarget", {
+        snapshot: summarizeSessionIdsByGroup(snapshot),
+        source: sourceData,
+      });
       restoreSnapshot();
       sessionDragSnapshotRef.current = undefined;
       return;
     }
 
     const nextSessionIdsByGroup = move(sessionIdsByGroupRef.current, event);
+    logSidebarDebug("dragEnd.sessionComputed", {
+      currentSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+      nextSessionIdsByGroup: summarizeSessionIdsByGroup(nextSessionIdsByGroup),
+      snapshot: summarizeSessionIdsByGroup(snapshot),
+      source: sourceData,
+      target: targetData,
+    });
     if (!haveSameSessionIdsByGroup(sessionIdsByGroupRef.current, nextSessionIdsByGroup)) {
       startTransition(() => {
         setSessionIdsByGroup(nextSessionIdsByGroup);
@@ -403,6 +521,13 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     const previousGroupId = findSessionGroupId(previousSessionIdsByGroup, sourceData.sessionId);
     const nextGroupId = findSessionGroupId(nextSessionIdsByGroup, sourceData.sessionId);
     if (!previousGroupId || !nextGroupId) {
+      logSidebarDebug("dragEnd.sessionMissingGroupResolution", {
+        nextGroupId,
+        nextSessionIdsByGroup: summarizeSessionIdsByGroup(nextSessionIdsByGroup),
+        previousGroupId,
+        previousSessionIdsByGroup: summarizeSessionIdsByGroup(previousSessionIdsByGroup),
+        source: sourceData,
+      });
       restoreSnapshot();
       return;
     }
@@ -410,10 +535,25 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     if (previousGroupId !== nextGroupId) {
       const targetIndex = nextSessionIdsByGroup[nextGroupId]?.indexOf(sourceData.sessionId);
       if (targetIndex == null || targetIndex < 0) {
+        logSidebarDebug("dragEnd.sessionMissingTargetIndex", {
+          nextGroupId,
+          nextSessionIdsByGroup: summarizeSessionIdsByGroup(nextSessionIdsByGroup),
+          previousGroupId,
+          source: sourceData,
+        });
         restoreSnapshot();
         return;
       }
 
+      logSidebarDebug("dragEnd.sessionMoveToGroup", {
+        nextGroupId,
+        nextSessionIdsByGroup: summarizeSessionIdsByGroup(nextSessionIdsByGroup),
+        previousGroupId,
+        previousSessionIdsByGroup: summarizeSessionIdsByGroup(previousSessionIdsByGroup),
+        sessionId: sourceData.sessionId,
+        target: targetData,
+        targetIndex,
+      });
       vscode.postMessage({
         groupId: nextGroupId,
         sessionId: sourceData.sessionId,
@@ -429,6 +569,13 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
       return;
     }
 
+    logSidebarDebug("dragEnd.sessionReorderWithinGroup", {
+      groupId: nextGroupId,
+      nextSessionIds: [...nextSessionIds],
+      previousSessionIds: [...previousSessionIds],
+      sessionId: sourceData.sessionId,
+      target: targetData,
+    });
     vscode.postMessage({
       groupId: nextGroupId,
       sessionIds: nextSessionIds,
@@ -440,144 +587,159 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
     <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
       <div
         className="stack"
+        data-dimmed={String(isStartupInteractionBlocked)}
         data-sidebar-theme={serverState.hud.theme}
         onDoubleClick={handleSidebarDoubleClick}
       >
-        <div
-          className="sidebar-floating-controls"
-          data-empty-space-blocking="true"
-          ref={floatingControlsRef}
-        >
-          <ToolbarIconButton
-            ariaControls="sidebar-overflow-menu"
-            ariaExpanded={isOverflowMenuOpen}
-            ariaHasPopup="menu"
-            ariaLabel="Open sidebar menu"
-            className="floating-toolbar-button"
-            isSelected={isOverflowMenuOpen}
-            onClick={() => setIsOverflowMenuOpen((previous) => !previous)}
-            tooltip="More"
-          >
-            <OverflowIcon />
-          </ToolbarIconButton>
-          {isOverflowMenuOpen ? (
-            <div
-              aria-label="Sidebar actions"
-              className="session-context-menu sidebar-floating-menu"
-              data-empty-space-blocking="true"
-              id="sidebar-overflow-menu"
-              role="menu"
-            >
-              <button
-                className="session-context-menu-item"
-                onClick={() => {
-                  setIsOverflowMenuOpen(false);
-                  setAgentCreateRequestId((previous) => previous + 1);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Add Agent
-              </button>
-              <button
-                className="session-context-menu-item"
-                onClick={() => {
-                  setIsOverflowMenuOpen(false);
-                  setCommandCreateRequestId((previous) => previous + 1);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Add Action
-              </button>
-              <button
-                className="session-context-menu-item"
-                onClick={() => {
-                  setIsOverflowMenuOpen(false);
-                  vscode.postMessage({ type: "toggleCompletionBell" });
-                }}
-                role="menuitem"
-                type="button"
-              >
-                {serverState.hud.completionBellEnabled ? (
-                  <IconBellOff aria-hidden="true" className="session-context-menu-icon" size={14} />
-                ) : (
-                  <IconBell aria-hidden="true" className="session-context-menu-icon" size={14} />
-                )}
-                {getCompletionBellMenuLabel(serverState.hud)}
-              </button>
-              <button
-                className="session-context-menu-item"
-                onClick={() => {
-                  setIsOverflowMenuOpen(false);
-                  vscode.postMessage({ type: "moveSidebarToOtherSide" });
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <IconLayoutSidebar
-                  aria-hidden="true"
-                  className="session-context-menu-icon"
-                  size={14}
-                  stroke={1.8}
-                />
-                Move to Other Side
-              </button>
-              <button
-                className="session-context-menu-item"
-                onClick={() => {
-                  setIsOverflowMenuOpen(false);
-                  vscode.postMessage({ type: "openSettings" });
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <IconSettings
-                  aria-hidden="true"
-                  className="session-context-menu-icon"
-                  size={14}
-                  stroke={1.8}
-                />
-                Sidebar Settings
-              </button>
-              {serverState.hud.debuggingMode ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={() => {
-                    setIsOverflowMenuOpen(false);
-                    vscode.postMessage({ type: "openDebugInspector" });
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconBug
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={14}
-                    stroke={1.8}
-                  />
-                  Open Move Debugger
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <AgentsPanel
-          agents={serverState.hud.agents}
-          createRequestId={agentCreateRequestId}
-          vscode={vscode}
-        />
         <CommandsPanel
           commands={serverState.hud.commands}
           createRequestId={commandCreateRequestId}
           isVsMuxDisabled={serverState.hud.isVsMuxDisabled}
-          isScratchPadOpen={isScratchPadOpen}
-          onToggleScratchPad={() => {
-            setIsPreviousSessionsOpen(false);
-            setIsScratchPadOpen((previous) => !previous);
-          }}
+          titlebarActions={
+            <div
+              className="sidebar-titlebar-controls"
+              data-empty-space-blocking="true"
+              ref={overflowControlsRef}
+            >
+              <ToolbarIconButton
+                ariaControls="sidebar-overflow-menu"
+                ariaExpanded={isOverflowMenuOpen}
+                ariaHasPopup="menu"
+                ariaLabel="Open sidebar menu"
+                className="floating-toolbar-button section-titlebar-action-button"
+                isSelected={isOverflowMenuOpen}
+                onClick={() => setIsOverflowMenuOpen((previous) => !previous)}
+                tooltip="More"
+              >
+                <OverflowIcon />
+              </ToolbarIconButton>
+              {isOverflowMenuOpen ? (
+                <div
+                  aria-label="Sidebar actions"
+                  className="session-context-menu sidebar-floating-menu"
+                  data-empty-space-blocking="true"
+                  id="sidebar-overflow-menu"
+                  role="menu"
+                >
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
+                      setAgentCreateRequestId((previous) => previous + 1);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
+                    Add Agent
+                  </button>
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
+                      setCommandCreateRequestId((previous) => previous + 1);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
+                    Add Action
+                  </button>
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
+                      vscode.postMessage({ type: "toggleCompletionBell" });
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    {serverState.hud.completionBellEnabled ? (
+                      <IconBellOff
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                      />
+                    ) : (
+                      <IconBell
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                      />
+                    )}
+                    {getCompletionBellMenuLabel(serverState.hud)}
+                  </button>
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
+                      vscode.postMessage({ type: "moveSidebarToOtherSide" });
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconLayoutSidebar
+                      aria-hidden="true"
+                      className="session-context-menu-icon"
+                      size={14}
+                      stroke={1.8}
+                    />
+                    Move to Other Side
+                  </button>
+                  <button
+                    className="session-context-menu-item"
+                    onClick={() => {
+                      setIsOverflowMenuOpen(false);
+                      vscode.postMessage({ type: "openSettings" });
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconSettings
+                      aria-hidden="true"
+                      className="session-context-menu-icon"
+                      size={14}
+                      stroke={1.8}
+                    />
+                    Sidebar Settings
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          }
+          vscode={vscode}
+        />
+        <AgentsPanel
+          agents={serverState.hud.agents}
+          createRequestId={agentCreateRequestId}
+          titlebarActions={
+            <Tooltip.Root>
+              <Tooltip.Trigger
+                render={
+                  <button
+                    aria-expanded={isScratchPadOpen}
+                    aria-haspopup="dialog"
+                    aria-label="Show scratch pad"
+                    className="floating-toolbar-button section-titlebar-action-button"
+                    data-empty-space-blocking="true"
+                    data-selected={String(isScratchPadOpen)}
+                    onClick={() => {
+                      setIsPreviousSessionsOpen(false);
+                      setIsScratchPadOpen((previous) => !previous);
+                    }}
+                    type="button"
+                  >
+                    <IconPencil aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+                  </button>
+                }
+              />
+              <Tooltip.Portal>
+                <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
+                  <Tooltip.Popup className="tooltip-popup">Scratch Pad</Tooltip.Popup>
+                </Tooltip.Positioner>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          }
           vscode={vscode}
         />
         <section
@@ -607,6 +769,25 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
               </ToolbarIconButton>
             </div>
           </div>
+          {fixedGroups.length > 0 ? (
+            <div className="group-list">
+              {fixedGroups.map((group) => (
+                <SessionGroupSection
+                  autoEdit={false}
+                  canClose={false}
+                  group={group}
+                  index={-1}
+                  key={group.groupId}
+                  onAutoEditHandled={() => undefined}
+                  orderedSessions={group.sessions}
+                  showDebugSessionNumbers={serverState.hud.debuggingMode}
+                  showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
+                  showHotkeys={serverState.hud.showHotkeysOnSessionCards}
+                  vscode={vscode}
+                />
+              ))}
+            </div>
+          ) : null}
           <DragDropProvider
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
@@ -633,8 +814,36 @@ export function SidebarApp({ vscode }: SidebarAppProps) {
                 isVisible={Boolean(draggedSessionId) && orderedGroups.length < MAX_GROUP_COUNT}
               />
             </div>
+            <DragOverlay
+              dropAnimation={{
+                duration: 220,
+                easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            >
+              {draggedSession ? (
+                <div
+                  className="session session-drag-overlay"
+                  data-activity={draggedSession.activity}
+                  data-focused={String(draggedSession.isFocused)}
+                  data-has-agent-icon={String(Boolean(draggedSession.agentIcon))}
+                  data-running={String(draggedSession.isRunning)}
+                  data-visible={String(draggedSession.isVisible)}
+                  style={
+                    dragOverlayWidth ? { width: `${Math.round(dragOverlayWidth)}px` } : undefined
+                  }
+                >
+                  <SessionCardContent
+                    session={draggedSession}
+                    showCloseButton={false}
+                    showDebugSessionNumbers={serverState.hud.debuggingMode}
+                    showHotkeys={serverState.hud.showHotkeysOnSessionCards}
+                  />
+                </div>
+              ) : null}
+            </DragOverlay>
           </DragDropProvider>
-          {orderedGroups.every((group) => group.sessions.length === 0) ? (
+          {fixedGroups.length === 0 &&
+          orderedGroups.every((group) => group.sessions.length === 0) ? (
             <div className="empty" data-empty-space-blocking="true">
               Create the first session to start the workspace.
             </div>
@@ -756,6 +965,10 @@ function createSessionIdsByGroup(groups: readonly SidebarSessionGroup[]): Sessio
   );
 }
 
+function getWorkspaceSidebarGroups(groups: readonly SidebarSessionGroup[]): SidebarSessionGroup[] {
+  return groups.filter((group) => group.kind !== "browser");
+}
+
 function cloneSessionIdsByGroup(sessionIdsByGroup: SessionIdsByGroup): SessionIdsByGroup {
   return Object.fromEntries(
     Object.entries(sessionIdsByGroup).map(([groupId, sessionIds]) => [groupId, [...sessionIds]]),
@@ -810,6 +1023,36 @@ function findCreatedGroupId(
 ): string | undefined {
   const previousGroupIds = new Set(previousGroups.map((group) => group.groupId));
   return nextGroups.find((group) => !previousGroupIds.has(group.groupId))?.groupId;
+}
+
+function summarizeSidebarGroups(groups: readonly SidebarSessionGroup[]) {
+  return groups.map((group) => ({
+    groupId: group.groupId,
+    isActive: group.isActive,
+    sessionIds: group.sessions.map((session) => session.sessionId),
+    title: group.title,
+  }));
+}
+
+function summarizeSessionIdsByGroup(sessionIdsByGroup: SessionIdsByGroup | undefined) {
+  if (!sessionIdsByGroup) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(sessionIdsByGroup).map(([groupId, sessionIds]) => [groupId, [...sessionIds]]),
+  );
+}
+
+function safeSerializeSidebarDebugDetails(details: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(details);
+  } catch (error) {
+    return JSON.stringify({
+      error: error instanceof Error ? error.message : String(error),
+      unserializable: true,
+    });
+  }
 }
 
 function OverflowIcon() {

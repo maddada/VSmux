@@ -3,7 +3,14 @@ import { DragDropProvider } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { IconCode, IconPencil, IconPlayerPlay, IconTrash, IconWorld } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import type { SidebarCommandButton } from "../shared/sidebar-commands";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import { CommandConfigModal, type CommandConfigDraft } from "./command-config-modal";
@@ -17,8 +24,7 @@ type CommandsPanelProps = {
   commands: SidebarCommandButton[];
   createRequestId: number;
   isVsMuxDisabled: boolean;
-  isScratchPadOpen: boolean;
-  onToggleScratchPad: () => void;
+  titlebarActions?: ReactNode;
   vscode: WebviewApi;
 };
 
@@ -73,8 +79,7 @@ export function CommandsPanel({
   commands,
   createRequestId,
   isVsMuxDisabled,
-  isScratchPadOpen,
-  onToggleScratchPad,
+  titlebarActions,
   vscode,
 }: CommandsPanelProps) {
   const [contextMenu, setContextMenu] = useState<CommandMenuState>();
@@ -236,32 +241,14 @@ export function CommandsPanel({
         <div className="section-titlebar" data-empty-space-blocking="true">
           <div aria-hidden="true" className="section-titlebar-line" />
           <span className="section-titlebar-label">Actions</span>
-          <div className="section-titlebar-actions">
+          {titlebarActions ? (
+            <div className="section-titlebar-actions">
+              <div aria-hidden="true" className="section-titlebar-line" />
+              {titlebarActions}
+            </div>
+          ) : (
             <div aria-hidden="true" className="section-titlebar-line" />
-            <Tooltip.Root>
-              <Tooltip.Trigger
-                render={
-                  <button
-                    aria-expanded={isScratchPadOpen}
-                    aria-haspopup="dialog"
-                    aria-label="Show scratch pad"
-                    className="floating-toolbar-button section-titlebar-action-button"
-                    data-empty-space-blocking="true"
-                    data-selected={String(isScratchPadOpen)}
-                    onClick={onToggleScratchPad}
-                    type="button"
-                  >
-                    <IconPencil aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
-                  </button>
-                }
-              />
-              <Tooltip.Portal>
-                <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
-                  <Tooltip.Popup className="tooltip-popup">Scratch Pad</Tooltip.Popup>
-                </Tooltip.Positioner>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </div>
+          )}
         </div>
         <div className="card commands-panel">
           <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
@@ -304,7 +291,7 @@ export function CommandsPanel({
                             stroke={1.8}
                           />
                         </span>
-                        <span className="command-button-label">Code Mode</span>
+                        <span className="command-button-label code-mode-button">⏸︎</span>
                       </button>
                     }
                   />
@@ -349,7 +336,7 @@ export function CommandsPanel({
                 type="button"
               >
                 <IconPencil aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Configure Action
+                Configure
               </button>
               <button
                 className="session-context-menu-item session-context-menu-item-danger"
@@ -364,7 +351,7 @@ export function CommandsPanel({
                 type="button"
               >
                 <IconTrash aria-hidden="true" className="session-context-menu-icon" size={14} />
-                Remove Action
+                Remove
               </button>
             </div>,
             document.body,

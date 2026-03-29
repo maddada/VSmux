@@ -1,7 +1,7 @@
 import { IconX } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useState } from "react";
-import type { SidebarActionType } from "../shared/sidebar-commands";
+import { DEFAULT_BROWSER_ACTION_URL, type SidebarActionType } from "../shared/sidebar-commands";
 
 export type CommandConfigDraft = {
   actionType: SidebarActionType;
@@ -38,8 +38,16 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
     setCloseTerminalOnExit(draft.closeTerminalOnExit);
     setCommand(draft.command ?? "");
     setName(draft.name);
-    setUrl(draft.url ?? "");
+    setUrl(draft.url ?? (draft.actionType === "browser" ? DEFAULT_BROWSER_ACTION_URL : ""));
   }, [draft, isOpen]);
+
+  useEffect(() => {
+    if (actionType !== "browser" || url.trim().length > 0) {
+      return;
+    }
+
+    setUrl(DEFAULT_BROWSER_ACTION_URL);
+  }, [actionType, url]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -66,7 +74,7 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
   const isSaveDisabled = name.trim().length === 0 || targetValue.length === 0;
   const description =
     actionType === "browser"
-      ? "This action creates a browser session in the VSmux grid and opens its URL in the VS Code integrated browser."
+      ? "This action opens the URL in a VS Code browser tab. The tab is detected and shown in the Browsers group."
       : "This action opens a new VS Code panel terminal each time it runs.";
 
   return createPortal(
@@ -89,7 +97,7 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
         </button>
         <div className="confirm-modal-header confirm-modal-header-with-close">
           <div className="confirm-modal-title" id={titleId}>
-            Configure action
+            Configure Action
           </div>
           <div className="confirm-modal-description" id={descriptionId}>
             {description}
@@ -99,9 +107,10 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
           <label className="command-config-field">
             <span className="command-config-label">Type</span>
             <select
-              autoFocus
               className="group-title-input command-config-input"
-              onChange={(event) => setActionType(event.currentTarget.value as SidebarActionType)}
+              onChange={(event) =>
+                setActionType(event.currentTarget.value === "browser" ? "browser" : "terminal")
+              }
               value={actionType}
             >
               <option value="terminal">Terminal</option>
@@ -111,6 +120,7 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
           <label className="command-config-field">
             <span className="command-config-label">Name</span>
             <input
+              autoFocus
               className="group-title-input command-config-input"
               onChange={(event) => setName(event.currentTarget.value)}
               placeholder={actionType === "browser" ? "Docs" : "Dev"}
@@ -123,7 +133,7 @@ export function CommandConfigModal({ draft, isOpen, onCancel, onSave }: CommandC
               <textarea
                 className="group-title-input command-config-input command-config-textarea"
                 onChange={(event) => setUrl(event.currentTarget.value)}
-                placeholder="https://example.com"
+                placeholder={DEFAULT_BROWSER_ACTION_URL}
                 rows={3}
                 value={url}
               />

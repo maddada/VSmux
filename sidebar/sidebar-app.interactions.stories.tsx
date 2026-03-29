@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fireEvent, waitFor, within } from "storybook/test";
+import { expect, waitFor, within } from "storybook/test";
 import type { SidebarStoryArgs } from "./sidebar-story-fixtures";
 import { resetSidebarStoryMessages } from "./sidebar-story-harness";
 import {
@@ -34,8 +34,8 @@ type Story = StoryObj<typeof meta>;
 
 export const ToolbarActions: Story = {
   args: {
-    highlightedVisibleCount: 4,
-    visibleCount: 4,
+    highlightedVisibleCount: 2,
+    visibleCount: 2,
   },
   play: async ({ canvas, canvasElement, step, userEvent }) => {
     const body = within(canvasElement.ownerDocument.body);
@@ -52,22 +52,28 @@ export const ToolbarActions: Story = {
       await expectMessage({ groupId: "group-4", type: "createSessionInGroup" });
     });
 
-    await step("change sessions shown", async () => {
+    await step("toggle sessions shown", async () => {
       resetSidebarStoryMessages();
-      await userEvent.click(
-        canvas.getByRole("button", { name: "Open visible session options for Group 4" }),
-      );
-      await userEvent.click(await body.findByRole("menuitem", { name: "6" }));
-      await expectMessage({ type: "setVisibleCount", visibleCount: 6 });
+      await userEvent.click(canvas.getByRole("button", { name: "Toggle split mode for Group 4" }));
+      await expectMessage({ type: "setVisibleCount", visibleCount: 2 });
     });
 
-    await step("switch layout mode", async () => {
+    await step("keep the split menu available on right click", async () => {
       resetSidebarStoryMessages();
-      await userEvent.click(
-        canvas.getByRole("button", { name: "Open layout options for Group 4" }),
-      );
-      await userEvent.click(await body.findByRole("menuitem", { name: "Columns" }));
-      await expectMessage({ type: "setViewMode", viewMode: "horizontal" });
+      const splitModeButton = canvas.getByRole("button", { name: "Toggle split mode for Group 4" });
+      await openContextMenu(splitModeButton);
+      await expect(body.queryByRole("menuitem", { name: "3" })).toBeNull();
+      await expect(body.queryByRole("menuitem", { name: "4" })).toBeNull();
+      await expect(body.queryByRole("menuitem", { name: "6" })).toBeNull();
+      await expect(body.queryByRole("menuitem", { name: "9" })).toBeNull();
+      await userEvent.click(await body.findByRole("menuitem", { name: "Show 2 splits" }));
+      await expectMessage({ type: "setVisibleCount", visibleCount: 2 });
+    });
+
+    await step("keep the layout selector hidden", async () => {
+      await expect(
+        canvas.queryByRole("button", { name: "Open layout options for Group 4" }),
+      ).toBeNull();
     });
 
     await step("open sidebar settings", async () => {

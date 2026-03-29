@@ -11,6 +11,17 @@ import type {
 export const DEFAULT_TERMINAL_COLS = 120;
 export const DEFAULT_TERMINAL_ROWS = 34;
 
+export type WorkbenchEditorLayoutGroup = {
+  groups?: WorkbenchEditorLayoutGroup[];
+  orientation?: 0 | 1;
+  size?: number;
+};
+
+export type WorkbenchEditorLayout = {
+  groups: WorkbenchEditorLayoutGroup[];
+  orientation?: 0 | 1;
+};
+
 const FOCUS_EDITOR_GROUP_COMMANDS = [
   "workbench.action.focusFirstEditorGroup",
   "workbench.action.focusSecondEditorGroup",
@@ -120,28 +131,57 @@ export async function focusEditorGroupByIndex(index: number): Promise<boolean> {
   return true;
 }
 
-export async function moveActiveTerminalToEditor(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.terminal.moveToEditor");
-}
-
-export async function moveActiveTerminalToPanel(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.terminal.moveToTerminalPanel");
-}
-
-export async function moveActiveEditorToNextGroup(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.moveEditorToNextGroup");
-}
-
-export async function moveActiveEditorToPreviousGroup(): Promise<void> {
-  await vscode.commands.executeCommand("workbench.action.moveEditorToPreviousGroup");
-}
-
 export async function lockActiveEditorGroup(): Promise<void> {
   await vscode.commands.executeCommand("workbench.action.lockEditorGroup");
 }
 
 export async function unlockActiveEditorGroup(): Promise<void> {
   await vscode.commands.executeCommand("workbench.action.unlockEditorGroup");
+}
+
+export async function getCurrentEditorLayout(): Promise<WorkbenchEditorLayout | undefined> {
+  const layout =
+    await vscode.commands.executeCommand<WorkbenchEditorLayout>("vscode.getEditorLayout");
+  return isWorkbenchEditorLayout(layout) ? layout : undefined;
+}
+
+export async function setEditorLayout(layout: WorkbenchEditorLayout): Promise<void> {
+  await vscode.commands.executeCommand("vscode.setEditorLayout", layout);
+}
+
+export async function moveActiveEditorToGroup(targetGroupIndex: number): Promise<boolean> {
+  const activeViewColumn = getActiveEditorGroupViewColumn();
+  if (activeViewColumn === undefined) {
+    return false;
+  }
+
+  const activeGroupIndex = activeViewColumn - 1;
+  if (activeGroupIndex === targetGroupIndex) {
+    return true;
+  }
+
+  const command =
+    activeGroupIndex < targetGroupIndex
+      ? "workbench.action.moveEditorToRightGroup"
+      : "workbench.action.moveEditorToLeftGroup";
+  const moveCount = Math.abs(targetGroupIndex - activeGroupIndex);
+
+  for (let index = 0; index < moveCount; index += 1) {
+    await vscode.commands.executeCommand(command);
+  }
+
+  return true;
+}
+
+export function haveSameEditorLayoutShape(
+  left: WorkbenchEditorLayout | undefined,
+  right: WorkbenchEditorLayout,
+): boolean {
+  if (!left) {
+    return false;
+  }
+
+  return haveSameEditorLayoutGroupShape(left, right);
 }
 
 export function matchesVisibleTerminalLayout(
@@ -178,4 +218,28 @@ export function getWorkspaceId(): string {
 
 export function getWorkspaceStorageKey(key: string, workspaceId: string): string {
   return `${key}:${workspaceId}`;
+}
+
+function isWorkbenchEditorLayout(value: unknown): value is WorkbenchEditorLayout {
+  return Boolean(
+    value && typeof value === "object" && Array.isArray((value as WorkbenchEditorLayout).groups),
+  );
+}
+
+function haveSameEditorLayoutGroupShape(
+  left: WorkbenchEditorLayoutGroup,
+  right: WorkbenchEditorLayoutGroup,
+): boolean {
+  const leftGroups = left.groups ?? [];
+  const rightGroups = right.groups ?? [];
+  if (
+    (left.orientation ?? 0) !== (right.orientation ?? 0) ||
+    leftGroups.length !== rightGroups.length
+  ) {
+    return false;
+  }
+
+  return leftGroups.every((group, index) =>
+    haveSameEditorLayoutGroupShape(group, rightGroups[index]),
+  );
 }

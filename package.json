@@ -1,7 +1,7 @@
 {
   "name": "VSmux",
   "displayName": "VSmux - T3code & Agent CLIs Manager",
-  "version": "1.10.0",
+  "version": "1.12.1",
   "private": true,
   "description": "VSmux - T3code & Agent CLIs Manager",
   "categories": [
@@ -35,7 +35,7 @@
     "check": "vp check",
     "prepare": "vp config",
     "vsix:package": "node ./scripts/vsix.mjs package",
-    "vsix:install": "node ./scripts/vsix.mjs install",
+    "install": "node ./scripts/vsix.mjs install",
     "vsix:publish": "node ./scripts/publish-extension.mjs"
   },
   "dependencies": {
@@ -54,7 +54,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/vscode": "^1.110.0",
+    "@types/vscode": "^1.105.0",
     "@vitejs/plugin-react": "^6.0.1",
     "@vscode/vsce": "^3.7.1",
     "storybook": "^10.3.0",
@@ -72,11 +72,6 @@
       {
         "command": "VSmux.openSettings",
         "title": "Open Settings",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.openDebugInspector",
-        "title": "Open Move Debugger",
         "category": "VSmux"
       },
       {
@@ -155,43 +150,8 @@
         "category": "VSmux"
       },
       {
-        "command": "VSmux.showThree",
-        "title": "Show 3 Terminals",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.showFour",
-        "title": "Show 4 Terminals",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.showSix",
-        "title": "Show 6 Terminals",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.showNine",
-        "title": "Show 9 Terminals",
-        "category": "VSmux"
-      },
-      {
         "command": "VSmux.toggleFullscreenSession",
         "title": "Toggle Fullscreen Session",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.setHorizontalView",
-        "title": "Set Horizontal View",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.setVerticalView",
-        "title": "Set Vertical View",
-        "category": "VSmux"
-      },
-      {
-        "command": "VSmux.setGridView",
-        "title": "Set Grid View",
         "category": "VSmux"
       },
       {
@@ -285,6 +245,14 @@
           ],
           "description": "Theme preset used by the VSmux sidebar app. Auto follows the active VS Code light or dark theme."
         },
+        "VSmux.agentManagerZoom": {
+          "title": "Agent Manager Zoom",
+          "type": "number",
+          "minimum": 50,
+          "maximum": 200,
+          "default": 100,
+          "description": "Zoom percentage used by the VSmux agent manager sidebar UI. 100 is default size, 95 or 90 zoom out, and values above 100 zoom in."
+        },
         "VSmux.debuggingMode": {
           "title": "Debugging Mode",
           "type": "boolean",
@@ -334,9 +302,7 @@
             "comebacktothecode",
             "glass",
             "ping",
-            "shamisen",
-            "supersetdoowap",
-            "supersetquick"
+            "shamisen"
           ],
           "enumItemLabels": [
             "Arcade",
@@ -346,11 +312,16 @@
             "Come Back To The Code",
             "Glass",
             "Ping",
-            "Shamisen",
-            "Superset Doo-Wap",
-            "Superset Quick"
+            "Shamisen"
           ],
           "description": "Sound played when an agent finishes and the per-project bell is enabled in the VSmux sidebar."
+        },
+        "VSmux.defaultBrowserLaunchUrl": {
+          "title": "Default Browser Launch Url",
+          "type": "string",
+          "scope": "application",
+          "default": "https://www.google.com",
+          "description": "URL opened by the Browsers group + button when this workspace has no browser actions configured. If browser actions exist, the first browser action URL is used instead."
         },
         "VSmux.agents": {
           "title": "Agents",
@@ -372,17 +343,32 @@
               "icon": {
                 "type": "string",
                 "enum": [
+                  "t3",
                   "codex",
                   "claude",
-                  "opencode"
+                  "opencode",
+                  "gemini"
                 ]
+              },
+              "hidden": {
+                "type": "boolean"
               },
               "isDefault": {
                 "type": "boolean"
               }
             }
           },
-          "description": "User-level overrides and custom agents shown in the VSmux sidebar. The built-in Codex CLI, Claude Code, and OpenCode launchers are always available."
+          "description": "User-level agent definitions shown in the VSmux sidebar. Built-in agents can be customized or hidden, and extra custom variants can reuse the same agent type icons."
+        },
+        "VSmux.agentOrder": {
+          "title": "Agent Order",
+          "type": "array",
+          "scope": "application",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Internal ordering metadata for agent buttons in the VSmux sidebar."
         },
         "VSmux.sendRenameCommandOnSidebarRename": {
           "title": "Send Rename Command On Sidebar Rename",
@@ -396,37 +382,25 @@
       {
         "command": "VSmux.focusGroup1",
         "key": "ctrl+alt+shift+1",
-        "mac": "ctrl+alt+shift+1",
+        "mac": "cmd+alt+shift+1",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "command": "VSmux.focusGroup2",
         "key": "ctrl+alt+shift+2",
-        "mac": "ctrl+alt+shift+2",
+        "mac": "cmd+alt+shift+2",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "command": "VSmux.focusGroup3",
         "key": "ctrl+alt+shift+3",
-        "mac": "ctrl+alt+shift+3",
+        "mac": "cmd+alt+shift+3",
         "when": "!inputFocus || terminalFocus"
       },
       {
         "command": "VSmux.focusGroup4",
         "key": "ctrl+alt+shift+4",
-        "mac": "ctrl+alt+shift+4",
-        "when": "!inputFocus || terminalFocus"
-      },
-      {
-        "command": "VSmux.showSix",
-        "key": "ctrl+alt+shift+6",
-        "mac": "cmd+alt+shift+6",
-        "when": "!inputFocus || terminalFocus"
-      },
-      {
-        "command": "VSmux.showNine",
-        "key": "ctrl+alt+shift+9",
-        "mac": "cmd+alt+shift+9",
+        "mac": "cmd+alt+shift+4",
         "when": "!inputFocus || terminalFocus"
       },
       {
@@ -490,24 +464,6 @@
         "command": "VSmux.focusSessionSlot",
         "key": "ctrl+alt+9",
         "mac": "cmd+alt+9",
-        "when": "!inputFocus || terminalFocus"
-      },
-      {
-        "command": "VSmux.setHorizontalView",
-        "key": "ctrl+alt+h",
-        "mac": "cmd+alt+h",
-        "when": "!inputFocus || terminalFocus"
-      },
-      {
-        "command": "VSmux.setVerticalView",
-        "key": "ctrl+alt+v",
-        "mac": "cmd+alt+v",
-        "when": "!inputFocus || terminalFocus"
-      },
-      {
-        "command": "VSmux.setGridView",
-        "key": "ctrl+alt+g",
-        "mac": "cmd+alt+g",
         "when": "!inputFocus || terminalFocus"
       },
       {

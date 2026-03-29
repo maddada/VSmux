@@ -39,16 +39,6 @@ export const COMPLETION_SOUND_OPTIONS = [
     label: "Shamisen",
     value: "shamisen",
   },
-  {
-    fileName: "supersetdoowap.mp3",
-    label: "Superset Doo-Wap",
-    value: "supersetdoowap",
-  },
-  {
-    fileName: "supersetquick.mp3",
-    label: "Superset Quick",
-    value: "supersetquick",
-  },
 ] as const;
 
 export type CompletionSoundSetting = (typeof COMPLETION_SOUND_OPTIONS)[number]["value"];

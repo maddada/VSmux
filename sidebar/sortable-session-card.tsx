@@ -63,11 +63,12 @@ export function SortableSessionCard({
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>();
   const menuRef = useRef<HTMLDivElement>(null);
   const aliasHeadingRef = useRef<HTMLDivElement>(null);
-  const canCopyResumeCommand = supportsResumeCommandCopy(session);
+  const isBrowserSession = session.kind === "browser";
+  const canCopyResumeCommand = !isBrowserSession && supportsResumeCommandCopy(session);
   const sortable = useSortable({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
-    disabled: contextMenuPosition !== undefined,
+    disabled: isBrowserSession || contextMenuPosition !== undefined,
     group: groupId,
     id: session.sessionId,
     index,
@@ -128,12 +129,25 @@ export function SortableSessionCard({
 
   const openContextMenu = (clientX: number, clientY: number) => {
     setContextMenuPosition(
-      clampContextMenuPosition(clientX, clientY, canCopyResumeCommand ? 3 : 2),
+      clampContextMenuPosition(
+        clientX,
+        clientY,
+        isBrowserSession ? 1 : canCopyResumeCommand ? 3 : 2,
+      ),
     );
   };
 
   const requestRename = () => {
+    if (isBrowserSession) {
+      return;
+    }
+
     setContextMenuPosition(undefined);
+    console.debug("[VSmux Sidebar] promptRenameSession click", {
+      groupId,
+      sessionAlias: session.alias,
+      sessionId: session.sessionId,
+    });
     vscode.postMessage({
       sessionId: session.sessionId,
       type: "promptRenameSession",
@@ -231,7 +245,7 @@ export function SortableSessionCard({
           <SessionCardContent
             aliasHeadingRef={aliasHeadingRef}
             onClose={requestClose}
-            onRename={requestRename}
+            onRename={isBrowserSession ? undefined : requestRename}
             session={session}
             showDebugSessionNumbers={showDebugSessionNumbers}
             showCloseButton={showCloseButton}
@@ -258,20 +272,22 @@ export function SortableSessionCard({
                 top: `${contextMenuPosition.y}px`,
               }}
             >
-              <button
-                className="session-context-menu-item"
-                onClick={requestRename}
-                role="menuitem"
-                type="button"
-              >
-                <IconPencil
-                  aria-hidden="true"
-                  className="session-context-menu-icon"
-                  size={16}
-                  stroke={1.8}
-                />
-                Rename
-              </button>
+              {!isBrowserSession ? (
+                <button
+                  className="session-context-menu-item"
+                  onClick={requestRename}
+                  role="menuitem"
+                  type="button"
+                >
+                  <IconPencil
+                    aria-hidden="true"
+                    className="session-context-menu-icon"
+                    size={16}
+                    stroke={1.8}
+                  />
+                  Rename
+                </button>
+              ) : null}
               {canCopyResumeCommand ? (
                 <button
                   className="session-context-menu-item"
@@ -300,7 +316,7 @@ export function SortableSessionCard({
                   size={16}
                   stroke={1.8}
                 />
-                Terminate
+                {isBrowserSession ? "Close" : "Terminate"}
               </button>
             </div>,
             document.body,
@@ -314,6 +330,7 @@ function supportsResumeCommandCopy(session: SidebarSessionItem): boolean {
   return (
     session.agentIcon === "codex" ||
     session.agentIcon === "claude" ||
+    session.agentIcon === "gemini" ||
     session.agentIcon === "opencode"
   );
 }

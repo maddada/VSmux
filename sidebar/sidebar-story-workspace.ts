@@ -27,6 +27,7 @@ import {
 } from "../shared/grouped-session-workspace-state";
 
 type SidebarStoryWorkspaceOptions = {
+  agentManagerZoomPercent: number;
   agents: SidebarAgentButton[];
   commands: SidebarCommandButton[];
   completionBellEnabled: boolean;
@@ -53,6 +54,7 @@ export type SidebarStoryWorkspace = {
 export function createSidebarStoryWorkspace(message: SidebarHydrateMessage): SidebarStoryWorkspace {
   return {
     options: {
+      agentManagerZoomPercent: message.hud.agentManagerZoomPercent,
       agents: message.hud.agents,
       commands: message.hud.commands,
       completionBellEnabled: message.hud.completionBellEnabled,
@@ -124,6 +126,7 @@ export function createSidebarStoryMessage(
     hud: createSidebarHudState(
       activeGroup?.snapshot ?? workspace.snapshot.groups[0]?.snapshot,
       workspace.options.theme,
+      workspace.options.agentManagerZoomPercent,
       workspace.options.showCloseButtonOnSessionCards,
       workspace.options.showHotkeysOnSessionCards,
       workspace.options.debuggingMode,
@@ -254,7 +257,8 @@ export function reduceSidebarStoryWorkspace(
       const nextAgent = {
         agentId: nextAgentId,
         command: message.command,
-        icon: existingIndex >= 0 ? nextAgents[existingIndex]?.icon : undefined,
+        hidden: false,
+        icon: message.icon ?? (existingIndex >= 0 ? nextAgents[existingIndex]?.icon : undefined),
         isDefault: existingIndex >= 0 ? nextAgents[existingIndex]?.isDefault === true : false,
         name: message.name,
       };
@@ -313,9 +317,39 @@ export function reduceSidebarStoryWorkspace(
         ...workspace,
         options: {
           ...workspace.options,
-          agents: workspace.options.agents.filter((agent) => agent.agentId !== message.agentId),
+          agents: workspace.options.agents.map((agent) =>
+            agent.agentId === message.agentId && agent.isDefault
+              ? {
+                  ...agent,
+                  hidden: true,
+                }
+              : agent,
+          ),
         },
       };
+
+    case "syncSidebarAgentOrder": {
+      const agentById = new Map(
+        workspace.options.agents.map((agent) => [agent.agentId, agent] as const),
+      );
+      const nextAgents = message.agentIds
+        .map((agentId) => agentById.get(agentId))
+        .filter((agent): agent is SidebarAgentButton => agent !== undefined);
+
+      for (const agent of workspace.options.agents) {
+        if (!nextAgents.some((candidate) => candidate.agentId === agent.agentId)) {
+          nextAgents.push(agent);
+        }
+      }
+
+      return {
+        ...workspace,
+        options: {
+          ...workspace.options,
+          agents: nextAgents,
+        },
+      };
+    }
 
     case "createGroupFromSession": {
       const result = createGroupFromSessionInWorkspace(workspace.snapshot, message.sessionId);

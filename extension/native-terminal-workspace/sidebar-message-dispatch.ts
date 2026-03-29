@@ -4,6 +4,8 @@ import type {
 } from "../../shared/session-grid-contract";
 import type { TerminalViewMode } from "../../shared/session-grid-contract";
 import type { SidebarActionType } from "../../shared/sidebar-commands";
+import type { SidebarAgentIcon } from "../../shared/sidebar-agents";
+import { logVSmuxDebug } from "../vsmux-debug-log";
 
 export type SidebarMessageHandlers = {
   clearStartupSidebarRefreshes: () => void;
@@ -18,10 +20,10 @@ export type SidebarMessageHandlers = {
   deleteSidebarAgent: (agentId: string) => Promise<void>;
   deleteSidebarCommand: (commandId: string) => Promise<void>;
   focusGroup: (groupId: string) => Promise<void>;
-  focusSession: (sessionId: string, preserveFocus?: boolean) => Promise<void>;
+  focusSession: (sessionId: string, source?: "sidebar") => Promise<void>;
   moveSessionToGroup: (sessionId: string, groupId: string, targetIndex?: number) => Promise<void>;
   moveSidebarToOtherSide: () => Promise<void>;
-  openDebugInspector: () => Promise<void>;
+  openBrowser: () => Promise<void>;
   openSettings: () => Promise<void>;
   promptRenameSession: (sessionId: string) => Promise<void>;
   refreshSidebarHydrate: () => Promise<void>;
@@ -32,7 +34,12 @@ export type SidebarMessageHandlers = {
   runSidebarAgent: (agentId: string) => Promise<void>;
   runSidebarCommand: (commandId: string) => Promise<void>;
   saveScratchPad: (content: string) => Promise<void>;
-  saveSidebarAgent: (agentId: string | undefined, name: string, command: string) => Promise<void>;
+  saveSidebarAgent: (
+    agentId: string | undefined,
+    name: string,
+    command: string,
+    icon?: SidebarAgentIcon,
+  ) => Promise<void>;
   saveSidebarCommand: (
     commandId: string | undefined,
     name: string,
@@ -41,6 +48,7 @@ export type SidebarMessageHandlers = {
     command?: string,
     url?: string,
   ) => Promise<void>;
+  syncSidebarAgentOrder: (agentIds: readonly string[]) => Promise<void>;
   setViewMode: (viewMode: TerminalViewMode) => Promise<void>;
   setVisibleCount: (visibleCount: VisibleSessionCount) => Promise<void>;
   syncGroupOrder: (groupIds: readonly string[]) => Promise<void>;
@@ -66,6 +74,9 @@ export async function dispatchSidebarMessage(
     case "createSession":
       await handlers.createSession();
       return;
+    case "openBrowser":
+      await handlers.openBrowser();
+      return;
     case "createSessionInGroup":
       await handlers.createSessionInGroup(message.groupId);
       return;
@@ -77,9 +88,6 @@ export async function dispatchSidebarMessage(
       return;
     case "openSettings":
       await handlers.openSettings();
-      return;
-    case "openDebugInspector":
-      await handlers.openDebugInspector();
       return;
     case "toggleCompletionBell":
       await handlers.toggleCompletionBell();
@@ -97,7 +105,7 @@ export async function dispatchSidebarMessage(
       await handlers.runSidebarCommand(message.commandId);
       return;
     case "saveSidebarAgent":
-      await handlers.saveSidebarAgent(message.agentId, message.name, message.command);
+      await handlers.saveSidebarAgent(message.agentId, message.name, message.command, message.icon);
       return;
     case "saveSidebarCommand":
       await handlers.saveSidebarCommand(
@@ -112,6 +120,9 @@ export async function dispatchSidebarMessage(
     case "deleteSidebarAgent":
       await handlers.deleteSidebarAgent(message.agentId);
       return;
+    case "syncSidebarAgentOrder":
+      await handlers.syncSidebarAgentOrder(message.agentIds);
+      return;
     case "deleteSidebarCommand":
       await handlers.deleteSidebarCommand(message.commandId);
       return;
@@ -120,11 +131,14 @@ export async function dispatchSidebarMessage(
       return;
     case "focusSession":
       if (message.sessionId) {
-        await handlers.focusSession(message.sessionId, message.preserveFocus === true);
+        await handlers.focusSession(message.sessionId, "sidebar");
       }
       return;
     case "promptRenameSession":
       if (message.sessionId) {
+        logVSmuxDebug("sidebar.dispatch.promptRenameSession", {
+          sessionId: message.sessionId,
+        });
         await handlers.promptRenameSession(message.sessionId);
       }
       return;

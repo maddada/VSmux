@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
-import type { NativeTerminalBackendDebugState } from "../shared/native-terminal-debug-contract";
-import type { SessionGridSnapshot, SessionRecord } from "../shared/session-grid-contract";
+import type { SessionRecord } from "../shared/session-grid-contract";
 import type { TerminalSessionSnapshot } from "../shared/terminal-host-protocol";
 
 export type TerminalWorkspaceBackendTitleChange = {
@@ -10,25 +9,28 @@ export type TerminalWorkspaceBackendTitleChange = {
 
 export type TerminalWorkspaceBackend = vscode.Disposable & {
   readonly onDidActivateSession: vscode.Event<string>;
-  readonly onDidChangeDebugState: vscode.Event<void>;
   readonly onDidChangeSessions: vscode.Event<void>;
   readonly onDidChangeSessionTitle: vscode.Event<TerminalWorkspaceBackendTitleChange>;
-  clearDebugArtifacts: () => Promise<void>;
-  getDebugState: () => NativeTerminalBackendDebugState;
+  hasAttachedTerminal: (sessionId: string) => boolean;
   getLastTerminalActivityAt: (sessionId: string) => number | undefined;
   hasLiveTerminal: (sessionId: string) => boolean;
   initialize: (sessionRecords: readonly SessionRecord[]) => Promise<void>;
   acknowledgeAttention: (sessionId: string) => Promise<boolean>;
   createOrAttachSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
-  canReuseVisibleLayout: (snapshot: SessionGridSnapshot) => boolean;
-  focusSession: (sessionId: string, preserveFocus?: boolean) => Promise<boolean>;
+  focusSession: (sessionId: string) => Promise<boolean>;
+  getObservedGroupIndex: (sessionId: string) => number | undefined;
+  isSessionForegroundVisible: (sessionId: string) => boolean;
+  parkAllEditorTerminalsToPanel: () => Promise<void>;
+  clearObservedEditorGroupPlacement: () => void;
+  restoreAllManagedTerminalsToEditor: () => Promise<void>;
+  revealSessionInGroup: (
+    sessionRecord: SessionRecord,
+    targetGroupIndex: number,
+    isCancelled?: () => boolean,
+  ) => Promise<boolean>;
+  syncRunningTerminalTitles: () => Promise<void>;
   getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
   killSession: (sessionId: string) => Promise<void>;
-  moveManagedTerminalsToPanel: () => Promise<void>;
-  reconcileVisibleTerminals: (
-    snapshot: SessionGridSnapshot,
-    preserveFocus?: boolean,
-  ) => Promise<void>;
   renameSession: (sessionRecord: SessionRecord) => Promise<void>;
   restartSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
   syncSessions: (sessionRecords: readonly SessionRecord[]) => void;

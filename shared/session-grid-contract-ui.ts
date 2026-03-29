@@ -3,33 +3,29 @@ import {
   getCompletionSoundLabel,
   type CompletionSoundSetting,
 } from "./completion-sound";
+import { createDefaultSidebarAgentButtons, type SidebarAgentButton } from "./sidebar-agents";
+import { createDefaultSidebarCommandButtons, type SidebarCommandButton } from "./sidebar-commands";
 import {
-  createDefaultSidebarAgentButtons,
-  type SidebarAgentButton,
-} from "./sidebar-agents";
-import {
-  createDefaultSidebarCommandButtons,
-  type SidebarCommandButton,
-} from "./sidebar-commands";
-import type {
-  SessionGridSnapshot,
-  SessionRecord,
-  SidebarTheme,
+  DEFAULT_AGENT_MANAGER_ZOOM_PERCENT,
+  type SessionGridSnapshot,
+  type SessionRecord,
+  type SidebarTheme,
 } from "./session-grid-contract-core";
 import type { SidebarHudState, SidebarSessionItem } from "./session-grid-contract-sidebar";
 import {
-  formatSessionDisplayId,
   getOrderedSessions,
   getSessionGridLayoutVisibleCount,
   getSessionShortcutLabel,
   getSlotLabel,
   getVisiblePrimaryTitle,
+  getVisibleSessionNumber,
   isSessionGridFocusModeActive,
 } from "./session-grid-contract-session";
 
 export function createSidebarHudState(
   snapshot: SessionGridSnapshot,
   theme: SidebarTheme = "dark-blue",
+  agentManagerZoomPercent = DEFAULT_AGENT_MANAGER_ZOOM_PERCENT,
   showCloseButtonOnSessionCards = false,
   showHotkeysOnSessionCards = false,
   debuggingMode = false,
@@ -45,6 +41,7 @@ export function createSidebarHudState(
     : undefined;
 
   return {
+    agentManagerZoomPercent,
     agents,
     commands,
     completionBellEnabled,
@@ -85,7 +82,7 @@ export function createSidebarSessionItems(
     primaryTitle: getVisiblePrimaryTitle(session.title),
     row: session.row,
     sessionId: session.sessionId,
-    sessionNumber: formatSessionDisplayId(session.displayId),
+    sessionNumber: getVisibleSessionNumber(session),
     shortcutLabel: getSessionShortcutLabel(session.slotIndex, platform),
   }));
 }

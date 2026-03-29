@@ -6,17 +6,17 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 1.10.0
+## Latest Release: 1.12.1
 
-- Browser sessions now reuse and recover tabs more reliably.
-- Native terminal layout reconciliation is more stable across grouped sessions.
-- Sidebar and embedded session polish across browser and T3 workflows.
+- Fixed installation compatibility for Cursor builds based on VS Code 1.105.x.
+- VSmux should install again on Cursor 2.6.21 and similar versions.
+- Full `1.12.0` feature changes are listed in the changelog below.
 
 Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 
-> Current UI in v1.3 (still under development. Will be much nicer with time.)
+---
 
-![VSmux v1.3 Screenshot](media/1.3-screenshot.png)
+![VSmux v1.11 Screenshot](media/Screenshot.png)
 
 ---
 
@@ -24,9 +24,7 @@ Early version video showing the core experience of VSmux (will create a new vide
 
 ---
 
-## The shpeel:
-
-This extension is for you if:
+## This extension is for you if:
 
 - You like to code using multiple agent CLIs in parallel.
 - You don't want to be locked into a tool like conductor or superset or w/e.

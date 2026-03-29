@@ -8,6 +8,7 @@ import type {
 } from "./session-grid-contract-core";
 
 export type SidebarSessionItem = {
+  kind?: "browser" | "workspace";
   activity: "idle" | "working" | "attention";
   activityLabel?: string;
   agentIcon?: SidebarAgentIcon;
@@ -33,6 +34,7 @@ export type SidebarPreviousSessionItem = SidebarSessionItem & {
 };
 
 export type SidebarSessionGroup = {
+  kind?: "browser" | "workspace";
   groupId: string;
   isActive: boolean;
   isFocusModeActive: boolean;
@@ -44,6 +46,7 @@ export type SidebarSessionGroup = {
 };
 
 export type SidebarHudState = {
+  agentManagerZoomPercent: number;
   agents: SidebarAgentButton[];
   commands: SidebarCommandButton[];
   completionBellEnabled: boolean;
@@ -104,10 +107,12 @@ export type SidebarToExtensionMessage =
       type: "ready";
     }
   | {
-      type: "openSettings";
+      type: "sidebarDebugLog";
+      event: string;
+      details?: string;
     }
   | {
-      type: "openDebugInspector";
+      type: "openSettings";
     }
   | {
       type: "toggleCompletionBell";
@@ -120,6 +125,9 @@ export type SidebarToExtensionMessage =
     }
   | {
       type: "createSession";
+    }
+  | {
+      type: "openBrowser";
     }
   | {
       type: "createSessionInGroup";
@@ -135,7 +143,6 @@ export type SidebarToExtensionMessage =
   | {
       type: "focusSession";
       sessionId: string;
-      preserveFocus?: boolean;
     }
   | {
       type: "promptRenameSession";
@@ -238,14 +245,24 @@ export type SidebarToExtensionMessage =
       type: "saveSidebarAgent";
       agentId?: string;
       command: string;
+      icon?: SidebarAgentIcon;
       name: string;
     }
   | {
       type: "deleteSidebarAgent";
       agentId: string;
+    }
+  | {
+      type: "syncSidebarAgentOrder";
+      agentIds: string[];
     };
 
 export type SidebarHudSnapshot = Pick<
   SessionGridSnapshot,
-  "focusedSessionId" | "fullscreenRestoreVisibleCount" | "sessions" | "visibleCount" | "visibleSessionIds" | "viewMode"
+  | "focusedSessionId"
+  | "fullscreenRestoreVisibleCount"
+  | "sessions"
+  | "visibleCount"
+  | "visibleSessionIds"
+  | "viewMode"
 >;
