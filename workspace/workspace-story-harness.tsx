@@ -1,5 +1,8 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import type { SidebarHydrateMessage, SidebarToExtensionMessage } from "../shared/session-grid-contract";
+import type {
+  SidebarHydrateMessage,
+  SidebarToExtensionMessage,
+} from "../shared/session-grid-contract";
 import type {
   ExtensionToWorkspacePanelMessage,
   WorkspacePanelTerminalPane,
@@ -131,15 +134,21 @@ function createWorkspaceStoryMessage(
   debuggingMode: boolean,
 ): ExtensionToWorkspacePanelMessage {
   const sidebarMessage = createSidebarStateMessage(workspace);
-  const activeGroup = sidebarMessage.groups.find((group) => group.isActive) ?? sidebarMessage.groups[0];
+  const activeGroup =
+    sidebarMessage.groups.find((group) => group.isActive) ?? sidebarMessage.groups[0];
   const focusedSessionId = activeGroup?.sessions.find((session) => session.isFocused)?.sessionId;
-  const sessionById = new Map((activeGroup?.sessions ?? []).map((session) => [session.sessionId, session]));
+  const sessionById = new Map(
+    (activeGroup?.sessions ?? []).map((session) => [session.sessionId, session]),
+  );
   const visibleSessionIds =
-    workspace.snapshot.groups.find((group) => group.groupId === workspace.snapshot.activeGroupId)?.snapshot
-      .visibleSessionIds ?? [];
+    workspace.snapshot.groups.find((group) => group.groupId === workspace.snapshot.activeGroupId)
+      ?.snapshot.visibleSessionIds ?? [];
   const panes = visibleSessionIds
     .map((sessionId) => sessionById.get(sessionId))
-    .filter((session): session is NonNullable<typeof session> => session !== undefined && session.isVisible)
+    .filter(
+      (session): session is NonNullable<typeof session> =>
+        session !== undefined && session.isVisible,
+    )
     .map<WorkspacePanelTerminalPane>((session) => ({
       kind: "terminal",
       sessionId: session.sessionId,
@@ -163,6 +172,10 @@ function createWorkspaceStoryMessage(
     connection: STORYBOOK_CONNECTION,
     debuggingMode,
     focusedSessionId,
+    layoutAppearance: {
+      activePaneBorderColor: "rgba(90, 134, 255, 0.95)",
+      paneGap: 12,
+    },
     panes,
     terminalAppearance: {
       cursorBlink: true,
@@ -208,7 +221,7 @@ function getTerminalHistory(sessionId: string): string {
     "transforming... ✓ 26 modules transformed.\r\n",
     "rendering chunks...\r\n",
     "computing gzip size...\r\n",
-    "$ echo \"focus / resize / fit debugging\"\r\n",
+    '$ echo "focus / resize / fit debugging"\r\n',
     "focus / resize / fit debugging\r\n",
     "$ ",
   ].join("");

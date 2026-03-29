@@ -93,6 +93,8 @@ import {
   getShowCloseButtonOnSessionCards,
   getShowHotkeysOnSessionCards,
   getSidebarThemeVariant,
+  getWorkspaceActivePaneBorderColor,
+  getWorkspacePaneGap,
   getTerminalCursorBlink,
   getTerminalCursorStyle,
   getTerminalFontFamily,
@@ -165,6 +167,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
         if (message.type === "closeSession") {
           await this.closeSession(message.sessionId);
+          return;
+        }
+
+        if (message.type === "syncSessionOrder") {
+          await this.syncSessionOrder(message.groupId, message.sessionIds);
         }
       },
     });
@@ -1700,6 +1707,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         connection,
         debuggingMode: getDebuggingMode(),
         focusedSessionId: activeSnapshot.focusedSessionId,
+        layoutAppearance: this.getWorkspaceLayoutAppearance(),
         panes,
         terminalAppearance: this.getWorkspaceTerminalAppearance(),
         type: "hydrate",
@@ -1714,6 +1722,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       connection,
       debuggingMode: getDebuggingMode(),
       focusedSessionId: activeSnapshot.focusedSessionId,
+      layoutAppearance: this.getWorkspaceLayoutAppearance(),
       panes,
       terminalAppearance: this.getWorkspaceTerminalAppearance(),
       type: "sessionState",
@@ -1731,6 +1740,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       fontSize: getTerminalFontSize(),
       letterSpacing: getTerminalLetterSpacing(),
       lineHeight: getTerminalLineHeight(),
+    };
+  }
+
+  private getWorkspaceLayoutAppearance() {
+    return {
+      activePaneBorderColor: getWorkspaceActivePaneBorderColor(),
+      paneGap: getWorkspacePaneGap(),
     };
   }
 

@@ -118,6 +118,33 @@ describe("WorkspacePanelManager", () => {
 
     manager.dispose();
   });
+
+  test("should forward session reorder messages from the workspace webview", async () => {
+    const onMessage = vi.fn();
+    const manager = new WorkspacePanelManager({
+      context: createMockContext(),
+      onMessage,
+    });
+
+    await manager.reveal();
+
+    const panel = createdPanels[0];
+    expect(panel).toBeDefined();
+
+    panel.webview.messageListeners[0]?.({
+      groupId: "group-1",
+      sessionIds: ["session-2", "session-1"],
+      type: "syncSessionOrder",
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      groupId: "group-1",
+      sessionIds: ["session-2", "session-1"],
+      type: "syncSessionOrder",
+    });
+
+    manager.dispose();
+  });
 });
 
 function createMockContext() {

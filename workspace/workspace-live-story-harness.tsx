@@ -1,5 +1,8 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import type { GroupedSessionWorkspaceSnapshot, TerminalSessionRecord } from "../shared/session-grid-contract";
+import type {
+  GroupedSessionWorkspaceSnapshot,
+  TerminalSessionRecord,
+} from "../shared/session-grid-contract";
 import type {
   ExtensionToWorkspacePanelMessage,
   WorkspacePanelConnection,
@@ -195,7 +198,9 @@ export function WorkspaceLiveStoryHarness() {
   );
 }
 
-function createLiveStoryWorkspace(sessions: readonly LiveBootstrapSession[]): SidebarStoryWorkspace {
+function createLiveStoryWorkspace(
+  sessions: readonly LiveBootstrapSession[],
+): SidebarStoryWorkspace {
   const sessionRecords = sessions.map<TerminalSessionRecord>((session, index) => ({
     alias: session.alias,
     column: index,
@@ -276,7 +281,8 @@ function createWorkspaceMessage(
       sessionId: sessionRecord.sessionId,
       sessionRecord,
       terminalTitle:
-        workspace.sessionDecorationsById[sessionRecord.sessionId]?.terminalTitle ?? sessionRecord.title,
+        workspace.sessionDecorationsById[sessionRecord.sessionId]?.terminalTitle ??
+        sessionRecord.title,
     }));
 
   return {
@@ -284,6 +290,10 @@ function createWorkspaceMessage(
     connection,
     debuggingMode: true,
     focusedSessionId: activeGroup?.snapshot.focusedSessionId,
+    layoutAppearance: {
+      activePaneBorderColor: "rgba(90, 134, 255, 0.95)",
+      paneGap: 12,
+    },
     panes,
     terminalAppearance: {
       cursorBlink: true,

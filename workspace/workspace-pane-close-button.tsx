@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { IconSquareRoundedX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 
 const CONFIRM_TOOLTIP_DURATION_MS = 3_000;
 
@@ -49,6 +49,7 @@ export const WorkspacePaneCloseButton: React.FC<WorkspacePaneCloseButtonProps> =
         aria-describedby={isConfirming ? tooltipId : undefined}
         aria-label={isConfirming ? "Confirm close session" : "Close session"}
         className={`workspace-pane-close-button ${isConfirming ? "workspace-pane-close-button-confirming" : ""}`}
+        draggable={false}
         onClick={(event) => {
           event.stopPropagation();
 
@@ -65,7 +66,7 @@ export const WorkspacePaneCloseButton: React.FC<WorkspacePaneCloseButtonProps> =
         }}
         type="button"
       >
-        <IconSquareRoundedX aria-hidden size={14} stroke={1.8} />
+        <IconX aria-hidden size={14} stroke={1.8} />
       </button>
       {isConfirming ? (
         <div className="workspace-pane-close-tooltip" id={tooltipId} role="tooltip">

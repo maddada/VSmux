@@ -23,6 +23,11 @@ export type WorkspacePanelTerminalAppearance = {
   lineHeight: number;
 };
 
+export type WorkspacePanelLayoutAppearance = {
+  activePaneBorderColor: string;
+  paneGap: number;
+};
+
 export type WorkspacePanelTerminalPane = {
   kind: "terminal";
   sessionId: string;
@@ -46,6 +51,7 @@ export type WorkspacePanelHydrateMessage = {
   connection: WorkspacePanelConnection;
   debuggingMode: boolean;
   focusedSessionId?: string;
+  layoutAppearance: WorkspacePanelLayoutAppearance;
   panes: WorkspacePanelPane[];
   terminalAppearance: WorkspacePanelTerminalAppearance;
   viewMode: TerminalViewMode;
@@ -83,7 +89,14 @@ export type WorkspacePanelCloseSessionMessage = {
   sessionId: string;
 };
 
+export type WorkspacePanelSyncSessionOrderMessage = {
+  type: "syncSessionOrder";
+  groupId: string;
+  sessionIds: string[];
+};
+
 export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelReadyMessage
   | WorkspacePanelFocusSessionMessage
-  | WorkspacePanelCloseSessionMessage;
+  | WorkspacePanelCloseSessionMessage
+  | WorkspacePanelSyncSessionOrderMessage;

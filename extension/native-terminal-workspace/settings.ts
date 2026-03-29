@@ -33,6 +33,8 @@ export const TERMINAL_LINE_HEIGHT_SETTING = "terminalLineHeight";
 export const TERMINAL_LETTER_SPACING_SETTING = "terminalLetterSpacing";
 export const TERMINAL_CURSOR_STYLE_SETTING = "terminalCursorStyle";
 export const TERMINAL_CURSOR_BLINK_SETTING = "terminalCursorBlink";
+export const WORKSPACE_PANE_GAP_SETTING = "workspacePaneGap";
+export const WORKSPACE_ACTIVE_PANE_BORDER_COLOR_SETTING = "workspaceActivePaneBorderColor";
 export const COMPLETION_BELL_ENABLED_KEY = "VSmux.completionBellEnabled";
 export const SCRATCH_PAD_CONTENT_KEY = "VSmux.sidebarScratchPadContent";
 export const NATIVE_TERMINAL_DEBUG_STATE_KEY = "VSmux.nativeTerminalDebugState";
@@ -170,21 +172,20 @@ export function getDefaultBrowserLaunchUrl(): string {
 }
 
 export function getTerminalFontFamily(): string {
-  const defaultFontFamily =
-    '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace';
+  const defaultFontFamily = '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace';
   const value =
     vscode.workspace
       .getConfiguration(SETTINGS_SECTION)
-      .get<string>(TERMINAL_FONT_FAMILY_SETTING, defaultFontFamily) ??
-    defaultFontFamily;
+      .get<string>(TERMINAL_FONT_FAMILY_SETTING, defaultFontFamily) ?? defaultFontFamily;
 
   return value.trim() || defaultFontFamily;
 }
 
 export function getTerminalFontSize(): number {
   const value =
-    vscode.workspace.getConfiguration(SETTINGS_SECTION).get<number>(TERMINAL_FONT_SIZE_SETTING, 12) ??
-    12;
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(TERMINAL_FONT_SIZE_SETTING, 12) ?? 12;
   return clampNumber(value, 8, 32, 12);
 }
 
@@ -218,6 +219,23 @@ export function getTerminalCursorBlink(): boolean {
       .getConfiguration(SETTINGS_SECTION)
       .get<boolean>(TERMINAL_CURSOR_BLINK_SETTING, true) ?? true
   );
+}
+
+export function getWorkspacePaneGap(): number {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(WORKSPACE_PANE_GAP_SETTING, 12) ?? 12;
+  return clampNumber(value, 0, 48, 12);
+}
+
+export function getWorkspaceActivePaneBorderColor(): string {
+  const defaultColor = "rgba(90, 134, 255, 0.95)";
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<string>(WORKSPACE_ACTIVE_PANE_BORDER_COLOR_SETTING, defaultColor) ?? defaultColor;
+  return value.trim() || defaultColor;
 }
 
 function clampNumber(value: number, min: number, max: number, fallback: number): number {

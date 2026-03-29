@@ -316,6 +316,20 @@
           "default": true,
           "description": "Whether the VSmux terminal cursor blinks."
         },
+        "VSmux.workspacePaneGap": {
+          "title": "Workspace Pane Gap",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 48,
+          "default": 12,
+          "description": "Gap in pixels between visible panes in the VSmux workspace."
+        },
+        "VSmux.workspaceActivePaneBorderColor": {
+          "title": "Workspace Active Pane Border Color",
+          "type": "string",
+          "default": "rgba(90, 134, 255, 0.95)",
+          "description": "CSS color used for the border around the currently active pane in the VSmux workspace."
+        },
         "VSmux.debuggingMode": {
           "title": "Debugging Mode",
           "type": "boolean",
