@@ -57,9 +57,17 @@ export type WorkspacePanelSessionStateMessage = Omit<WorkspacePanelHydrateMessag
   type: "sessionState";
 };
 
+export type WorkspacePanelTerminalPresentationChangedMessage = {
+  sessionId: string;
+  snapshot?: TerminalSessionSnapshot;
+  terminalTitle?: string;
+  type: "terminalPresentationChanged";
+};
+
 export type ExtensionToWorkspacePanelMessage =
   | WorkspacePanelHydrateMessage
-  | WorkspacePanelSessionStateMessage;
+  | WorkspacePanelSessionStateMessage
+  | WorkspacePanelTerminalPresentationChangedMessage;
 
 export type WorkspacePanelReadyMessage = {
   type: "ready";
@@ -70,6 +78,12 @@ export type WorkspacePanelFocusSessionMessage = {
   sessionId: string;
 };
 
+export type WorkspacePanelCloseSessionMessage = {
+  type: "closeSession";
+  sessionId: string;
+};
+
 export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelReadyMessage
-  | WorkspacePanelFocusSessionMessage;
+  | WorkspacePanelFocusSessionMessage
+  | WorkspacePanelCloseSessionMessage;

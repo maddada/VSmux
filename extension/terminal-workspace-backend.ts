@@ -7,8 +7,14 @@ export type TerminalWorkspaceBackendTitleChange = {
   title?: string;
 };
 
+export type TerminalWorkspaceBackendPresentationChange = {
+  sessionId: string;
+  title?: string;
+};
+
 export type TerminalWorkspaceBackend = vscode.Disposable & {
   readonly onDidChangeSessions: vscode.Event<void>;
+  readonly onDidChangeSessionPresentation: vscode.Event<TerminalWorkspaceBackendPresentationChange>;
   readonly onDidChangeSessionTitle: vscode.Event<TerminalWorkspaceBackendTitleChange>;
   hasAttachedTerminal: (sessionId: string) => boolean;
   getLastTerminalActivityAt: (sessionId: string) => number | undefined;

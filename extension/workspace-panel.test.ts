@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 type Serializer = {
   deserializeWebviewPanel: (panel: MockWebviewPanel) => Promise<void>;
@@ -10,6 +10,7 @@ type MockDisposable = {
 
 type MockWebview = {
   html: string;
+  messageListeners: Array<(message: unknown) => void>;
   onDidReceiveMessage: ReturnType<typeof vi.fn>;
   postMessage: ReturnType<typeof vi.fn>;
   asWebviewUri: ReturnType<typeof vi.fn>;
@@ -54,6 +55,11 @@ vi.mock("vscode", () => ({
 import { WorkspacePanelManager } from "./workspace-panel";
 
 describe("WorkspacePanelManager", () => {
+  beforeEach(() => {
+    createdPanels = [];
+    registeredSerializer = undefined;
+  });
+
   test("should dispose duplicate restored workspace panels", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
@@ -84,6 +90,31 @@ describe("WorkspacePanelManager", () => {
 
     expect(createdPanels).toHaveLength(0);
     expect(restoredPanel.reveal).toHaveBeenCalledWith(1, false);
+
+    manager.dispose();
+  });
+
+  test("should forward close session messages from the workspace webview", async () => {
+    const onMessage = vi.fn();
+    const manager = new WorkspacePanelManager({
+      context: createMockContext(),
+      onMessage,
+    });
+
+    await manager.reveal();
+
+    const panel = createdPanels[0];
+    expect(panel).toBeDefined();
+
+    panel.webview.messageListeners[0]?.({
+      sessionId: "session-1",
+      type: "closeSession",
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      type: "closeSession",
+    });
 
     manager.dispose();
   });
@@ -123,7 +154,11 @@ function createMockPanel({
     webview: {
       asWebviewUri: vi.fn((value: unknown) => value),
       html: "",
-      onDidReceiveMessage: vi.fn(() => createDisposable()),
+      messageListeners: [],
+      onDidReceiveMessage: vi.fn((listener: (message: unknown) => void) => {
+        panel.webview.messageListeners.push(listener);
+        return createDisposable();
+      }),
       postMessage: vi.fn(async () => true),
     },
   };

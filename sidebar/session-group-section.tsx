@@ -39,6 +39,7 @@ export type SessionGroupSectionProps = {
   group: SidebarSessionGroup;
   index: number;
   onAutoEditHandled: () => void;
+  onFocusRequested?: (groupId: string, sessionId: string) => void;
   orderedSessions: SidebarSessionItem[];
   showDebugSessionNumbers: boolean;
   showCloseButton: boolean;
@@ -87,6 +88,7 @@ export function SessionGroupSection({
   group,
   index,
   onAutoEditHandled,
+  onFocusRequested,
   orderedSessions,
   showDebugSessionNumbers,
   showCloseButton,
@@ -445,6 +447,7 @@ export function SessionGroupSection({
                 groupId={group.groupId}
                 index={sessionIndex}
                 key={session.sessionId}
+                onFocusRequested={onFocusRequested}
                 session={session}
                 showDebugSessionNumbers={showDebugSessionNumbers}
                 showCloseButton={showCloseButton}

@@ -10,37 +10,51 @@ export const TITLE_ACTIVITY_WINDOW_MS = 1_000;
 export type TitleDerivedSessionActivity = {
   activity: SidebarSessionActivityState;
   agentName: string;
+  hasSeenWorking?: boolean;
+  isAcknowledged?: boolean;
   lastTitleChangeAt?: number;
 };
 
 export function getTitleDerivedSessionActivity(
   title: string,
   previousDerivedActivity?: TitleDerivedSessionActivity,
+  knownAgentName?: string,
 ): TitleDerivedSessionActivity | undefined {
-  const titleState = getTitleState(title);
+  const titleState = getTitleState(title, knownAgentName);
   if (!titleState) {
-    return undefined;
+    return getFallbackActivity(previousDerivedActivity);
   }
 
-  const lastTitleChangeAt =
-    previousDerivedActivity?.agentName === titleState.agentName
-      ? previousDerivedActivity.lastTitleChangeAt
-      : undefined;
+  const sameAgent = previousDerivedActivity?.agentName === titleState.agentName;
+  const hasSeenWorking = sameAgent
+    ? (previousDerivedActivity?.hasSeenWorking ?? false) ||
+      previousDerivedActivity?.activity === "working" ||
+      previousDerivedActivity?.activity === "attention"
+    : false;
+  const isAcknowledged = sameAgent ? previousDerivedActivity?.isAcknowledged ?? false : false;
+  const lastTitleChangeAt = sameAgent ? previousDerivedActivity?.lastTitleChangeAt : undefined;
   if (titleState.state === "idle") {
     return {
-      activity: "idle",
+      activity: hasSeenWorking && !isAcknowledged ? "attention" : "idle",
       agentName: titleState.agentName,
+      hasSeenWorking,
+      isAcknowledged,
       lastTitleChangeAt,
     };
   }
 
+  const effectiveLastTitleChangeAt = lastTitleChangeAt ?? Date.now();
   return {
     activity:
-      lastTitleChangeAt !== undefined && Date.now() - lastTitleChangeAt <= TITLE_ACTIVITY_WINDOW_MS
+      Date.now() - effectiveLastTitleChangeAt <= TITLE_ACTIVITY_WINDOW_MS
         ? "working"
-        : "idle",
+        : isAcknowledged
+          ? "idle"
+          : "attention",
     agentName: titleState.agentName,
-    lastTitleChangeAt,
+    hasSeenWorking: true,
+    isAcknowledged,
+    lastTitleChangeAt: effectiveLastTitleChangeAt,
   };
 }
 
@@ -48,12 +62,27 @@ export function getTitleDerivedSessionActivityFromTransition(
   previousTitle: string | undefined,
   nextTitle: string,
   previousDerivedActivity?: TitleDerivedSessionActivity,
+  knownAgentName?: string,
 ): TitleDerivedSessionActivity | undefined {
-  const nextTitleState = getTitleState(nextTitle);
+  const nextTitleState = getTitleState(nextTitle, knownAgentName);
   if (nextTitleState) {
+    const sameAgent = previousDerivedActivity?.agentName === nextTitleState.agentName;
+    const hasSeenWorking = sameAgent
+      ? (previousDerivedActivity?.hasSeenWorking ?? false) ||
+        previousDerivedActivity?.activity === "working" ||
+        previousDerivedActivity?.activity === "attention"
+      : false;
+    const isAcknowledged = sameAgent ? previousDerivedActivity?.isAcknowledged ?? false : false;
     return {
-      activity: nextTitleState.state === "working" ? "working" : "idle",
+      activity:
+        nextTitleState.state === "working"
+          ? "working"
+          : hasSeenWorking && !isAcknowledged
+            ? "attention"
+            : "idle",
       agentName: nextTitleState.agentName,
+      hasSeenWorking: nextTitleState.state === "working" ? true : hasSeenWorking,
+      isAcknowledged: nextTitleState.state === "working" ? false : isAcknowledged,
       lastTitleChangeAt:
         nextTitleState.state === "working"
           ? previousDerivedActivity?.agentName === nextTitleState.agentName &&
@@ -66,25 +95,41 @@ export function getTitleDerivedSessionActivityFromTransition(
     };
   }
 
-  const nextActivity = getTitleDerivedSessionActivity(nextTitle, previousDerivedActivity);
-  if (!nextActivity) {
-    return undefined;
-  }
-
-  return nextActivity;
+  return getFallbackActivity(previousDerivedActivity);
 }
 
 export function haveSameTitleDerivedSessionActivity(
   left: TitleDerivedSessionActivity | undefined,
   right: TitleDerivedSessionActivity | undefined,
 ): boolean {
-  return left?.activity === right?.activity && left?.agentName === right?.agentName;
+  return (
+    left?.activity === right?.activity &&
+    left?.agentName === right?.agentName &&
+    left?.isAcknowledged === right?.isAcknowledged
+  );
+}
+
+export function acknowledgeTitleDerivedSessionActivity(
+  activity: TitleDerivedSessionActivity | undefined,
+): TitleDerivedSessionActivity | undefined {
+  if (!activity || activity.activity !== "attention") {
+    return activity;
+  }
+
+  return {
+    ...activity,
+    activity: "idle",
+    isAcknowledged: true,
+  };
 }
 
 function getTitleState(
   title: string,
+  knownAgentName?: string,
 ): { agentName: "claude" | "codex"; state: "idle" | "working" } | undefined {
-  const claudeCodeTitleState = getClaudeCodeTitleState(title);
+  const normalizedAgentName = normalizeKnownAgentName(knownAgentName);
+
+  const claudeCodeTitleState = getClaudeCodeTitleState(title, normalizedAgentName === "claude");
   if (claudeCodeTitleState) {
     return {
       agentName: "claude",
@@ -92,7 +137,7 @@ function getTitleState(
     };
   }
 
-  const codexTitleState = getCodexTitleState(title);
+  const codexTitleState = getCodexTitleState(title, normalizedAgentName === "codex");
   if (codexTitleState) {
     return {
       agentName: "codex",
@@ -103,12 +148,15 @@ function getTitleState(
   return undefined;
 }
 
-function getClaudeCodeTitleState(title: string): "idle" | "working" | undefined {
+function getClaudeCodeTitleState(
+  title: string,
+  allowAgentHintMatch = false,
+): "idle" | "working" | undefined {
   const normalizedTitle = title.trim().replace(/\s+/g, " ");
   const lowerTitle = normalizedTitle.toLowerCase();
   const lowerClaudeCodeTitle = CLAUDE_CODE_TITLE.toLowerCase();
 
-  if (!lowerTitle.includes(lowerClaudeCodeTitle)) {
+  if (!allowAgentHintMatch && !lowerTitle.includes(lowerClaudeCodeTitle)) {
     return undefined;
   }
 
@@ -123,9 +171,9 @@ function getClaudeCodeTitleState(title: string): "idle" | "working" | undefined 
   return undefined;
 }
 
-function getCodexTitleState(title: string): "idle" | "working" | undefined {
+function getCodexTitleState(title: string, allowAgentHintMatch = false): "idle" | "working" | undefined {
   const normalizedTitle = title.trim().replace(/\s+/g, " ");
-  if (!normalizedTitle.toLowerCase().includes(CODEX_TITLE_KEYWORD)) {
+  if (!allowAgentHintMatch && !normalizedTitle.toLowerCase().includes(CODEX_TITLE_KEYWORD)) {
     return undefined;
   }
 
@@ -142,4 +190,28 @@ function getCodexWorkingMarker(title: string): string | undefined {
 
 function containsAnyMarker(title: string, markers: readonly string[]): boolean {
   return markers.some((marker) => title.includes(marker));
+}
+
+function normalizeKnownAgentName(
+  knownAgentName: string | undefined,
+): "claude" | "codex" | undefined {
+  const normalizedAgentName = knownAgentName?.trim().toLowerCase();
+  if (normalizedAgentName === "claude" || normalizedAgentName === "codex") {
+    return normalizedAgentName;
+  }
+
+  return undefined;
+}
+
+function getFallbackActivity(
+  previousDerivedActivity: TitleDerivedSessionActivity | undefined,
+): TitleDerivedSessionActivity | undefined {
+  if (!previousDerivedActivity?.hasSeenWorking) {
+    return undefined;
+  }
+
+  return {
+    ...previousDerivedActivity,
+    activity: previousDerivedActivity.isAcknowledged ? "idle" : "attention",
+  };
 }

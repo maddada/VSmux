@@ -94,6 +94,25 @@ type CreatePreviousSessionEntryOptions = Pick<
   sessionRecord: SessionRecord;
 };
 
+type CreateSidebarSessionItemOptions = Pick<
+  BuildSidebarMessageOptions,
+  | "browserHasLiveProjection"
+  | "debuggingMode"
+  | "getEffectiveSessionActivity"
+  | "getSessionAgentLaunch"
+  | "getSessionSnapshot"
+  | "getSidebarAgentIcon"
+  | "getT3ActivityState"
+  | "getTerminalTitle"
+  | "ownsNativeTerminalControl"
+  | "platform"
+  | "terminalHasLiveProjection"
+  | "workspaceId"
+  | "workspaceSnapshot"
+> & {
+  sessionRecord: SessionRecord;
+};
+
 export function buildSidebarMessage(
   options: BuildSidebarMessageOptions,
 ): ExtensionToSidebarMessage {
@@ -141,6 +160,24 @@ export function createPreviousSessionEntry(
       isVisible: false,
     },
   };
+}
+
+export function createSidebarSessionItem(
+  options: CreateSidebarSessionItemOptions,
+): SidebarSessionItem | undefined {
+  const group = options.workspaceSnapshot.groups.find((candidateGroup) =>
+    candidateGroup.snapshot.sessions.some(
+      (sessionRecord) => sessionRecord.sessionId === options.sessionRecord.sessionId,
+    ),
+  );
+  if (!group) {
+    return undefined;
+  }
+
+  return buildSidebarItem(group, group.snapshot, options.sessionRecord, {
+    ...options,
+    activeGroupId: options.workspaceSnapshot.activeGroupId,
+  });
 }
 
 function buildSidebarGroup(

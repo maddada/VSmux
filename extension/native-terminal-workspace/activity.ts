@@ -4,11 +4,6 @@ import type {
   TerminalSessionSnapshot,
 } from "../../shared/terminal-host-protocol";
 import { createDisconnectedSessionSnapshot } from "../terminal-workspace-helpers";
-import {
-  getTitleDerivedSessionActivity,
-  type TitleDerivedSessionActivity,
-} from "../session-title-activity";
-import { WORKING_ACTIVITY_STALE_TIMEOUT_MS } from "./settings";
 
 type SessionActivityContext = {
   getCompletionBellEnabled: () => boolean;
@@ -19,10 +14,7 @@ type SessionActivityContext = {
   };
   lastKnownActivityBySessionId: Map<string, TerminalAgentStatus>;
   playCompletionSound: () => Promise<void>;
-  terminalTitleBySessionId: ReadonlyMap<string, string>;
-  titleDerivedActivityBySessionId: ReadonlyMap<string, TitleDerivedSessionActivity>;
   workspaceId: string;
-  getLastTerminalActivityAt: (sessionId: string) => number | undefined;
 };
 
 export function getEffectiveSessionActivity(
@@ -37,53 +29,9 @@ export function getEffectiveSessionActivity(
     };
   }
 
-  if (sessionSnapshot.agentStatus !== "idle") {
-    if (
-      sessionSnapshot.agentStatus === "working" &&
-      shouldExpireWorkingActivity(
-        context.getLastTerminalActivityAt(sessionRecord.sessionId),
-        sessionSnapshot.agentName,
-      )
-    ) {
-      return {
-        activity: "idle",
-        agentName: sessionSnapshot.agentName,
-      };
-    }
-
-    return {
-      activity: sessionSnapshot.agentStatus,
-      agentName: sessionSnapshot.agentName,
-    };
-  }
-
-  const titleDerivedActivity = getTitleDerivedSessionActivity(
-    context.terminalTitleBySessionId.get(sessionRecord.sessionId) ?? "",
-    context.titleDerivedActivityBySessionId.get(sessionRecord.sessionId),
-  );
-  if (!titleDerivedActivity) {
-    return {
-      activity: "idle",
-      agentName: sessionSnapshot.agentName,
-    };
-  }
-
-  if (
-    titleDerivedActivity.activity === "working" &&
-    shouldExpireWorkingActivity(
-      context.getLastTerminalActivityAt(sessionRecord.sessionId),
-      titleDerivedActivity.agentName,
-    )
-  ) {
-    return {
-      activity: "idle",
-      agentName: titleDerivedActivity.agentName,
-    };
-  }
-
   return {
-    activity: titleDerivedActivity.activity,
-    agentName: titleDerivedActivity.agentName,
+    activity: sessionSnapshot.agentStatus,
+    agentName: sessionSnapshot.agentName,
   };
 }
 
@@ -121,20 +69,4 @@ export async function syncKnownSessionActivities(
   }
 
   await context.playCompletionSound();
-}
-
-function shouldExpireWorkingActivity(
-  lastTerminalActivityAt: number | undefined,
-  agentName: string | undefined,
-): boolean {
-  const normalizedAgentName = agentName?.trim().toLowerCase();
-  if (normalizedAgentName !== "claude" && normalizedAgentName !== "codex") {
-    return false;
-  }
-
-  if (!lastTerminalActivityAt) {
-    return false;
-  }
-
-  return Date.now() - lastTerminalActivityAt >= WORKING_ACTIVITY_STALE_TIMEOUT_MS;
 }

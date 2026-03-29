@@ -26,6 +26,7 @@ type ContextMenuPosition = {
 export type SortableSessionCardProps = {
   groupId: string;
   index: number;
+  onFocusRequested?: (groupId: string, sessionId: string) => void;
   session: SidebarSessionItem;
   showDebugSessionNumbers: boolean;
   showCloseButton: boolean;
@@ -54,6 +55,7 @@ function clampContextMenuPosition(
 export function SortableSessionCard({
   groupId,
   index,
+  onFocusRequested,
   session,
   showDebugSessionNumbers,
   showCloseButton,
@@ -175,6 +177,7 @@ export function SortableSessionCard({
       return;
     }
 
+    onFocusRequested?.(groupId, session.sessionId);
     vscode.postMessage({ sessionId: session.sessionId, type: "focusSession" });
   };
 

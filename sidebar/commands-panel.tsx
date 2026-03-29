@@ -12,6 +12,8 @@ import {
   type ReactNode,
 } from "react";
 import type { SidebarCommandButton } from "../shared/sidebar-commands";
+import type { SidebarGitState } from "../shared/sidebar-git";
+import { GitActionRow } from "./git-action-row";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import { CommandConfigModal, type CommandConfigDraft } from "./command-config-modal";
 import type { WebviewApi } from "./webview-api";
@@ -23,6 +25,7 @@ const CONTEXT_MENU_HEIGHT_PX = 110;
 type CommandsPanelProps = {
   commands: SidebarCommandButton[];
   createRequestId: number;
+  git: SidebarGitState;
   titlebarActions?: ReactNode;
   vscode: WebviewApi;
 };
@@ -77,6 +80,7 @@ function getCommandDragData(candidate: { data?: unknown } | null | undefined) {
 export function CommandsPanel({
   commands,
   createRequestId,
+  git,
   titlebarActions,
   vscode,
 }: CommandsPanelProps) {
@@ -249,6 +253,7 @@ export function CommandsPanel({
           )}
         </div>
         <div className="card commands-panel">
+          <GitActionRow git={git} vscode={vscode} />
           <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
             <DragDropProvider onDragEnd={handleDragEnd}>
               <div className="commands-grid">

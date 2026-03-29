@@ -11,6 +11,7 @@ import type {
 import { DaemonTerminalRuntime, type DaemonTerminalConnection } from "./daemon-terminal-runtime";
 import type {
   TerminalWorkspaceBackend,
+  TerminalWorkspaceBackendPresentationChange,
   TerminalWorkspaceBackendTitleChange,
 } from "./terminal-workspace-backend";
 import {
@@ -20,6 +21,7 @@ import {
   getDefaultWorkspaceCwd,
 } from "./terminal-workspace-environment";
 import { getWorkspaceStorageKey } from "./terminal-workspace-environment";
+import { logVSmuxDebug } from "./vsmux-debug-log";
 
 const POLL_INTERVAL_MS = 500;
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
@@ -32,6 +34,8 @@ export type DaemonTerminalWorkspaceBackendOptions = {
 
 export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
   private readonly changeSessionsEmitter = new vscode.EventEmitter<void>();
+  private readonly changeSessionPresentationEmitter =
+    new vscode.EventEmitter<TerminalWorkspaceBackendPresentationChange>();
   private readonly changeSessionTitleEmitter =
     new vscode.EventEmitter<TerminalWorkspaceBackendTitleChange>();
   private readonly runtime: DaemonTerminalRuntime;
@@ -40,6 +44,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private readonly sessionTitleBySessionId = new Map<string, string>();
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
 
+  public readonly onDidChangeSessionPresentation = this.changeSessionPresentationEmitter.event;
   public readonly onDidChangeSessionTitle = this.changeSessionTitleEmitter.event;
   public readonly onDidChangeSessions = this.changeSessionsEmitter.event;
 
@@ -53,8 +58,31 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     await this.runtime.configure(this.getIdleShutdownTimeoutMs());
     this.runtime.onDidChangeSessionState((snapshot) => {
       const previousSnapshot = this.sessions.get(snapshot.sessionId);
+      const previousTitle = this.sessionTitleBySessionId.get(snapshot.sessionId);
       this.sessions.set(snapshot.sessionId, snapshot);
-      this.syncSessionTitle(snapshot.sessionId, snapshot.title);
+      const nextTitle = this.syncSessionTitle(snapshot.sessionId, snapshot.title);
+      logVSmuxDebug("backend.daemon.sessionState", {
+        agentName: snapshot.agentName,
+        agentStatus: snapshot.agentStatus,
+        sessionId: snapshot.sessionId,
+        status: snapshot.status,
+        title: nextTitle,
+      });
+      if (!haveSameTerminalSessionPresentation(previousSnapshot, previousTitle, snapshot, nextTitle)) {
+        logVSmuxDebug("backend.daemon.sessionPresentationChanged", {
+          nextAgentName: snapshot.agentName,
+          nextAgentStatus: snapshot.agentStatus,
+          previousAgentName: previousSnapshot?.agentName,
+          previousAgentStatus: previousSnapshot?.agentStatus,
+          previousTitle,
+          sessionId: snapshot.sessionId,
+          title: nextTitle,
+        });
+        this.changeSessionPresentationEmitter.fire({
+          sessionId: snapshot.sessionId,
+          title: nextTitle,
+        });
+      }
       if (!haveSameTerminalSessionSnapshot(previousSnapshot, snapshot)) {
         this.changeSessionsEmitter.fire();
       }
@@ -72,6 +100,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
     this.runtime.dispose();
     this.changeSessionsEmitter.dispose();
+    this.changeSessionPresentationEmitter.dispose();
     this.changeSessionTitleEmitter.dispose();
   }
 
@@ -211,11 +240,18 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         this.sessions.get(sessionId) ??
         createDisconnectedSessionSnapshot(sessionRecord.sessionId, this.options.workspaceId);
       const previousSnapshot = this.sessions.get(sessionId);
+      const previousTitle = this.sessionTitleBySessionId.get(sessionId);
       if (!haveSameTerminalSessionSnapshot(previousSnapshot, nextSnapshot)) {
         didChange = true;
       }
       this.sessions.set(sessionId, nextSnapshot);
-      this.syncSessionTitle(sessionId, nextSnapshot.title);
+      const nextTitle = this.syncSessionTitle(sessionId, nextSnapshot.title);
+      if (!haveSameTerminalSessionPresentation(previousSnapshot, previousTitle, nextSnapshot, nextTitle)) {
+        this.changeSessionPresentationEmitter.fire({
+          sessionId,
+          title: nextTitle,
+        });
+      }
     }
 
     if (didChange) {
@@ -242,11 +278,11 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     );
   }
 
-  private syncSessionTitle(sessionId: string, nextTitle: string | undefined): void {
-    const normalizedTitle = nextTitle?.trim() || undefined;
+  private syncSessionTitle(sessionId: string, nextTitle: string | undefined): string | undefined {
+    const normalizedTitle = normalizeTitle(nextTitle);
     const previousTitle = this.sessionTitleBySessionId.get(sessionId);
     if (previousTitle === normalizedTitle) {
-      return;
+      return normalizedTitle;
     }
 
     if (normalizedTitle) {
@@ -259,7 +295,22 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       sessionId,
       title: normalizedTitle,
     });
+
+    return normalizedTitle;
   }
+}
+
+function haveSameTerminalSessionPresentation(
+  leftSnapshot: TerminalSessionSnapshot | undefined,
+  leftTitle: string | undefined,
+  rightSnapshot: TerminalSessionSnapshot | undefined,
+  rightTitle: string | undefined,
+): boolean {
+  return (
+    leftSnapshot?.agentName === rightSnapshot?.agentName &&
+    leftSnapshot?.agentStatus === rightSnapshot?.agentStatus &&
+    leftTitle === rightTitle
+  );
 }
 
 function haveSameTerminalSessionSnapshot(
@@ -271,8 +322,6 @@ function haveSameTerminalSessionSnapshot(
   }
 
   return (
-    left.agentName === right.agentName &&
-    left.agentStatus === right.agentStatus &&
     left.cols === right.cols &&
     left.cwd === right.cwd &&
     left.endedAt === right.endedAt &&
@@ -286,4 +335,8 @@ function haveSameTerminalSessionSnapshot(
     left.status === right.status &&
     left.workspaceId === right.workspaceId
   );
+}
+
+function normalizeTitle(title: string | undefined): string | undefined {
+  return title?.trim() || undefined;
 }

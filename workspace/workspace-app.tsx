@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createEditorLayoutPlan } from "../shared/editor-layout";
 import type {
   ExtensionToWorkspacePanelMessage,
   WorkspacePanelPane,
   WorkspacePanelTerminalPane,
+  WorkspacePanelHydrateMessage,
+  WorkspacePanelSessionStateMessage,
 } from "../shared/workspace-panel-contract";
 import { getVisiblePrimaryTitle, getVisibleTerminalTitle } from "../shared/session-grid-contract";
 import { logWorkspaceDebug } from "./workspace-debug";
+import { WorkspacePaneCloseButton } from "./workspace-pane-close-button";
 import { TerminalPane } from "./terminal-pane";
 import { T3Pane } from "./t3-pane";
 
@@ -23,15 +26,22 @@ export type WorkspaceAppProps = {
 
 export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = window, vscode }) => {
   const [areTerminalsVisible, setAreTerminalsVisible] = useState(true);
-  const [hasCompletedInitialTerminalRemount, setHasCompletedInitialTerminalRemount] = useState(false);
-  const [isWorkspaceFocused, setIsWorkspaceFocused] = useState(() =>
-    typeof document !== "undefined" &&
-    document.visibilityState === "visible" &&
-    document.hasFocus(),
+  const [hasCompletedInitialTerminalRemount, setHasCompletedInitialTerminalRemount] =
+    useState(false);
+  const [isWorkspaceFocused, setIsWorkspaceFocused] = useState(
+    () =>
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible" &&
+      document.hasFocus(),
   );
   const [serverState, setServerState] = useState<ExtensionToWorkspacePanelMessage | undefined>();
   const [terminalPaneRenderVersion, setTerminalPaneRenderVersion] = useState(0);
   const [localFocusedSessionId, setLocalFocusedSessionId] = useState<string | undefined>();
+  const pendingFocusedSessionIdRef = useRef<string>();
+  const workspaceState =
+    serverState && (serverState.type === "hydrate" || serverState.type === "sessionState")
+      ? serverState
+      : undefined;
 
   useEffect(() => {
     const syncWorkspaceFocusState = () => {
@@ -55,17 +65,53 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   }, []);
 
   useEffect(() => {
+    const applyWorkspaceStateMessage = (
+      message: WorkspacePanelHydrateMessage | WorkspacePanelSessionStateMessage,
+    ) => {
+      logWorkspaceDebug(message.debuggingMode, "message.received", {
+        activeGroupId: message.activeGroupId,
+        focusedSessionId: message.focusedSessionId,
+        paneIds: message.panes.map((pane) => pane.sessionId),
+        type: message.type,
+      });
+      setServerState(message);
+    };
+
     const handleMessage = (event: MessageEvent<ExtensionToWorkspacePanelMessage>) => {
-      if (!event.data || (event.data.type !== "hydrate" && event.data.type !== "sessionState")) {
+      if (!event.data) {
         return;
       }
-      logWorkspaceDebug(event.data.debuggingMode, "message.received", {
-        activeGroupId: event.data.activeGroupId,
-        focusedSessionId: event.data.focusedSessionId,
-        paneIds: event.data.panes.map((pane) => pane.sessionId),
-        type: event.data.type,
-      });
-      setServerState(event.data);
+
+      if (event.data.type === "terminalPresentationChanged") {
+        setServerState((previousState) => {
+          if (
+            !previousState ||
+            (previousState.type !== "hydrate" && previousState.type !== "sessionState")
+          ) {
+            return previousState;
+          }
+
+          return {
+            ...previousState,
+            panes: previousState.panes.map((pane) =>
+              pane.kind !== "terminal" || pane.sessionId !== event.data.sessionId
+                ? pane
+                : {
+                    ...pane,
+                    snapshot: event.data.snapshot ?? pane.snapshot,
+                    terminalTitle: event.data.terminalTitle,
+                  },
+            ),
+          };
+        });
+        return;
+      }
+
+      if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
+        return;
+      }
+
+      applyWorkspaceStateMessage(event.data);
     };
 
     const handleIframeFocus = (event: MessageEvent<{ sessionId?: string; type?: string }>) => {
@@ -89,11 +135,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     };
   }, [messageSource, vscode]);
 
-  const panes = useMemo(() => serverState?.panes ?? [], [serverState?.panes]);
+  const panes = useMemo(() => workspaceState?.panes ?? [], [workspaceState]);
   const paneRows = useMemo(() => {
     const rowLengths = createEditorLayoutPlan(
       Math.max(1, panes.length),
-      serverState?.viewMode ?? "grid",
+      workspaceState?.viewMode ?? "grid",
     ).rowLengths;
     const rows: WorkspacePanelPane[][] = [];
     let nextPaneIndex = 0;
@@ -107,8 +153,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     }
 
     return rows;
-  }, [panes, serverState?.viewMode]);
-  const presentedFocusedSessionId = localFocusedSessionId ?? serverState?.focusedSessionId;
+  }, [panes, workspaceState?.viewMode]);
+  const presentedFocusedSessionId = localFocusedSessionId ?? workspaceState?.focusedSessionId;
   const terminalPaneIds = useMemo(
     () => panes.filter((pane) => pane.kind === "terminal").map((pane) => pane.sessionId),
     [panes],
@@ -116,15 +162,36 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const terminalPaneIdsKey = terminalPaneIds.join("|");
 
   useEffect(() => {
-    setLocalFocusedSessionId(serverState?.focusedSessionId);
-  }, [serverState?.activeGroupId, serverState?.focusedSessionId]);
+    if (!workspaceState) {
+      return;
+    }
+
+    if (pendingFocusedSessionIdRef.current) {
+      if (workspaceState.focusedSessionId === pendingFocusedSessionIdRef.current) {
+        pendingFocusedSessionIdRef.current = undefined;
+      } else {
+        return;
+      }
+    }
+
+    setLocalFocusedSessionId(workspaceState.focusedSessionId);
+  }, [workspaceState]);
+
+  const requestFocusSession = (sessionId: string) => {
+    pendingFocusedSessionIdRef.current = sessionId;
+    setLocalFocusedSessionId(sessionId);
+    vscode.postMessage({
+      sessionId,
+      type: "focusSession",
+    });
+  };
 
   useEffect(() => {
     if (terminalPaneIds.length === 0 || hasCompletedInitialTerminalRemount) {
       return;
     }
 
-    const debuggingMode = serverState?.debuggingMode;
+    const debuggingMode = workspaceState?.debuggingMode;
     const hideTimeoutId = window.setTimeout(() => {
       logWorkspaceDebug(debuggingMode, "workspace.initialTerminalHideRequested", {
         delayMs: TERMINAL_HIDE_BEFORE_REMOUNT_DELAY_MS,
@@ -148,9 +215,9 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       window.clearTimeout(hideTimeoutId);
       window.clearTimeout(remountTimeoutId);
     };
-  }, [hasCompletedInitialTerminalRemount, serverState?.debuggingMode, terminalPaneIdsKey]);
+  }, [hasCompletedInitialTerminalRemount, terminalPaneIdsKey, workspaceState?.debuggingMode]);
 
-  if (!serverState) {
+  if (!workspaceState) {
     return (
       <main className="workspace-shell workspace-shell-empty">
         <div className="workspace-empty-state">Loading VSmux workspace…</div>
@@ -169,11 +236,14 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   return (
     <main className="workspace-shell">
       {paneRows.map((row, rowIndex) => (
-        <div className={`workspace-row workspace-row-cols-${String(row.length)}`} key={`row-${String(rowIndex)}`}>
+        <div
+          className={`workspace-row workspace-row-cols-${String(row.length)}`}
+          key={`row-${String(rowIndex)}`}
+        >
           {row.map((pane) => (
             <WorkspacePaneView
-              connection={serverState.connection}
-              debuggingMode={serverState.debuggingMode}
+              connection={workspaceState.connection}
+              debuggingMode={workspaceState.debuggingMode}
               isFocused={presentedFocusedSessionId === pane.sessionId}
               isWorkspaceFocused={isWorkspaceFocused}
               key={pane.sessionId}
@@ -181,15 +251,16 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               onLocalFocus={() => {
                 setLocalFocusedSessionId(pane.sessionId);
               }}
-              onFocus={() =>
+              onFocus={() => requestFocusSession(pane.sessionId)}
+              onClose={() =>
                 vscode.postMessage({
                   sessionId: pane.sessionId,
-                  type: "focusSession",
+                  type: "closeSession",
                 })
               }
               pane={pane}
               terminalPaneRenderVersion={terminalPaneRenderVersion}
-              terminalAppearance={serverState.terminalAppearance}
+              terminalAppearance={workspaceState.terminalAppearance}
             />
           ))}
         </div>
@@ -199,16 +270,17 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 };
 
 type WorkspacePaneViewProps = {
-  connection: ExtensionToWorkspacePanelMessage["connection"];
+  connection: WorkspacePanelHydrateMessage["connection"];
   debuggingMode: boolean;
   isFocused: boolean;
   isWorkspaceFocused: boolean;
   areTerminalsVisible: boolean;
   onLocalFocus: () => void;
   onFocus: () => void;
+  onClose: () => void;
   pane: WorkspacePanelPane;
   terminalPaneRenderVersion: number;
-  terminalAppearance: ExtensionToWorkspacePanelMessage["terminalAppearance"];
+  terminalAppearance: WorkspacePanelHydrateMessage["terminalAppearance"];
 };
 
 const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
@@ -219,6 +291,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   areTerminalsVisible,
   onLocalFocus,
   onFocus,
+  onClose,
   pane,
   terminalPaneRenderVersion,
   terminalAppearance,
@@ -228,10 +301,16 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   return (
     <section
       className={`workspace-pane ${isFocused && isWorkspaceFocused ? "workspace-pane-focused" : ""}`}
-      onMouseDown={onFocus}
+      onMouseDown={() => {
+        onLocalFocus();
+        if (!isFocused) {
+          onFocus();
+        }
+      }}
     >
       <header className="workspace-pane-header">
         <div className="workspace-pane-title">{primaryTitle}</div>
+        {pane.kind === "terminal" ? <WorkspacePaneCloseButton onConfirmClose={onClose} /> : null}
       </header>
       <div className="workspace-pane-body">
         {pane.kind === "terminal" ? (
@@ -265,7 +344,9 @@ function getWorkspacePanePrimaryTitle(pane: WorkspacePanelPane): string {
   }
 
   if (pane.kind === "terminal") {
-    const terminalTitle = getVisibleTerminalTitle((pane as WorkspacePanelTerminalPane).terminalTitle);
+    const terminalTitle = getVisibleTerminalTitle(
+      (pane as WorkspacePanelTerminalPane).terminalTitle,
+    );
     if (terminalTitle) {
       return terminalTitle;
     }

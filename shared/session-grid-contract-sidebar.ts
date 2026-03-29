@@ -94,6 +94,11 @@ export type SidebarSessionStateMessage = {
   hud: SidebarHudState;
 };
 
+export type SidebarSessionPresentationChangedMessage = {
+  session: SidebarSessionItem;
+  type: "sessionPresentationChanged";
+};
+
 export type SidebarPlayCompletionSoundMessage = {
   sound: CompletionSoundSetting;
   type: "playCompletionSound";
@@ -102,6 +107,7 @@ export type SidebarPlayCompletionSoundMessage = {
 export type ExtensionToSidebarMessage =
   | SidebarHydrateMessage
   | SidebarSessionStateMessage
+  | SidebarSessionPresentationChangedMessage
   | SidebarPlayCompletionSoundMessage;
 
 export type SidebarToExtensionMessage =

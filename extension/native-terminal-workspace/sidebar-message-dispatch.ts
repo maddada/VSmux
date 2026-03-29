@@ -5,6 +5,7 @@ import type {
 import type { TerminalViewMode } from "../../shared/session-grid-contract";
 import type { SidebarActionType } from "../../shared/sidebar-commands";
 import type { SidebarAgentIcon } from "../../shared/sidebar-agents";
+import type { SidebarGitAction } from "../../shared/sidebar-git";
 import { logVSmuxDebug } from "../vsmux-debug-log";
 
 export type SidebarMessageHandlers = {
@@ -29,10 +30,12 @@ export type SidebarMessageHandlers = {
   refreshSidebarHydrate: () => Promise<void>;
   renameGroup: (groupId: string, title: string) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
+  refreshGitState: () => Promise<void>;
   restartSession: (sessionId: string) => Promise<void>;
   restorePreviousSession: (historyId: string) => Promise<void>;
   runSidebarAgent: (agentId: string) => Promise<void>;
   runSidebarCommand: (commandId: string) => Promise<void>;
+  runSidebarGitAction: (action: SidebarGitAction) => Promise<void>;
   saveScratchPad: (content: string) => Promise<void>;
   saveSidebarAgent: (
     agentId: string | undefined,
@@ -99,6 +102,12 @@ export async function dispatchSidebarMessage(
       return;
     case "runSidebarCommand":
       await handlers.runSidebarCommand(message.commandId);
+      return;
+    case "runSidebarGitAction":
+      await handlers.runSidebarGitAction(message.action);
+      return;
+    case "refreshGitState":
+      await handlers.refreshGitState();
       return;
     case "saveSidebarAgent":
       await handlers.saveSidebarAgent(message.agentId, message.name, message.command, message.icon);

@@ -19,7 +19,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { createDefaultSidebarAgentButtons } from "../shared/sidebar-agents";
+import { createDefaultSidebarAgentButtons, getSidebarAgentIconById } from "../shared/sidebar-agents";
 import { createDefaultSidebarCommandButtons } from "../shared/sidebar-commands";
 import { createDefaultSidebarGitState } from "../shared/sidebar-git";
 import {
@@ -27,10 +27,12 @@ import {
   type ExtensionToSidebarMessage,
   type SidebarHydrateMessage,
   type SidebarHudState,
+  type SidebarSessionPresentationChangedMessage,
   type SidebarPreviousSessionItem,
   type SidebarSessionGroup,
   type SidebarSessionItem,
   type SidebarSessionStateMessage,
+  type SidebarToExtensionMessage,
   type SidebarTheme,
 } from "../shared/session-grid-contract";
 import { playCompletionSound } from "./completion-sound-player";
@@ -133,6 +135,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const pendingCreateGroupRef = useRef(false);
+  const optimisticGroupCounterRef = useRef(0);
+  const optimisticSessionCounterRef = useRef(0);
   const overflowControlsRef = useRef<HTMLDivElement>(null);
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const draggedSessionIdRef = useRef<string>();
@@ -187,6 +191,333 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     });
   };
 
+  const applySessionPresentationMessage = (message: SidebarSessionPresentationChangedMessage) => {
+    startTransition(() => {
+      setServerState((previous) => ({
+        ...previous,
+        groups: previous.groups.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((session) =>
+            session.sessionId === message.session.sessionId ? message.session : session,
+          ),
+        })),
+      }));
+    });
+  };
+
+  const applyOptimisticFocus = (groupId: string, sessionId: string) => {
+    startTransition(() => {
+      setServerState((previous) => ({
+        ...previous,
+        groups: previous.groups.map((group) => {
+          const isActiveGroup = group.groupId === groupId;
+          return {
+            ...group,
+            isActive: isActiveGroup,
+            sessions: group.sessions.map((session) => ({
+              ...session,
+              isFocused: isActiveGroup && session.sessionId === sessionId,
+              isVisible:
+                group.kind !== "browser" && isActiveGroup && session.sessionId === sessionId
+                  ? true
+                  : session.isVisible,
+            })),
+          };
+        }),
+      }));
+    });
+  };
+
+  const getActiveWorkspaceGroup = (groups: readonly SidebarSessionGroup[]) =>
+    groups.find((group) => group.kind === "workspace" && group.isActive) ??
+    groups.find((group) => group.kind === "workspace");
+
+  const createOptimisticSessionItem = (
+    group: SidebarSessionGroup,
+    agentId?: string,
+  ): SidebarSessionItem => {
+    optimisticSessionCounterRef.current += 1;
+    const agentIcon = getSidebarAgentIconById(agentId);
+    return {
+      activity: agentIcon ? "working" : "idle",
+      activityLabel: agentIcon ? "Starting" : undefined,
+      agentIcon,
+      alias: `pending-${String(optimisticSessionCounterRef.current)}`,
+      column: group.sessions.length % 3,
+      detail: undefined,
+      isFocused: true,
+      isRunning: true,
+      isVisible: true,
+      kind: "workspace",
+      primaryTitle: agentIcon ? "Starting agent..." : "Starting terminal...",
+      row: Math.floor(group.sessions.length / 3),
+      sessionId: `optimistic-session-${String(optimisticSessionCounterRef.current)}`,
+      sessionNumber: undefined,
+      shortcutLabel: "",
+      terminalTitle: undefined,
+    };
+  };
+
+  const optimisticallyCreateSession = (targetGroupId?: string, agentId?: string) => {
+    let resolvedGroupId: string | undefined;
+    let nextSessionId: string | undefined;
+    setServerState((previous) => {
+      const resolvedGroup =
+        previous.groups.find((group) => group.groupId === targetGroupId) ??
+        getActiveWorkspaceGroup(previous.groups);
+      if (!resolvedGroup || resolvedGroup.kind !== "workspace") {
+        return previous;
+      }
+
+      resolvedGroupId = resolvedGroup.groupId;
+      const optimisticSession = createOptimisticSessionItem(resolvedGroup, agentId);
+      nextSessionId = optimisticSession.sessionId;
+      return {
+        ...previous,
+        groups: previous.groups.map((group) => {
+          const isTargetGroup = group.groupId === resolvedGroup.groupId;
+          if (group.kind === "browser") {
+            return {
+              ...group,
+              isActive: false,
+              sessions: group.sessions.map((session) => ({ ...session, isFocused: false })),
+            };
+          }
+
+          return {
+            ...group,
+            isActive: isTargetGroup,
+            sessions: isTargetGroup
+              ? [
+                  ...group.sessions.map((session) => ({ ...session, isFocused: false })),
+                  optimisticSession,
+                ]
+              : group.sessions.map((session) => ({ ...session, isFocused: false })),
+          };
+        }),
+      };
+    });
+
+    if (!resolvedGroupId || !nextSessionId) {
+      return;
+    }
+
+    setSessionIdsByGroup((previous) => ({
+      ...previous,
+      [resolvedGroupId]: [...(previous[resolvedGroupId] ?? []), nextSessionId],
+    }));
+  };
+
+  const optimisticallyCloseSession = (sessionId: string) => {
+    setServerState((previous) => ({
+      ...previous,
+      groups: previous.groups.map((group) => {
+        const remainingSessions = group.sessions.filter((session) => session.sessionId !== sessionId);
+        if (remainingSessions.length === group.sessions.length) {
+          return group;
+        }
+
+        const nextFocusedSessionId =
+          remainingSessions.find((session) => session.isFocused)?.sessionId ?? remainingSessions[0]?.sessionId;
+        return {
+          ...group,
+          sessions: remainingSessions.map((session) => ({
+            ...session,
+            isFocused: session.sessionId === nextFocusedSessionId,
+          })),
+        };
+      }),
+    }));
+    setSessionIdsByGroup((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).map(([groupId, sessionIds]) => [
+          groupId,
+          sessionIds.filter((candidateSessionId) => candidateSessionId !== sessionId),
+        ]),
+      ),
+    );
+  };
+
+  const optimisticallyFocusGroup = (groupId: string) => {
+    setServerState((previous) => ({
+      ...previous,
+      groups: previous.groups.map((group) => {
+        const isActiveGroup = group.groupId === groupId;
+        const nextFocusedSessionId = isActiveGroup
+          ? group.sessions.find((session) => session.isFocused)?.sessionId ?? group.sessions[0]?.sessionId
+          : undefined;
+        return {
+          ...group,
+          isActive: isActiveGroup,
+          sessions: group.sessions.map((session) => ({
+            ...session,
+            isFocused: isActiveGroup && session.sessionId === nextFocusedSessionId,
+          })),
+        };
+      }),
+    }));
+  };
+
+  const optimisticallySetVisibleCount = (visibleCount: SidebarHudState["visibleCount"]) => {
+    setServerState((previous) => ({
+      ...previous,
+      groups: previous.groups.map((group) => {
+        if (!group.isActive || group.kind !== "workspace") {
+          return group;
+        }
+
+        const orderedSessionIds =
+          sessionIdsByGroupRef.current[group.groupId] ?? group.sessions.map((session) => session.sessionId);
+        const visibleSessionIds = new Set(orderedSessionIds.slice(0, visibleCount));
+        return {
+          ...group,
+          layoutVisibleCount: visibleCount,
+          visibleCount,
+          sessions: group.sessions.map((session) => ({
+            ...session,
+            isVisible: visibleSessionIds.has(session.sessionId),
+          })),
+        };
+      }),
+      hud: {
+        ...previous.hud,
+        highlightedVisibleCount: visibleCount,
+        visibleCount,
+      },
+    }));
+  };
+
+  const optimisticallyCloseGroup = (groupId: string) => {
+    setServerState((previous) => {
+      const remainingGroups = previous.groups.filter((group) => group.groupId !== groupId);
+      const nextActiveGroupId =
+        remainingGroups.find((group) => group.kind === "workspace" && group.isActive)?.groupId ??
+        remainingGroups.find((group) => group.kind === "workspace")?.groupId;
+      return {
+        ...previous,
+        groups: remainingGroups.map((group) => ({
+          ...group,
+          isActive: group.groupId === nextActiveGroupId,
+        })),
+      };
+    });
+    setGroupIds((previous) => previous.filter((candidateGroupId) => candidateGroupId !== groupId));
+    setSessionIdsByGroup((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([candidateGroupId]) => candidateGroupId !== groupId),
+      ),
+    );
+  };
+
+  const optimisticallyCreateGroupFromSession = (sessionId: string) => {
+    optimisticGroupCounterRef.current += 1;
+    const groupId = `optimistic-group-${String(optimisticGroupCounterRef.current)}`;
+    let didCreateGroup = false;
+    setServerState((previous) => {
+      if (previous.groups.filter((group) => group.kind === "workspace").length >= MAX_GROUP_COUNT) {
+        return previous;
+      }
+
+      const sourceGroup = previous.groups.find((group) =>
+        group.sessions.some((session) => session.sessionId === sessionId),
+      );
+      if (!sourceGroup) {
+        return previous;
+      }
+
+      const movedSession = sourceGroup.sessions.find((session) => session.sessionId === sessionId);
+      if (!movedSession) {
+        return previous;
+      }
+
+      const workspaceGroupCount = previous.groups.filter((group) => group.kind === "workspace").length;
+      const nextGroup: SidebarSessionGroup = {
+        groupId,
+        isActive: true,
+        isFocusModeActive: false,
+        kind: "workspace",
+        layoutVisibleCount: 1,
+        sessions: [{ ...movedSession, isFocused: true, isVisible: true }],
+        title: `Group ${String(workspaceGroupCount + 1)}`,
+        viewMode: "grid",
+        visibleCount: 1,
+      };
+      didCreateGroup = true;
+
+      return {
+        ...previous,
+        groups: [
+          ...previous.groups.map((group) => ({
+            ...group,
+            isActive: false,
+            sessions:
+              group.groupId === sourceGroup.groupId
+                ? group.sessions.filter((session) => session.sessionId !== sessionId)
+                : group.sessions.map((session) => ({ ...session, isFocused: false })),
+          })),
+          nextGroup,
+        ],
+      };
+    });
+    if (!didCreateGroup) {
+      return;
+    }
+    setGroupIds((previous) => [...previous, groupId]);
+    setSessionIdsByGroup((previous) => {
+      const nextEntries = Object.fromEntries(
+        Object.entries(previous).map(([candidateGroupId, sessionIds]) => [
+          candidateGroupId,
+          sessionIds.filter((candidateSessionId) => candidateSessionId !== sessionId),
+        ]),
+      );
+      return {
+        ...nextEntries,
+        [groupId]: [sessionId],
+      };
+    });
+  };
+
+  const applyOptimisticSidebarAction = (message: SidebarToExtensionMessage) => {
+    switch (message.type) {
+      case "createSession":
+        optimisticallyCreateSession();
+        return;
+      case "createSessionInGroup":
+        optimisticallyCreateSession(message.groupId);
+        return;
+      case "runSidebarAgent":
+        optimisticallyCreateSession(undefined, message.agentId);
+        return;
+      case "closeSession":
+        optimisticallyCloseSession(message.sessionId);
+        return;
+      case "focusGroup":
+        optimisticallyFocusGroup(message.groupId);
+        return;
+      case "setVisibleCount":
+        optimisticallySetVisibleCount(message.visibleCount);
+        return;
+      case "closeGroup":
+        optimisticallyCloseGroup(message.groupId);
+        return;
+      case "createGroupFromSession":
+        optimisticallyCreateGroupFromSession(message.sessionId);
+        return;
+      default:
+        return;
+    }
+  };
+
+  const sidebarVscode: WebviewApi = useMemo(
+    () => ({
+      postMessage(message) {
+        applyOptimisticSidebarAction(message);
+        vscode.postMessage(message);
+      },
+    }),
+    [vscode],
+  );
+
   const flushDeferredSidebarMessage = () => {
     if (draggedSessionIdRef.current) {
       return;
@@ -208,7 +539,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       return;
     }
 
-    vscode.postMessage({ type: "createSession" });
+    sidebarVscode.postMessage({ type: "createSession" });
   };
 
   const handleSidebarDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
@@ -228,6 +559,18 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
       if (event.data.type === "playCompletionSound") {
         void playCompletionSound(event.data.sound);
+        return;
+      }
+
+      if (event.data.type === "sessionPresentationChanged") {
+        logSidebarDebug("state.sessionPresentationChanged", {
+          activity: event.data.session.activity,
+          activityLabel: event.data.session.activityLabel,
+          primaryTitle: event.data.session.primaryTitle,
+          sessionId: event.data.session.sessionId,
+          terminalTitle: event.data.session.terminalTitle,
+        });
+        applySessionPresentationMessage(event.data);
         return;
       }
 
@@ -346,18 +689,16 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const orderedGroups = useMemo(() => {
     const workspaceGroups = getWorkspaceSidebarGroups(serverState.groups);
     const groupById = new Map(workspaceGroups.map((group) => [group.groupId, group] as const));
-    const sessionById = new Map(
-      workspaceGroups.flatMap((group) =>
-        group.sessions.map((session) => [session.sessionId, session] as const),
-      ),
-    );
 
     return groupIds
       .map((groupId) => groupById.get(groupId))
       .filter((group): group is SidebarSessionGroup => group !== undefined)
       .map((group) => ({
         ...group,
-        orderedSessions: applySessionOrder(sessionById, sessionIdsByGroup[group.groupId]),
+        orderedSessions: applySessionOrder(
+          new Map(group.sessions.map((session) => [session.sessionId, session] as const)),
+          sessionIdsByGroup[group.groupId],
+        ),
       }));
   }, [groupIds, serverState.groups, sessionIdsByGroup]);
 
@@ -488,7 +829,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       restoreSnapshot();
       sessionDragSnapshotRef.current = undefined;
       pendingCreateGroupRef.current = true;
-      vscode.postMessage({
+      sidebarVscode.postMessage({
         sessionId: sourceData.sessionId,
         type: "createGroupFromSession",
       });
@@ -598,6 +939,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         <CommandsPanel
           commands={serverState.hud.commands}
           createRequestId={commandCreateRequestId}
+          git={serverState.hud.git}
           titlebarActions={
             <div
               className="sidebar-titlebar-controls"
@@ -710,7 +1052,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
               ) : null}
             </div>
           }
-          vscode={vscode}
+          vscode={sidebarVscode}
         />
         <AgentsPanel
           agents={serverState.hud.agents}
@@ -744,7 +1086,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
               </Tooltip.Portal>
             </Tooltip.Root>
           }
-          vscode={vscode}
+          vscode={sidebarVscode}
         />
         <section
           className="session-groups-panel"
@@ -785,7 +1127,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   showDebugSessionNumbers={serverState.hud.debuggingMode}
                   showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
                   showHotkeys={serverState.hud.showHotkeysOnSessionCards}
-                  vscode={vscode}
+                  vscode={sidebarVscode}
                 />
               ))}
             </div>
@@ -805,11 +1147,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   index={groupIndex}
                   key={group.groupId}
                   onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
+                  onFocusRequested={applyOptimisticFocus}
                   orderedSessions={group.orderedSessions}
                   showDebugSessionNumbers={serverState.hud.debuggingMode}
                   showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
                   showHotkeys={serverState.hud.showHotkeysOnSessionCards}
-                  vscode={vscode}
+                  vscode={sidebarVscode}
                 />
               ))}
               <CreateGroupDropTarget
@@ -857,7 +1200,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           previousSessions={serverState.previousSessions}
           showDebugSessionNumbers={serverState.hud.debuggingMode}
           showHotkeys={serverState.hud.showHotkeysOnSessionCards}
-          vscode={vscode}
+          vscode={sidebarVscode}
         />
         <ScratchPadModal
           content={serverState.scratchPadContent}
@@ -981,13 +1324,22 @@ function applySessionOrder(
   sessionById: ReadonlyMap<string, SidebarSessionItem>,
   orderedSessionIds: readonly string[] | undefined,
 ): SidebarSessionItem[] {
-  if (!orderedSessionIds) {
-    return [];
+  if (!orderedSessionIds || orderedSessionIds.length === 0) {
+    return [...sessionById.values()];
   }
 
-  return orderedSessionIds
+  const orderedSessions = orderedSessionIds
     .map((sessionId) => sessionById.get(sessionId))
     .filter((session): session is SidebarSessionItem => session !== undefined);
+  const orderedSessionIdsSet = new Set(orderedSessions.map((session) => session.sessionId));
+
+  for (const session of sessionById.values()) {
+    if (!orderedSessionIdsSet.has(session.sessionId)) {
+      orderedSessions.push(session);
+    }
+  }
+
+  return orderedSessions;
 }
 
 function findSessionGroupId(

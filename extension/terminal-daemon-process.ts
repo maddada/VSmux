@@ -10,6 +10,13 @@ import {
   readPersistedSessionStateFromFile,
   updatePersistedSessionStateFile,
 } from "./session-state-file";
+import {
+  TITLE_ACTIVITY_WINDOW_MS,
+  acknowledgeTitleDerivedSessionActivity,
+  getTitleDerivedSessionActivity,
+  getTitleDerivedSessionActivityFromTransition,
+  type TitleDerivedSessionActivity,
+} from "./session-title-activity";
 import { parseTerminalTitleFromOutputChunk } from "./terminal-workspace-history";
 import type {
   TerminalHostAcknowledgeAttentionRequest,
@@ -44,6 +51,8 @@ type ManagedSession = {
   history: string;
   liveTitle?: string;
   lastKnownPersistedTitle?: string;
+  titleActivity?: TitleDerivedSessionActivity;
+  titleActivityTimer?: NodeJS.Timeout;
   titleCarryover: string;
   pty: pty.IPty;
   rows: number;
@@ -306,10 +315,15 @@ async function handleAcknowledgeAttentionRequest(
 ): Promise<void> {
   const session = sessions.get(request.sessionId);
   if (session) {
-    await updatePersistedSessionStateFile(session.sessionStateFilePath, (currentState) => ({
-      ...currentState,
-      agentStatus: "idle",
-    }));
+    if (session.titleActivity?.activity === "attention") {
+      session.titleActivity = acknowledgeTitleDerivedSessionActivity(session.titleActivity);
+      applySessionTitleActivity(session);
+    } else {
+      await updatePersistedSessionStateFile(session.sessionStateFilePath, (currentState) => ({
+        ...currentState,
+        agentStatus: "idle",
+      }));
+    }
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
     broadcastSessionState(session.sessionId, snapshot);
@@ -371,12 +385,14 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     };
     broadcastSessionMessage(session.sessionId, outputMessage);
     if (didChangeTitle) {
+      // Title changes only need to reach control clients; the terminal pane
+      // itself does not consume live title updates after initial history sync.
       broadcastControlSessionState(session.snapshot);
-      broadcastSessionState(session.sessionId, session.snapshot);
     }
   });
 
   spawnedPty.onExit(({ exitCode }: { exitCode: number; signal?: number }) => {
+    clearTitleActivityTimer(session);
     session.snapshot = {
       ...session.snapshot,
       endedAt: new Date().toISOString(),
@@ -411,8 +427,8 @@ async function buildSnapshot(
   session.lastKnownPersistedTitle = persistedState.title;
   session.snapshot = {
     ...session.snapshot,
-    agentName: persistedState.agentName,
-    agentStatus: persistedState.agentStatus,
+    agentName: session.titleActivity?.agentName ?? persistedState.agentName,
+    agentStatus: session.titleActivity?.activity ?? persistedState.agentStatus,
     history: includeHistory ? session.history : undefined,
     title: session.liveTitle ?? persistedState.title,
   };
@@ -524,12 +540,73 @@ function updateSessionLiveTitle(session: ManagedSession, chunk: string): boolean
     return false;
   }
 
+  const previousTitle = session.liveTitle;
   session.liveTitle = title;
+  session.titleActivity = getTitleDerivedSessionActivityFromTransition(
+    previousTitle,
+    title,
+    session.titleActivity,
+    session.snapshot.agentName,
+  );
+  applySessionTitleActivity(session);
+  scheduleTitleActivityRefresh(session);
   session.snapshot = {
     ...session.snapshot,
     title,
   };
   return true;
+}
+
+function scheduleTitleActivityRefresh(session: ManagedSession): void {
+  clearTitleActivityTimer(session);
+  if (
+    session.titleActivity?.activity !== "working" ||
+    session.titleActivity.lastTitleChangeAt === undefined
+  ) {
+    return;
+  }
+
+  const delayMs = Math.max(
+    0,
+    TITLE_ACTIVITY_WINDOW_MS - (Date.now() - session.titleActivity.lastTitleChangeAt) + 50,
+  );
+  session.titleActivityTimer = setTimeout(() => {
+    session.titleActivityTimer = undefined;
+    const nextTitleActivity = getTitleDerivedSessionActivity(
+      session.liveTitle ?? "",
+      session.titleActivity,
+      session.snapshot.agentName,
+    );
+    if (!nextTitleActivity || nextTitleActivity.activity === session.titleActivity?.activity) {
+      return;
+    }
+
+    session.titleActivity = nextTitleActivity;
+    applySessionTitleActivity(session);
+    broadcastControlSessionState(session.snapshot);
+  }, delayMs);
+}
+
+function clearTitleActivityTimer(session: ManagedSession): void {
+  if (!session.titleActivityTimer) {
+    return;
+  }
+
+  clearTimeout(session.titleActivityTimer);
+  session.titleActivityTimer = undefined;
+}
+
+function applySessionTitleActivity(session: ManagedSession): void {
+  if (!session.titleActivity) {
+    return;
+  }
+
+  session.snapshot = {
+    ...session.snapshot,
+    agentName: session.titleActivity.agentName,
+    agentStatus: session.titleActivity.activity,
+    title: session.liveTitle ?? session.lastKnownPersistedTitle,
+  };
 }
 
 function scheduleIdleShutdownIfNeeded(): void {

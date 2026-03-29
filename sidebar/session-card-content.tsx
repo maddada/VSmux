@@ -219,6 +219,7 @@ function OverflowTooltipText({
         render={
           <div
             className="session-tooltip-trigger"
+            key={`${className}:${text}:${tooltip ?? ""}`}
             onBlur={closeTooltip}
             onFocus={openTooltip}
             onMouseEnter={openTooltip}

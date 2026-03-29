@@ -176,7 +176,7 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
   if (message.type === "ready") {
     return true;
   }
-  if (message.type === "focusSession") {
+  if (message.type === "focusSession" || message.type === "closeSession") {
     return typeof message.sessionId === "string" && message.sessionId.length > 0;
   }
 
