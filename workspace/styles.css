@@ -44,8 +44,8 @@ body {
 }
 
 .workspace-shell-empty {
-  align-items: center;
-  justify-content: center;
+  grid-auto-rows: auto;
+  place-items: center;
 }
 
 .workspace-empty-state {
@@ -53,7 +53,11 @@ body {
   border-radius: 18px;
   color: #9cb0cf;
   font-size: 15px;
-  padding: 28px 36px;
+  justify-self: center;
+  align-self: center;
+  max-width: 220px;
+  padding: 18px 22px;
+  text-align: center;
 }
 
 .terminal.xterm,

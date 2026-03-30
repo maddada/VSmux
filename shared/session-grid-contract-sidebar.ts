@@ -253,6 +253,11 @@ export type SidebarToExtensionMessage =
       targetIndex?: number;
     }
   | {
+      type: "sidebarDebugLog";
+      event: string;
+      details?: unknown;
+    }
+  | {
       type: "createGroupFromSession";
       sessionId: string;
     }

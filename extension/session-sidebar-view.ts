@@ -258,6 +258,9 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
     case "saveScratchPad":
       return typeof message.content === "string";
 
+    case "sidebarDebugLog":
+      return typeof message.event === "string" && message.event.length > 0;
+
     case "renameSession":
       return (
         typeof message.sessionId === "string" &&

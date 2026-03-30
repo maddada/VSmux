@@ -5,6 +5,7 @@ import {
   type SessionRecord,
   type TerminalSessionRecord,
 } from "../shared/session-grid-contract";
+import { getVisibleTerminalTitle } from "../shared/session-grid-contract-session";
 import type {
   TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
@@ -76,7 +77,18 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         status: snapshot.status,
         title: nextTitle,
       });
-      if (!haveSameTerminalSessionPresentation(previousSnapshot, previousTitle, snapshot, nextTitle)) {
+      const presentationDiff = describeTerminalSessionPresentationDiff(
+        previousSnapshot,
+        previousTitle,
+        snapshot,
+        nextTitle,
+      );
+      if (!presentationDiff.isSame) {
+        logVSmuxDebug("backend.daemon.sessionPresentationDiff", {
+          ...presentationDiff,
+          sessionId: snapshot.sessionId,
+          source: "runtime",
+        });
         logVSmuxDebug("backend.daemon.sessionPresentationChanged", {
           nextAgentName: snapshot.agentName,
           nextAgentStatus: snapshot.agentStatus,
@@ -293,7 +305,18 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       }
       this.sessions.set(sessionId, nextSnapshot);
       const nextTitle = this.syncSessionTitle(sessionId, nextSnapshot.title);
-      if (!haveSameTerminalSessionPresentation(previousSnapshot, previousTitle, nextSnapshot, nextTitle)) {
+      const presentationDiff = describeTerminalSessionPresentationDiff(
+        previousSnapshot,
+        previousTitle,
+        nextSnapshot,
+        nextTitle,
+      );
+      if (!presentationDiff.isSame) {
+        logVSmuxDebug("backend.daemon.sessionPresentationDiff", {
+          ...presentationDiff,
+          sessionId,
+          source: "poll",
+        });
         this.changeSessionPresentationEmitter.fire({
           sessionId,
           title: nextTitle,
@@ -347,17 +370,36 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 }
 
-function haveSameTerminalSessionPresentation(
+function describeTerminalSessionPresentationDiff(
   leftSnapshot: TerminalSessionSnapshot | undefined,
   leftTitle: string | undefined,
   rightSnapshot: TerminalSessionSnapshot | undefined,
   rightTitle: string | undefined,
-): boolean {
-  return (
-    leftSnapshot?.agentName === rightSnapshot?.agentName &&
-    leftSnapshot?.agentStatus === rightSnapshot?.agentStatus &&
-    leftTitle === rightTitle
-  );
+) {
+  const previousVisibleTerminalTitle = getVisibleTerminalTitle(leftTitle);
+  const nextVisibleTerminalTitle = getVisibleTerminalTitle(rightTitle);
+  const agentNameChanged = leftSnapshot?.agentName !== rightSnapshot?.agentName;
+  const agentStatusChanged = leftSnapshot?.agentStatus !== rightSnapshot?.agentStatus;
+  const normalizedTitleChanged = leftTitle !== rightTitle;
+  const visibleTerminalTitleChanged = previousVisibleTerminalTitle !== nextVisibleTerminalTitle;
+
+  return {
+    agentNameChanged,
+    agentStatusChanged,
+    isSame: !agentNameChanged && !agentStatusChanged && !normalizedTitleChanged,
+    nextAgentName: rightSnapshot?.agentName,
+    nextAgentStatus: rightSnapshot?.agentStatus,
+    nextNormalizedTitle: rightTitle,
+    nextRawTitle: rightSnapshot?.title,
+    nextVisibleTerminalTitle,
+    normalizedTitleChanged,
+    previousAgentName: leftSnapshot?.agentName,
+    previousAgentStatus: leftSnapshot?.agentStatus,
+    previousNormalizedTitle: leftTitle,
+    previousRawTitle: leftSnapshot?.title,
+    previousVisibleTerminalTitle,
+    visibleTerminalTitleChanged,
+  };
 }
 
 function haveSameTerminalSessionSnapshot(

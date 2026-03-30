@@ -22,6 +22,7 @@ import {
   claimNextSessionDisplayId,
   normalizeWorkspaceSessionDisplayIds,
 } from "./grouped-session-workspace-state-helpers";
+import { reindexSessionsInOrder } from "./session-grid-state-helpers";
 
 type WorkspaceMutationResult = {
   changed: boolean;
@@ -426,12 +427,13 @@ export function syncSessionOrderInSimpleWorkspace(
       orderedSessions.push(session);
     }
   }
+  const reindexedSessions = reindexSessionsInOrder(orderedSessions);
 
   const nextSnapshot = updateGroup(snapshot, groupId, (targetGroup) => ({
     ...targetGroup,
     snapshot: normalizeGroupSnapshot({
       ...targetGroup.snapshot,
-      sessions: orderedSessions,
+      sessions: reindexedSessions,
     }),
   }));
 

@@ -98,6 +98,22 @@ export function SortableSessionCard({
   const aliasHeadingRef = useRef<HTMLDivElement>(null);
   const isBrowserSession = session.kind === "browser";
   const canCopyResumeCommand = !isBrowserSession && supportsResumeCommandCopy(session);
+  const postSessionDragDebugLog = (event: string, details: Record<string, unknown>) => {
+    if (!showDebugSessionNumbers) {
+      return;
+    }
+
+    vscode.postMessage({
+      details: {
+        groupId,
+        index,
+        sessionId: session.sessionId,
+        ...details,
+      },
+      event,
+      type: "sidebarDebugLog",
+    });
+  };
   const sortable = useSortable({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
@@ -259,6 +275,38 @@ export function SortableSessionCard({
           data-running={String(session.isRunning)}
           data-sidebar-session-id={session.sessionId}
           data-visible={String(session.isVisible)}
+          onPointerCancel={(event) => {
+            postSessionDragDebugLog("session.pointerCancel", {
+              button: event.button,
+              buttons: event.buttons,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              pointerId: event.pointerId,
+              pointerType: event.pointerType,
+            });
+          }}
+          onPointerDown={(event) => {
+            postSessionDragDebugLog("session.pointerDown", {
+              button: event.button,
+              buttons: event.buttons,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              isDragging: sortable.isDragging,
+              pointerId: event.pointerId,
+              pointerType: event.pointerType,
+            });
+          }}
+          onPointerUp={(event) => {
+            postSessionDragDebugLog("session.pointerUp", {
+              button: event.button,
+              buttons: event.buttons,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              isDragging: sortable.isDragging,
+              pointerId: event.pointerId,
+              pointerType: event.pointerType,
+            });
+          }}
           onAuxClick={(event) => {
             if (event.button !== 1) {
               return;

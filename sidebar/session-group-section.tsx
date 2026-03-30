@@ -117,7 +117,6 @@ export function SessionGroupSection({
     plugins: [SortableKeyboardPlugin],
     type: "group",
   });
-  const groupDropPosition = getGroupDropPosition(group.groupId, orderedSessions, sessionDragIndicator);
 
   useEffect(() => {
     if (isEditing) {
@@ -447,7 +446,6 @@ export function SessionGroupSection({
         </div>
         <div
           className="group-sessions"
-          data-drop-position={groupDropPosition}
           data-drop-target={String(sortable.isDropTarget)}
         >
           {orderedSessions.length > 0 ? (
@@ -474,7 +472,6 @@ export function SessionGroupSection({
           ) : isBrowserGroup ? (
             <div
               className="group-empty-drop-target"
-              data-drop-position={groupDropPosition}
               data-drop-target={String(sortable.isDropTarget)}
             >
               <div className="group-empty-state">No browsers</div>
@@ -482,7 +479,6 @@ export function SessionGroupSection({
           ) : (
             <div
               className="group-empty-drop-target"
-              data-drop-position={groupDropPosition}
               data-drop-target={String(sortable.isDropTarget)}
             >
               <div className="group-empty-state">No sessions</div>
@@ -579,22 +575,6 @@ export function SessionGroupSection({
       ) : null}
     </>
   );
-}
-
-function getGroupDropPosition(
-  groupId: string,
-  orderedSessions: readonly SidebarSessionItem[],
-  sessionDragIndicator: SidebarSessionDropTarget | undefined,
-): "end" | "start" | undefined {
-  if (sessionDragIndicator?.kind !== "group" || sessionDragIndicator.groupId !== groupId) {
-    return undefined;
-  }
-
-  if (orderedSessions.length === 0) {
-    return undefined;
-  }
-
-  return sessionDragIndicator.position;
 }
 
 function getPortalMenuStyle(button: HTMLButtonElement | null) {

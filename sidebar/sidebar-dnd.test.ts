@@ -3,6 +3,7 @@ import {
   createGroupDropData,
   createSessionDragData,
   getSidebarDropData,
+  getSidebarSessionDropTargetAtPoint,
   moveSessionIdsByDropTarget,
   type SidebarSessionDropTarget,
 } from "./sidebar-dnd";
@@ -83,3 +84,61 @@ describe("moveSessionIdsByDropTarget", () => {
     });
   });
 });
+
+describe("getSidebarSessionDropTargetAtPoint", () => {
+  test("should skip dragging elements and resolve the non-dragging session underneath", () => {
+    const groupElement = createMockElement({
+      dataset: { sidebarGroupId: "group-1" },
+    }) as HTMLElement;
+    const sessionElement = createMockElement({
+      closestMap: new Map([["[data-sidebar-group-id]", groupElement]]),
+      dataset: { sidebarSessionId: "session-2" },
+      getBoundingClientRect: () => ({ height: 40, top: 100 }),
+    }) as HTMLElement;
+    const draggingSessionElement = createMockElement({
+      closestMap: new Map([
+        ["[data-dragging='true']", {} as HTMLElement],
+      ]),
+    });
+    const targetSessionElement = createMockElement({
+      closestMap: new Map([
+        ["[data-dragging='true']", null],
+        ["[data-sidebar-session-id]", sessionElement],
+      ]),
+    });
+
+    const dropTarget = getSidebarSessionDropTargetAtPoint(
+      {
+        elementFromPoint: () => draggingSessionElement,
+        elementsFromPoint: () => [draggingSessionElement, targetSessionElement],
+      },
+      50,
+      130,
+    );
+
+    expect(dropTarget).toEqual({
+      groupId: "group-1",
+      kind: "session",
+      position: "after",
+      sessionId: "session-2",
+    });
+  });
+});
+
+function createMockElement({
+  closestMap = new Map(),
+  dataset,
+  getBoundingClientRect,
+}: {
+  closestMap?: ReadonlyMap<string, Element | null>;
+  dataset?: Record<string, string>;
+  getBoundingClientRect?: () => { height: number; top: number };
+}): Element {
+  return {
+    dataset,
+    closest(selector: string) {
+      return closestMap.get(selector) ?? null;
+    },
+    getBoundingClientRect,
+  } as unknown as Element;
+}

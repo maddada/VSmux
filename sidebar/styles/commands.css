@@ -113,6 +113,20 @@
   color: color-mix(in srgb, #e05656 88%, var(--app-foreground) 12%);
 }
 
+@container (max-width: 220px) {
+  .git-action-diff-stat {
+    align-items: flex-end;
+    display: inline-grid;
+    gap: 0;
+    grid-template-columns: 1fr;
+    line-height: 1.05;
+  }
+
+  .git-action-diff-stat-divider {
+    display: none;
+  }
+}
+
 .git-action-menu {
   background: color-mix(in srgb, var(--app-card) 96%, black 4%);
   border: 1px solid color-mix(in srgb, var(--app-border) 94%, transparent);

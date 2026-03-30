@@ -16,6 +16,7 @@ import {
   normalizeSimpleGroupedSessionWorkspaceSnapshot,
   setT3SessionMetadataInSimpleWorkspace,
   setVisibleCountInSimpleWorkspace,
+  syncSessionOrderInSimpleWorkspace,
 } from "./simple-grouped-session-workspace-state";
 
 describe("normalizeSimpleGroupedSessionWorkspaceSnapshot", () => {
@@ -213,6 +214,51 @@ describe("moveSessionToGroupInSimpleWorkspace", () => {
     expect(result.snapshot.activeGroupId).toBe("group-2");
     expect(result.snapshot.groups[1]?.snapshot.focusedSessionId).toBe(sessionIdForDisplay(1));
     expect(result.snapshot.groups[1]?.snapshot.visibleSessionIds).toEqual([sessionIdForDisplay(1)]);
+  });
+});
+
+describe("syncSessionOrderInSimpleWorkspace", () => {
+  test("should reorder sessions within the same group", () => {
+    const result = syncSessionOrderInSimpleWorkspace(
+      createWorkspaceSnapshot({
+        activeGroupId: DEFAULT_MAIN_GROUP_ID,
+        groups: [
+          {
+            groupId: DEFAULT_MAIN_GROUP_ID,
+            snapshot: {
+              focusedSessionId: sessionIdForDisplay(0),
+              fullscreenRestoreVisibleCount: undefined,
+              sessions: [
+                createSessionRecord(1, 0),
+                createSessionRecord(2, 1),
+                createSessionRecord(3, 2),
+              ],
+              viewMode: "grid",
+              visibleCount: 2,
+              visibleSessionIds: [sessionIdForDisplay(0), sessionIdForDisplay(1)],
+            },
+            title: "Main",
+          },
+        ],
+        nextGroupNumber: 2,
+        nextSessionDisplayId: 3,
+        nextSessionNumber: 4,
+      }),
+      DEFAULT_MAIN_GROUP_ID,
+      [sessionIdForDisplay(1), sessionIdForDisplay(0), sessionIdForDisplay(2)],
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.snapshot.groups[0]?.snapshot.sessions.map((session) => session.sessionId)).toEqual([
+      sessionIdForDisplay(1),
+      sessionIdForDisplay(0),
+      sessionIdForDisplay(2),
+    ]);
+    expect(result.snapshot.groups[0]?.snapshot.sessions.map((session) => session.slotIndex)).toEqual([
+      0,
+      1,
+      2,
+    ]);
   });
 });
 

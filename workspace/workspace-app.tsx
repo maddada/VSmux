@@ -250,10 +250,14 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         "--workspace-active-pane-border-color":
           workspaceState?.layoutAppearance.activePaneBorderColor,
         "--workspace-pane-gap": `${String(workspaceState?.layoutAppearance.paneGap ?? 12)}px`,
-        gridTemplateColumns: getWorkspaceGridTemplateColumns(
-          workspaceState?.viewMode ?? "grid",
-          visiblePanes.length,
-        ),
+        ...(visiblePanes.length > 0
+          ? {
+              gridTemplateColumns: getWorkspaceGridTemplateColumns(
+                workspaceState?.viewMode ?? "grid",
+                visiblePanes.length,
+              ),
+            }
+          : {}),
       }) as CSSProperties,
     [
       workspaceState?.layoutAppearance.activePaneBorderColor,
@@ -277,10 +281,13 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       }
     }
 
-    postWorkspaceDebugLog(workspaceState.debuggingMode, "focus.localStateApplied", {
-      focusedSessionId: workspaceState.focusedSessionId,
+    setLocalFocusedSessionId((previousFocusedSessionId) => {
+      if (previousFocusedSessionId === workspaceState.focusedSessionId) {
+        return previousFocusedSessionId;
+      }
+
+      return workspaceState.focusedSessionId;
     });
-    setLocalFocusedSessionId(workspaceState.focusedSessionId);
   }, [workspaceState]);
 
   useEffect(() => {

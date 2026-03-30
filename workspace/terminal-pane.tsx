@@ -12,7 +12,6 @@ import type {
 } from "../shared/workspace-panel-contract";
 import type {
   TerminalResizeMessage,
-  TerminalStateMessage,
 } from "../shared/terminal-host-protocol";
 import { getTerminalAppearanceOptions } from "./terminal-appearance";
 import { logWorkspaceDebug } from "./workspace-debug";
@@ -21,6 +20,8 @@ import "./terminal-pane.css";
 
 const DATA_BUFFER_FLUSH_MS = 5;
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const POST_RECONNECT_REFIT_DELAY_MS = 3_000;
+const POST_RECONNECT_HEIGHT_NUDGE_PX = 20;
 
 export type TerminalPaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
@@ -110,6 +111,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     let dataBuffer: Uint8Array[] = [];
     let flushTimer: number | undefined;
     let pendingSocketMessages: string[] = [];
+    let pendingReconnectRefitAfterData = false;
+    let reconnectRefitTimeoutId: number | undefined;
     let suppressPasteEvent = false;
 
     const sendSocketMessage = (message: string) => {
@@ -154,6 +157,78 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       void pasteClipboardText();
     };
 
+    const refitTerminal = () => {
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+
+      const bounds = container.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+
+      lastMeasuredSizeRef.current = {
+        height: Math.round(bounds.height),
+        width: Math.round(bounds.width),
+      };
+      fit.fit();
+      terminal.refresh(0, terminal.rows - 1);
+    };
+
+    const scheduleReconnectRefit = () => {
+      if (!pendingReconnectRefitAfterData) {
+        return;
+      }
+
+      pendingReconnectRefitAfterData = false;
+      if (reconnectRefitTimeoutId !== undefined) {
+        window.clearTimeout(reconnectRefitTimeoutId);
+      }
+      reconnectRefitTimeoutId = window.setTimeout(() => {
+        reconnectRefitTimeoutId = undefined;
+        if (didDispose) {
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (didDispose) {
+              return;
+            }
+
+            refitTerminal();
+            nudgeTerminalHeight();
+          });
+        });
+      }, POST_RECONNECT_REFIT_DELAY_MS);
+    };
+
+    const nudgeTerminalHeight = () => {
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+
+      const bounds = container.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+
+      const previousInlineHeight = container.style.height;
+      container.style.height = `${Math.round(bounds.height) + POST_RECONNECT_HEIGHT_NUDGE_PX}px`;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (didDispose) {
+            return;
+          }
+
+          container.style.height = previousInlineHeight;
+          refitTerminal();
+        });
+      });
+    };
+
     const connectWebsocket = () => {
       if (connection.mock || websocket || didDispose) {
         return;
@@ -170,14 +245,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       websocket.binaryType = "arraybuffer";
       websocket.onmessage = (event) => {
         if (typeof event.data === "string") {
-          if (event.data.startsWith("{")) {
-            const message = JSON.parse(event.data) as TerminalStateMessage;
-            handleTerminalStateMessage(message);
-          }
           return;
         }
 
         if (event.data instanceof ArrayBuffer) {
+          scheduleReconnectRefit();
           dataBuffer.push(new Uint8Array(event.data));
           if (flushTimer === undefined) {
             flushTimer = window.setTimeout(flushData, DATA_BUFFER_FLUSH_MS);
@@ -187,6 +259,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
         if (event.data instanceof Blob) {
           void event.data.arrayBuffer().then((buffer) => {
+            scheduleReconnectRefit();
             dataBuffer.push(new Uint8Array(buffer));
             if (flushTimer === undefined) {
               flushTimer = window.setTimeout(flushData, DATA_BUFFER_FLUSH_MS);
@@ -204,18 +277,29 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           websocket?.send(message);
         }
         pendingSocketMessages = [];
+        pendingReconnectRefitAfterData = true;
       };
       websocket.onclose = () => {
         reportDebug("terminal.socketClose", {
           sessionId: pane.sessionId,
         });
         pendingSocketMessages = [];
+        pendingReconnectRefitAfterData = false;
+        if (reconnectRefitTimeoutId !== undefined) {
+          window.clearTimeout(reconnectRefitTimeoutId);
+          reconnectRefitTimeoutId = undefined;
+        }
       };
       websocket.onerror = () => {
         reportDebug("terminal.socketError", {
           sessionId: pane.sessionId,
         });
         pendingSocketMessages = [];
+        pendingReconnectRefitAfterData = false;
+        if (reconnectRefitTimeoutId !== undefined) {
+          window.clearTimeout(reconnectRefitTimeoutId);
+          reconnectRefitTimeoutId = undefined;
+        }
       };
     };
 
@@ -229,12 +313,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           cols: terminal.cols,
           sessionId: pane.sessionId,
         });
-        fit.fit();
-        lastMeasuredSizeRef.current = {
-          height: Math.round(containerRef.current?.getBoundingClientRect().height ?? 0),
-          width: Math.round(containerRef.current?.getBoundingClientRect().width ?? 0),
-        };
-        terminal.refresh(0, terminal.rows - 1);
+        refitTerminal();
         connectWebsocket();
       });
     });
@@ -251,10 +330,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       for (const chunk of chunks) {
         terminal.write(chunk);
       }
-    };
-
-    const handleTerminalStateMessage = (message: TerminalStateMessage) => {
-      void message;
     };
 
     if (connection.mock) {
@@ -418,6 +493,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         clearTimeout(flushTimer);
         flushData();
       }
+      if (reconnectRefitTimeoutId !== undefined) {
+        window.clearTimeout(reconnectRefitTimeoutId);
+      }
       cancelAnimationFrame(rafId);
       window.removeEventListener("focus", onWindowFocus);
       resizeObserver.disconnect();
@@ -471,20 +549,25 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           return;
         }
 
-        reportDebug("terminal.visibleRefit", {
-          height: Math.round(bounds.height),
-          sessionId: pane.sessionId,
-          width: Math.round(bounds.width),
-        });
-        lastMeasuredSizeRef.current = {
+        const nextMeasuredSize = {
           height: Math.round(bounds.height),
           width: Math.round(bounds.width),
         };
+        const previousMeasuredSize = lastMeasuredSizeRef.current;
+        if (
+          previousMeasuredSize &&
+          previousMeasuredSize.width === nextMeasuredSize.width &&
+          previousMeasuredSize.height === nextMeasuredSize.height
+        ) {
+          return;
+        }
+
+        lastMeasuredSizeRef.current = nextMeasuredSize;
         fitRef.current?.fit();
         terminal.refresh(0, terminal.rows - 1);
       });
     });
-  }, [debugLog, isVisible, pane.sessionId, debuggingMode]);
+  }, [isVisible, pane.sessionId]);
 
   useEffect(() => {
     if (

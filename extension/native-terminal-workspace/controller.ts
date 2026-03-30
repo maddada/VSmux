@@ -153,6 +153,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly sessionAgentLaunchBySessionId: Map<string, StoredSessionAgentLaunch>;
   private readonly store: SessionGridStore;
   private readonly terminalTitleBySessionId = new Map<string, string>();
+  private readonly lastPostedSidebarPresentationBySessionId = new Map<
+    string,
+    {
+      activity: string;
+      activityLabel: string | undefined;
+      primaryTitle: string | undefined;
+      terminalTitle: string | undefined;
+    }
+  >();
   private readonly lastKnownActivityBySessionId = new Map<string, "idle" | "working" | "attention">();
   private readonly pendingCompletionSoundTimeoutBySessionId = new Map<string, NodeJS.Timeout>();
   private readonly loggedTitleSymbolKeys = new Set<string>();
@@ -1120,6 +1129,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {
+    if (message.type === "sidebarDebugLog") {
+      logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
+      return;
+    }
+
     await dispatchSidebarMessage(message, {
       cancelSidebarGitCommit: async (requestId) => this.cancelSidebarGitCommit(requestId),
       clearGeneratedPreviousSessions: async () => this.clearGeneratedPreviousSessions(),
@@ -1359,12 +1373,33 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       workspaceSnapshot,
     });
     if (sidebarSession) {
-      logVSmuxDebug("controller.postSessionPresentationMessage.sidebar", {
+      const previousSidebarPresentation = this.lastPostedSidebarPresentationBySessionId.get(sessionId);
+      const nextSidebarPresentation = {
         activity: sidebarSession.activity,
         activityLabel: sidebarSession.activityLabel,
         primaryTitle: sidebarSession.primaryTitle,
+        terminalTitle: sidebarSession.terminalTitle,
+      };
+      this.lastPostedSidebarPresentationBySessionId.set(sessionId, nextSidebarPresentation);
+      logVSmuxDebug("controller.postSessionPresentationMessage.sidebar", {
+        activity: sidebarSession.activity,
+        activityChanged: previousSidebarPresentation?.activity !== nextSidebarPresentation.activity,
+        activityLabel: sidebarSession.activityLabel,
+        activityLabelChanged:
+          previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel,
+        payloadChanged:
+          previousSidebarPresentation?.activity !== nextSidebarPresentation.activity ||
+          previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel ||
+          previousSidebarPresentation?.primaryTitle !== nextSidebarPresentation.primaryTitle ||
+          previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle,
+        previousSidebarPresentation,
+        primaryTitle: sidebarSession.primaryTitle,
+        primaryTitleChanged:
+          previousSidebarPresentation?.primaryTitle !== nextSidebarPresentation.primaryTitle,
         sessionId,
         terminalTitle: sidebarSession.terminalTitle,
+        terminalTitleChanged:
+          previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle,
       });
       await this.sidebarProvider.postMessage({
         session: sidebarSession,

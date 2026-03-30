@@ -444,6 +444,18 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     [serverState.groups],
   );
 
+  const postSidebarDebugLog = useEffectEvent((event: string, details: unknown) => {
+    if (!serverState.hud.debuggingMode) {
+      return;
+    }
+
+    vscode.postMessage({
+      details,
+      event,
+      type: "sidebarDebugLog",
+    });
+  });
+
   const updateSessionDragIndicator = useEffectEvent(
     (
       nativeEvent: Event | undefined,
@@ -473,6 +485,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
   const handleDragStart = ((event) => {
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
+    postSidebarDebugLog("session.dragStart", {
+      nativeEventType: event.nativeEvent?.type,
+      point: getClientPoint(event.nativeEvent),
+      sourceData,
+      targetData: getSidebarDropData(event.operation.target as { data?: unknown }),
+    });
     if (sourceData?.kind !== "session") {
       setSessionDragIndicator(undefined);
       return;
@@ -498,6 +516,23 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     const targetData = getSidebarDropData(event.operation.target as { data?: unknown });
+    const resolvedSessionDropTarget =
+      sourceData?.kind === "session"
+        ? resolveSessionDropTargetFromPoint(
+            event.nativeEvent,
+            currentSessionIdsByGroup,
+            targetData,
+            sourceData,
+          )
+        : undefined;
+    postSidebarDebugLog("session.dragEnd", {
+      canceled: event.canceled,
+      nativeEventType: event.nativeEvent?.type,
+      point: getClientPoint(event.nativeEvent),
+      resolvedSessionDropTarget,
+      sourceData,
+      targetData,
+    });
     if (!sourceData) {
       return;
     }
@@ -527,12 +562,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       return;
     }
 
-    const resolvedSessionDropTarget = resolveSessionDropTargetFromPoint(
-      event.nativeEvent,
-      currentSessionIdsByGroup,
-      targetData,
-      sourceData,
-    );
     if (resolvedSessionDropTarget === null) {
       return;
     }
@@ -1079,7 +1108,7 @@ function resolveSessionDropTargetFromPoint(
 ) {
   const point = getClientPoint(nativeEvent);
   const candidates = [
-    getSidebarSessionDropTargetFromDropData(targetData, point?.y),
+    getSidebarSessionDropTargetFromDropData(targetData, point),
     point ? getSidebarSessionDropTargetAtPoint(document, point.x, point.y) : undefined,
     getSidebarSessionDropTargetFromEvent(nativeEvent),
   ];
@@ -1137,18 +1166,16 @@ function isSourceSessionDropTarget(
 
 function getSidebarSessionDropTargetFromDropData(
   targetData: ReturnType<typeof getSidebarDropData>,
-  clientY: number | undefined,
+  point: ReturnType<typeof getClientPoint>,
 ) {
   if (targetData?.kind === "session") {
-    const sessionElement = document.querySelector<HTMLElement>(
-      `[data-sidebar-session-id="${targetData.sessionId}"]`,
-    );
+    const sessionElement = getTargetSessionElement(targetData.sessionId, point);
     if (!sessionElement) {
       return undefined;
     }
 
     const bounds = sessionElement.getBoundingClientRect();
-    const relativeY = clientY ?? bounds.top + bounds.height / 2;
+    const relativeY = point?.y ?? bounds.top + bounds.height / 2;
     return {
       groupId: targetData.groupId,
       kind: "session" as const,
@@ -1166,7 +1193,7 @@ function getSidebarSessionDropTargetFromDropData(
     }
 
     const bounds = groupElement.getBoundingClientRect();
-    const relativeY = clientY ?? bounds.top;
+    const relativeY = point?.y ?? bounds.top;
     return {
       groupId: targetData.groupId,
       kind: "group" as const,
@@ -1175,4 +1202,23 @@ function getSidebarSessionDropTargetFromDropData(
   }
 
   return undefined;
+}
+
+function getTargetSessionElement(
+  sessionId: string,
+  point: ReturnType<typeof getClientPoint>,
+): HTMLElement | undefined {
+  const selector = `[data-sidebar-session-id="${sessionId}"]`;
+  if (point) {
+    for (const element of document.elementsFromPoint(point.x, point.y)) {
+      const sessionElement = element.closest<HTMLElement>(selector);
+      if (sessionElement && sessionElement.dataset.dragging !== "true") {
+        return sessionElement;
+      }
+    }
+  }
+
+  return Array.from(document.querySelectorAll<HTMLElement>(selector)).find(
+    (sessionElement) => sessionElement.dataset.dragging !== "true",
+  );
 }

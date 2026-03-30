@@ -144,6 +144,9 @@ export function reduceSidebarStoryWorkspace(
   message: SidebarToExtensionMessage,
 ): SidebarStoryWorkspace | undefined {
   switch (message.type) {
+    case "sidebarDebugLog":
+      return undefined;
+
     case "moveSessionToGroup": {
       const result = moveSessionToGroupInWorkspace(
         workspace.snapshot,

@@ -96,12 +96,28 @@ export function getClientPoint(
 }
 
 export function getSidebarSessionDropTargetAtPoint(
-  documentLike: Pick<Document, "elementFromPoint">,
+  documentLike: Pick<Document, "elementFromPoint"> &
+    Partial<Pick<Document, "elementsFromPoint">>,
   x: number,
   y: number,
 ): SidebarSessionDropTarget | undefined {
-  const element = documentLike.elementFromPoint(x, y);
-  return element instanceof Element ? getSidebarSessionDropTargetFromElement(element, y) : undefined;
+  const elements =
+    typeof documentLike.elementsFromPoint === "function"
+      ? documentLike.elementsFromPoint(x, y)
+      : [documentLike.elementFromPoint(x, y)];
+
+  for (const element of elements) {
+    if (!isDomElement(element) || isDraggingElement(element)) {
+      continue;
+    }
+
+    const target = getSidebarSessionDropTargetFromElement(element, y);
+    if (target) {
+      return target;
+    }
+  }
+
+  return undefined;
 }
 
 export function getSidebarSessionDropTargetFromEvent(
@@ -241,4 +257,12 @@ function getSidebarSessionDropTargetFromElement(
     kind: "group",
     position: relativeY > bounds.top + bounds.height / 2 ? "end" : "start",
   };
+}
+
+function isDraggingElement(element: Element): boolean {
+  return element.closest<HTMLElement>("[data-dragging='true']") !== null;
+}
+
+function isDomElement(candidate: unknown): candidate is Element {
+  return typeof candidate === "object" && candidate !== null && "closest" in candidate;
 }
