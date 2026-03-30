@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 1.13.1 - 2026-03-30
+
+- Sidebar drag and drop is more reliable now, especially when moving sessions into empty groups or rejecting drops outside valid group targets.
+- Workspace focus handoff is more polished, with better sidebar-to-workspace focus syncing and group selection behavior.
+- Session attention handling is a bit cleaner, including more deliberate completion-sound timing so transient state changes are less noisy.
+
 ## 1.13.0 - 2026-03-30
 
 - VSmux now has a much more capable workspace experience, with a new terminal workspace panel, pane reordering, better terminal appearance controls, and a Ghostty-based terminal frontend.

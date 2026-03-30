@@ -7,6 +7,7 @@ import {
   dragSessionToGroup,
   dragToHover,
   expectMessage,
+  expectNoMessage,
   expectSessionMembership,
   findRequiredElement,
   openContextMenu,
@@ -307,6 +308,61 @@ export const DragAcrossThreeGroupsStress: Story = {
       await dragSessionToGroup(storyRoot, "session-2", "group-1");
       await expectSessionMembership(storyRoot, "group-1", ["session-2", "session-3", "session-5"]);
       await expectSessionMembership(storyRoot, "group-2", []);
+    });
+  },
+};
+
+export const DragIntoEmptyGroupAndRejectOutsideDrops: Story = {
+  args: {
+    fixture: "empty-groups",
+  },
+  play: async ({ canvasElement, step }) => {
+    const storyRoot = canvasElement.ownerDocument.body;
+
+    await step("move a session into an empty group", async () => {
+      resetSidebarStoryMessages();
+      await dragAndDrop(
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-session-id="session-1"]',
+          "session-1 card",
+        ),
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-group-id="group-2"] .group-empty-state',
+          "group-2 empty state",
+        ),
+      );
+
+      await expectMessage({
+        groupId: "group-2",
+        sessionId: "session-1",
+        targetIndex: 0,
+        type: "moveSessionToGroup",
+      });
+      await expectSessionMembership(storyRoot, "group-1", []);
+      await expectSessionMembership(storyRoot, "group-2", ["session-1"]);
+    });
+
+    await step("ignore drops outside the groups", async () => {
+      resetSidebarStoryMessages();
+      await dragAndDrop(
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-session-id="session-1"]',
+          "session-1 card",
+        ),
+        await findRequiredElement(
+          storyRoot,
+          'button[aria-label="Create a new group"]',
+          "new group button",
+        ),
+      );
+
+      await expectNoMessage({ type: "moveSessionToGroup" });
+      await expectNoMessage({ type: "syncSessionOrder" });
+      await expectSessionMembership(storyRoot, "group-1", []);
+      await expectSessionMembership(storyRoot, "group-2", ["session-1"]);
     });
   },
 };

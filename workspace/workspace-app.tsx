@@ -438,7 +438,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         />
       ))}
       {visiblePanes.length === 0 ? (
-        <div className="workspace-empty-state">No visible sessions in the active group.</div>
+        <div className="workspace-empty-state">No sessions in this group.</div>
       ) : null}
     </main>
   );

@@ -327,7 +327,6 @@
   display: inline-flex;
   gap: calc(8px * var(--sidebar-density-scale));
   justify-content: center;
-  margin-top: calc(10px * var(--sidebar-density-scale));
   min-height: calc(38px * var(--sidebar-density-scale));
   padding: calc(10px * var(--sidebar-density-scale)) calc(14px * var(--sidebar-density-scale));
   transition:

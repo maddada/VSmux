@@ -16,6 +16,16 @@ export async function expectMessage(expectedMessage: Partial<SidebarToExtensionM
   });
 }
 
+export async function expectNoMessage(
+  expectedMessage: Partial<SidebarToExtensionMessage>,
+  delayMs = 50,
+) {
+  await delay(delayMs);
+  expect(
+    getSidebarStoryMessages().some((message) => isSubsetMatch(message, expectedMessage)),
+  ).toBe(false);
+}
+
 export async function dragAndDrop(source: HTMLElement, target: HTMLElement) {
   const dragState = await dragToHover(source, target);
   await releaseDrag(target, dragState);

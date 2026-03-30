@@ -44,7 +44,12 @@ import { DaemonSessionsModal } from "./daemon-sessions-modal";
 import { GitCommitModal } from "./git-commit-modal";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
-import { getSidebarDropData } from "./sidebar-dnd";
+import {
+  getClientPoint,
+  getSidebarDropData,
+  getSidebarSessionDropTargetAtPoint,
+  moveSessionIdsByDropTarget,
+} from "./sidebar-dnd";
 import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import type { WebviewApi } from "./webview-api";
@@ -480,11 +485,26 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       return;
     }
 
-    if (!targetData) {
+    const resolvedSessionDropTarget = resolveSessionDropTargetFromPoint(
+      event.nativeEvent,
+      currentSessionIdsByGroup,
+    );
+    if (resolvedSessionDropTarget === null) {
       return;
     }
 
-    const nextSessionIdsByGroup = move(currentSessionIdsByGroup, event);
+    if (!targetData && resolvedSessionDropTarget === undefined) {
+      return;
+    }
+
+    const nextSessionIdsByGroup =
+      resolvedSessionDropTarget !== undefined
+        ? moveSessionIdsByDropTarget(
+            currentSessionIdsByGroup,
+            sourceData.sessionId,
+            resolvedSessionDropTarget,
+          )
+        : move(currentSessionIdsByGroup, event);
     const previousSessionIdsByGroup = authoritativeSessionIdsByGroup;
     const previousGroupId = findSessionGroupId(previousSessionIdsByGroup, sourceData.sessionId);
     const nextGroupId = findSessionGroupId(nextSessionIdsByGroup, sourceData.sessionId);
@@ -943,12 +963,6 @@ function getWorkspaceSidebarGroups(groups: readonly SidebarSessionGroup[]): Side
   return groups.filter((group) => group.kind !== "browser");
 }
 
-function cloneSessionIdsByGroup(sessionIdsByGroup: SessionIdsByGroup): SessionIdsByGroup {
-  return Object.fromEntries(
-    Object.entries(sessionIdsByGroup).map(([groupId, sessionIds]) => [groupId, [...sessionIds]]),
-  );
-}
-
 function applySessionOrder(
   sessionById: ReadonlyMap<string, SidebarSessionItem>,
   orderedSessionIds: readonly string[] | undefined,
@@ -1008,4 +1022,30 @@ function OverflowIcon() {
 
 function getCompletionBellMenuLabel(hud: SidebarHudState): string {
   return hud.completionBellEnabled ? "Disable Notifying" : "Enable Notifying";
+}
+
+function resolveSessionDropTargetFromPoint(
+  nativeEvent: Event | undefined,
+  sessionIdsByGroup: SessionIdsByGroup,
+) {
+  const point = getClientPoint(nativeEvent);
+  if (!point) {
+    return undefined;
+  }
+
+  const target = getSidebarSessionDropTargetAtPoint(document, point.x, point.y);
+  if (!target) {
+    return null;
+  }
+
+  const groupSessionIds = sessionIdsByGroup[target.groupId];
+  if (!groupSessionIds) {
+    return null;
+  }
+
+  if (target.kind === "session" && !groupSessionIds.includes(target.sessionId)) {
+    return null;
+  }
+
+  return target;
 }
