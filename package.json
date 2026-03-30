@@ -322,7 +322,7 @@
           "minimum": 0,
           "maximum": 48,
           "default": 12,
-          "description": "Gap in pixels between visible panes in the VSmux workspace."
+          "description": "Uniform gap in pixels used both between visible panes and around the outer edge of the VSmux workspace."
         },
         "VSmux.workspaceActivePaneBorderColor": {
           "title": "Workspace Active Pane Border Color",

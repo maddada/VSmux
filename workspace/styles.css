@@ -40,7 +40,7 @@ body {
   gap: var(--workspace-pane-gap, 12px);
   grid-auto-rows: minmax(0, 1fr);
   height: 100%;
-  padding: 12px;
+  padding: var(--workspace-pane-gap, 12px);
 }
 
 .workspace-shell-empty {
