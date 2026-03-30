@@ -19,9 +19,9 @@ const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 156;
 const CONTEXT_MENU_ITEM_HEIGHT_PX = 34;
 const CONTEXT_MENU_VERTICAL_PADDING_PX = 12;
-const SESSION_CARD_DRAG_HOLD_DELAY_MS = 190;
+const SESSION_CARD_DRAG_HOLD_DELAY_MS = 160;
 const SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 8;
-const TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS = 190;
+const TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS = 160;
 const TOUCH_SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 5;
 
 const sessionCardSensors = [
@@ -53,6 +53,7 @@ type ContextMenuPosition = {
 };
 
 export type SortableSessionCardProps = {
+  dropPosition?: "after" | "before";
   groupId: string;
   index: number;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
@@ -82,6 +83,7 @@ function clampContextMenuPosition(
 }
 
 export function SortableSessionCard({
+  dropPosition,
   groupId,
   index,
   onFocusRequested,
@@ -100,7 +102,7 @@ export function SortableSessionCard({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
     disabled: isBrowserSession || contextMenuPosition !== undefined,
-    feedback: "none",
+    feedback: "clone",
     group: groupId,
     id: session.sessionId,
     index,
@@ -235,6 +237,7 @@ export function SortableSessionCard({
         className="session-frame"
         data-activity={session.activity}
         data-dragging={String(Boolean(sortable.isDragging))}
+        data-drop-position={dropPosition}
         data-drop-target={String(Boolean(sortable.isDropTarget))}
         data-focused={String(session.isFocused)}
         data-running={String(session.isRunning)}
@@ -250,6 +253,7 @@ export function SortableSessionCard({
           data-activity={session.activity}
           data-has-agent-icon={String(Boolean(session.agentIcon))}
           data-dragging={String(Boolean(sortable.isDragging))}
+          data-drop-position={dropPosition}
           data-drop-target={String(Boolean(sortable.isDropTarget))}
           data-focused={String(session.isFocused)}
           data-running={String(session.isRunning)}

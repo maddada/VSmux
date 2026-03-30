@@ -361,7 +361,10 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   }
 
   return (
-    <main className="workspace-shell" style={workspaceShellStyle}>
+    <main
+      className={visiblePanes.length === 0 ? "workspace-shell workspace-shell-empty" : "workspace-shell"}
+      style={workspaceShellStyle}
+    >
       {orderedPanes.map((pane) => (
         <WorkspacePaneView
           connection={workspaceState.connection}

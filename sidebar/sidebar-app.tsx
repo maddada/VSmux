@@ -47,6 +47,7 @@ import { ScratchPadModal } from "./scratch-pad-modal";
 import {
   getClientPoint,
   getSidebarDropData,
+  type SidebarSessionDropTarget,
   getSidebarSessionDropTargetFromEvent,
   getSidebarSessionDropTargetAtPoint,
   moveSessionIdsByDropTarget,
@@ -143,6 +144,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const [gitCommitDraft, setGitCommitDraft] = useState<SidebarPromptGitCommitMessage>();
+  const [sessionDragIndicator, setSessionDragIndicator] = useState<SidebarSessionDropTarget>();
   const pendingCreateGroupRef = useRef(false);
   const pendingFocusedSessionIdRef = useRef<string>();
   const overflowControlsRef = useRef<HTMLDivElement>(null);
@@ -442,14 +444,53 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     [serverState.groups],
   );
 
+  const updateSessionDragIndicator = useEffectEvent(
+    (
+      nativeEvent: Event | undefined,
+      source: { data?: unknown } | null | undefined,
+      target: { data?: unknown } | null | undefined,
+    ) => {
+      const sourceData = getSidebarDropData(source);
+      if (sourceData?.kind !== "session") {
+        setSessionDragIndicator(undefined);
+        return;
+      }
+
+      const targetData = getSidebarDropData(target);
+      const resolvedDropTarget = resolveSessionDropTargetFromPoint(
+        nativeEvent,
+        sessionIdsByGroupRef.current,
+        targetData,
+        sourceData,
+      );
+      const nextIndicator = resolvedDropTarget ?? undefined;
+
+      setSessionDragIndicator((previous) =>
+        haveSameSessionDropTarget(previous, nextIndicator) ? previous : nextIndicator,
+      );
+    },
+  );
+
   const handleDragStart = ((event) => {
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     if (sourceData?.kind !== "session") {
+      setSessionDragIndicator(undefined);
       return;
     }
+
+    setSessionDragIndicator(undefined);
   }) satisfies DragDropEventHandlers["onDragStart"];
 
+  const handleDragMove = ((event) => {
+    updateSessionDragIndicator(event.nativeEvent, event.operation.source, event.operation.target);
+  }) satisfies DragDropEventHandlers["onDragMove"];
+
+  const handleDragOver = ((event) => {
+    updateSessionDragIndicator(event.nativeEvent, event.operation.source, event.operation.target);
+  }) satisfies DragDropEventHandlers["onDragOver"];
+
   const handleDragEnd = ((event) => {
+    setSessionDragIndicator(undefined);
     const currentGroupIds = groupIdsRef.current;
     const currentSessionIdsByGroup = sessionIdsByGroupRef.current;
     const authoritativeGroupIds = workspaceGroups.map((group) => group.groupId);
@@ -490,6 +531,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       event.nativeEvent,
       currentSessionIdsByGroup,
       targetData,
+      sourceData,
     );
     if (resolvedSessionDropTarget === null) {
       return;
@@ -770,6 +812,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           <DragDropProvider
             key={`drag-structure-${structureRevision}`}
             onDragEnd={handleDragEnd}
+            onDragMove={handleDragMove}
+            onDragOver={handleDragOver}
             onDragStart={handleDragStart}
             sensors={sensors}
           >
@@ -784,6 +828,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
                   onFocusRequested={applyLocalFocus}
                   orderedSessions={group.orderedSessions}
+                  sessionDragIndicator={sessionDragIndicator}
                   showDebugSessionNumbers={serverState.hud.debuggingMode}
                   showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
                   showHotkeys={serverState.hud.showHotkeysOnSessionCards}
@@ -1030,32 +1075,64 @@ function resolveSessionDropTargetFromPoint(
   nativeEvent: Event | undefined,
   sessionIdsByGroup: SessionIdsByGroup,
   targetData: ReturnType<typeof getSidebarDropData>,
+  sourceData: Extract<ReturnType<typeof getSidebarDropData>, { kind: "session" }> | undefined,
 ) {
-  const target =
-    (() => {
-      const point = getClientPoint(nativeEvent);
-      if (!point) {
-        return undefined;
-      }
+  const point = getClientPoint(nativeEvent);
+  const candidates = [
+    getSidebarSessionDropTargetFromDropData(targetData, point?.y),
+    point ? getSidebarSessionDropTargetAtPoint(document, point.x, point.y) : undefined,
+    getSidebarSessionDropTargetFromEvent(nativeEvent),
+  ];
 
-      return getSidebarSessionDropTargetAtPoint(document, point.x, point.y);
-    })() ??
-    getSidebarSessionDropTargetFromEvent(nativeEvent) ??
-    getSidebarSessionDropTargetFromDropData(targetData, getClientPoint(nativeEvent)?.y);
-  if (!target) {
-    return null;
+  for (const candidate of candidates) {
+    if (!candidate || isSourceSessionDropTarget(candidate, sourceData)) {
+      continue;
+    }
+
+    const groupSessionIds = sessionIdsByGroup[candidate.groupId];
+    if (!groupSessionIds) {
+      continue;
+    }
+
+    if (candidate.kind === "session" && !groupSessionIds.includes(candidate.sessionId)) {
+      continue;
+    }
+
+    return candidate;
   }
 
-  const groupSessionIds = sessionIdsByGroup[target.groupId];
-  if (!groupSessionIds) {
-    return null;
+  return null;
+}
+
+function haveSameSessionDropTarget(
+  left: SidebarSessionDropTarget | undefined,
+  right: SidebarSessionDropTarget | undefined,
+): boolean {
+  if (!left || !right) {
+    return left === right;
   }
 
-  if (target.kind === "session" && !groupSessionIds.includes(target.sessionId)) {
-    return null;
+  if (left.groupId !== right.groupId || left.kind !== right.kind || left.position !== right.position) {
+    return false;
   }
 
-  return target;
+  if (left.kind !== "session" || right.kind !== "session") {
+    return true;
+  }
+
+  return left.sessionId === right.sessionId;
+}
+
+function isSourceSessionDropTarget(
+  candidate: SidebarSessionDropTarget,
+  sourceData: Extract<ReturnType<typeof getSidebarDropData>, { kind: "session" }> | undefined,
+): boolean {
+  return Boolean(
+    sourceData &&
+      candidate.kind === "session" &&
+      candidate.groupId === sourceData.groupId &&
+      candidate.sessionId === sourceData.sessionId,
+  );
 }
 
 function getSidebarSessionDropTargetFromDropData(

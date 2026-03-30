@@ -2,6 +2,34 @@
   position: relative;
 }
 
+.session-frame::before,
+.session-frame::after {
+  content: "";
+  position: absolute;
+  left: calc(12px * var(--sidebar-density-scale));
+  right: calc(12px * var(--sidebar-density-scale));
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-button-background) 86%, #ffffff 14%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--app-button-background) 22%, transparent),
+    0 0 14px color-mix(in srgb, var(--app-button-background) 28%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  z-index: 4;
+}
+
+.session-frame[data-drop-position="before"]::before {
+  opacity: 1;
+  top: calc(-5px * var(--sidebar-density-scale));
+}
+
+.session-frame[data-drop-position="after"]::after {
+  bottom: calc(-5px * var(--sidebar-density-scale));
+  opacity: 1;
+}
+
 .session {
   --session-surface: linear-gradient(
     180deg,
