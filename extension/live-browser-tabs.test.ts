@@ -10,6 +10,12 @@ vi.mock("vscode", () => ({
   TabInputText: class TabInputText {
     public constructor(public readonly uri: { toString: (skipEncoding?: boolean) => string }) {}
   },
+  TabInputTextDiff: class TabInputTextDiff {
+    public constructor(
+      public readonly original: { toString: (skipEncoding?: boolean) => string },
+      public readonly modified: { toString: (skipEncoding?: boolean) => string },
+    ) {}
+  },
   TabInputWebview: class TabInputWebview {
     public constructor(public readonly viewType: string) {}
   },
@@ -100,6 +106,67 @@ describe("getLiveBrowserTabs", () => {
             input: new vscode.TabInputWebview("VSmux.t3Session"),
             isActive: true,
             label: "T3",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should ignore VS Code diff editors", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputTextDiff(
+              {
+                toString: () => "file:///tmp/original.ts",
+              },
+              {
+                toString: () => "file:///tmp/modified.ts",
+              },
+            ),
+            isActive: true,
+            label: "original.ts ↔ modified.ts",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should ignore tabs whose title includes (Working Tree)", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputWebview("git.diff"),
+            isActive: true,
+            label: "foo.ts (Working Tree)",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
+  test("should ignore the VS Code Welcome tab", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputWebview("workbench.welcomePage"),
+            isActive: true,
+            label: "Welcome",
           },
         ],
         viewColumn: 1,

@@ -22,6 +22,7 @@ import {
 } from "../../shared/session-grid-contract";
 import { getSidebarAgentIconById, type SidebarAgentIcon } from "../../shared/sidebar-agents";
 import {
+  createDefaultSidebarGitState,
   resolveSidebarGitPrimaryActionState,
   type SidebarGitAction,
   type SidebarGitState,
@@ -1219,7 +1220,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         ?.snapshot ?? this.getEmptySnapshot();
     const browserTabs = this.refreshLiveBrowserTabs();
     const sessionActivityContext = this.createSessionActivityContext();
-    const gitState = await this.getSidebarGitHudState();
+    const gitState =
+      type === "sessionState"
+        ? this.getCachedSidebarGitHudState()
+        : await this.getSidebarGitHudState();
     return buildSidebarMessage({
       activeSnapshot,
       browserTabs: browserTabs.map((browserTab) => ({
@@ -1956,6 +1960,22 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       value: nextState,
     };
     return nextState;
+  }
+
+  private getCachedSidebarGitHudState(): SidebarGitState {
+    const cached = this.gitHudStateCache;
+    if (cached) {
+      if (cached.value.isBusy !== this.gitActionInProgress) {
+        return {
+          ...cached.value,
+          isBusy: this.gitActionInProgress,
+        };
+      }
+
+      return cached.value;
+    }
+
+    return createDefaultSidebarGitState();
   }
 
   private invalidateSidebarGitHudState(): void {

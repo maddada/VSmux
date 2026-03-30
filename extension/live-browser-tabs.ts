@@ -14,6 +14,8 @@ const BROWSER_SIDEBAR_SESSION_PREFIX = "browser-tab:";
 const SIMPLE_BROWSER_VIEW_TYPE = "simpleBrowser.view";
 const VSMUX_LABEL = "vsmux";
 const VSMUX_VIEW_TYPE_PREFIX = "vsmux.";
+const VSCODE_WELCOME_LABEL = "welcome";
+const WORKING_TREE_LABEL_FRAGMENT = "(Working Tree)";
 
 export type LiveBrowserTabEntry = {
   detail?: string;
@@ -123,6 +125,18 @@ function getLiveBrowserTabMetadata(tab: vscode.Tab):
       viewType?: string;
     }
   | undefined {
+  if (tab.label.includes(WORKING_TREE_LABEL_FRAGMENT)) {
+    return undefined;
+  }
+
+  if (tab.label.trim().toLowerCase() === VSCODE_WELCOME_LABEL) {
+    return undefined;
+  }
+
+  if (isDiffTabInput(tab.input)) {
+    return undefined;
+  }
+
   const viewType = getTabViewType(tab.input);
   const url = normalizeSidebarBrowserUrl(getBrowserTabUrl(tab));
 
@@ -203,4 +217,23 @@ function getTabViewType(input: vscode.Tab["input"]): string | undefined {
 
   const viewType = (input as { viewType?: unknown }).viewType;
   return typeof viewType === "string" && viewType.length > 0 ? viewType : undefined;
+}
+
+function isDiffTabInput(input: vscode.Tab["input"]): boolean {
+  const textDiffInputConstructor = getOptionalVscodeConstructor("TabInputTextDiff");
+  if (typeof textDiffInputConstructor === "function" && input instanceof textDiffInputConstructor) {
+    return true;
+  }
+
+  const notebookDiffInputConstructor = getOptionalVscodeConstructor("TabInputNotebookDiff");
+  return (
+    typeof notebookDiffInputConstructor === "function" &&
+    input instanceof notebookDiffInputConstructor
+  );
+}
+
+function getOptionalVscodeConstructor(name: string): Function | undefined {
+  const candidate =
+    name in (vscode as object) ? (vscode as unknown as Record<string, unknown>)[name] : undefined;
+  return typeof candidate === "function" ? candidate : undefined;
 }

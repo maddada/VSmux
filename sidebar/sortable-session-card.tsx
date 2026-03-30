@@ -1,4 +1,5 @@
 import { IconCopy, IconPencil, IconX } from "@tabler/icons-react";
+import { KeyboardSensor, PointerActivationConstraints, PointerSensor } from "@dnd-kit/dom";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { createPortal } from "react-dom";
 import {
@@ -17,6 +18,33 @@ const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 156;
 const CONTEXT_MENU_ITEM_HEIGHT_PX = 34;
 const CONTEXT_MENU_VERTICAL_PADDING_PX = 12;
+const SESSION_CARD_DRAG_HOLD_DELAY_MS = 250;
+const SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 8;
+const TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS = 250;
+const TOUCH_SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 5;
+
+const sessionCardSensors = [
+  PointerSensor.configure({
+    activationConstraints(event) {
+      if (event.pointerType === "touch") {
+        return [
+          new PointerActivationConstraints.Delay({
+            tolerance: TOUCH_SESSION_CARD_DRAG_HOLD_TOLERANCE_PX,
+            value: TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS,
+          }),
+        ];
+      }
+
+      return [
+        new PointerActivationConstraints.Delay({
+          tolerance: SESSION_CARD_DRAG_HOLD_TOLERANCE_PX,
+          value: SESSION_CARD_DRAG_HOLD_DELAY_MS,
+        }),
+      ];
+    },
+  }),
+  KeyboardSensor,
+];
 
 type ContextMenuPosition = {
   x: number;
@@ -74,6 +102,7 @@ export function SortableSessionCard({
     group: groupId,
     id: session.sessionId,
     index,
+    sensors: sessionCardSensors,
     type: "session",
   });
 

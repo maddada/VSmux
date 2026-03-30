@@ -68,20 +68,6 @@ export function SessionCardContent({
               <span className="session-shortcut-label">{session.shortcutLabel}</span>
             ) : null}
           </div>
-          {onRename ? (
-            <button
-              aria-label="Rename session"
-              className="session-rename-button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onRename();
-              }}
-              type="button"
-            >
-              <IconPencil aria-hidden="true" size={14} stroke={1.8} />
-            </button>
-          ) : null}
           {showCloseButton && onClose ? (
             <button
               aria-label="Close session"
@@ -98,6 +84,20 @@ export function SessionCardContent({
           ) : null}
         </div>
       </div>
+      {onRename ? (
+        <button
+          aria-label="Rename session"
+          className="session-rename-button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRename();
+          }}
+          type="button"
+        >
+          <IconPencil aria-hidden="true" size={14} stroke={1.8} />
+        </button>
+      ) : null}
     </>
   );
 }

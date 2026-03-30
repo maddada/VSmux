@@ -315,7 +315,12 @@ export function getVisibleTerminalTitle(title: string | undefined): string | und
     return undefined;
   }
 
-  return normalizedTitle;
+  const sanitizedTitle = normalizedTitle.replace(/^[\s\u2800-\u28ff·•⋅◦]+/, "").trim();
+  if (!sanitizedTitle) {
+    return undefined;
+  }
+
+  return sanitizedTitle;
 }
 
 export function getOrderedSessions(snapshot: SessionGridSnapshot): SessionRecord[] {

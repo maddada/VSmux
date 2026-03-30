@@ -1,16 +1,16 @@
 .action-row {
   display: grid;
-  gap: 8px;
+  gap: calc(8px * var(--sidebar-density-scale));
 }
 
 .commands-section {
   display: grid;
-  gap: 10px;
+  gap: calc(10px * var(--sidebar-density-scale));
 }
 
 .commands-panel {
   display: grid;
-  gap: 12px;
+  gap: calc(12px * var(--sidebar-density-scale));
 }
 
 .git-action-row {
@@ -31,7 +31,7 @@
   border-color: color-mix(in srgb, var(--app-button-background) 40%, var(--app-border));
   color: color-mix(in srgb, var(--app-foreground) 92%, var(--app-muted) 8%);
   display: inline-flex;
-  min-height: 38px;
+  min-height: calc(38px * var(--sidebar-density-scale));
   outline: 2px solid transparent;
   outline-offset: -3px;
 }
@@ -52,17 +52,19 @@
 }
 
 .git-action-main-button {
-  border-radius: 12px 0 0 12px;
-  gap: 8px;
+  border-radius: calc(12px * var(--sidebar-density-scale)) 0 0
+    calc(12px * var(--sidebar-density-scale));
+  gap: calc(8px * var(--sidebar-density-scale));
   justify-content: flex-start;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--sidebar-density-scale));
   width: 100%;
 }
 
 .git-action-toggle-button {
   border-left-width: 0;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 calc(12px * var(--sidebar-density-scale))
+    calc(12px * var(--sidebar-density-scale)) 0;
   justify-content: center;
   padding: 0;
 }
@@ -80,7 +82,7 @@
 
 .git-action-main-label {
   flex: 1 1 auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--sidebar-density-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   min-width: 0;
@@ -93,10 +95,10 @@
 .git-action-diff-stat {
   display: inline-flex;
   flex: none;
-  font-size: 10px;
+  font-size: calc(10px * var(--sidebar-density-scale));
   font-weight: 700;
-  gap: 1px;
-  margin-right: 5px;
+  gap: calc(1px * var(--sidebar-density-scale));
+  margin-right: calc(5px * var(--sidebar-density-scale));
 }
 
 .git-action-diff-stat-additions {
@@ -114,11 +116,11 @@
 .git-action-menu {
   background: color-mix(in srgb, var(--app-card) 96%, black 4%);
   border: 1px solid color-mix(in srgb, var(--app-border) 94%, transparent);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--sidebar-density-scale));
   box-shadow: 0 16px 40px color-mix(in srgb, black 24%, transparent);
   display: grid;
-  gap: 4px;
-  padding: 6px;
+  gap: calc(4px * var(--sidebar-density-scale));
+  padding: calc(6px * var(--sidebar-density-scale));
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
@@ -130,13 +132,13 @@
   align-items: center;
   background: transparent;
   border: none;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--sidebar-density-scale));
   color: color-mix(in srgb, var(--app-foreground) 92%, var(--app-muted) 8%);
   display: inline-flex;
-  gap: 8px;
+  gap: calc(8px * var(--sidebar-density-scale));
   justify-content: flex-start;
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: calc(34px * var(--sidebar-density-scale));
+  padding: 0 calc(10px * var(--sidebar-density-scale));
   text-align: left;
   width: 100%;
 }
@@ -154,7 +156,7 @@
 
 .git-action-menu-item-label {
   flex: 1 1 auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--sidebar-density-scale));
   font-weight: 700;
   min-width: 0;
 }
@@ -173,7 +175,7 @@
 .agents-grid,
 .commands-grid {
   display: grid;
-  gap: 8px;
+  gap: calc(8px * var(--sidebar-density-scale));
   grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
 }
 
@@ -187,20 +189,20 @@
   align-items: center;
   background: color-mix(in srgb, var(--app-card-active) 90%, transparent);
   border-color: color-mix(in srgb, var(--app-border) 92%, transparent);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--sidebar-density-scale));
   color: color-mix(in srgb, var(--app-foreground) 90%, var(--app-muted) 10%);
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--sidebar-density-scale));
   font-weight: 700;
   gap: 0;
   justify-content: center;
   letter-spacing: 0.02em;
   max-width: 100%;
-  min-height: 36px;
+  min-height: calc(36px * var(--sidebar-density-scale));
   outline: 2px solid transparent;
   outline-offset: -3px;
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--sidebar-density-scale));
   box-sizing: border-box;
 }
 
@@ -247,16 +249,16 @@
 .agent-button-icon-shell {
   align-items: center;
   display: inline-flex;
-  height: 18px;
+  height: calc(18px * var(--sidebar-density-scale));
   justify-content: center;
-  width: 18px;
+  width: calc(18px * var(--sidebar-density-scale));
 }
 
 .agent-button-icon {
   display: block;
-  height: 18px;
+  height: calc(18px * var(--sidebar-density-scale));
   object-fit: contain;
-  width: 18px;
+  width: calc(18px * var(--sidebar-density-scale));
 }
 
 .agent-button-fallback-icon {

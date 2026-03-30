@@ -10,11 +10,11 @@
   );
   --session-glow: transparent;
   width: 100%;
-  padding: 9px 12px;
+  padding: calc(9px * var(--sidebar-density-scale)) calc(12px * var(--sidebar-density-scale));
   border: 1px solid var(--app-border);
   outline: 2px solid transparent;
   outline-offset: -3px;
-  border-radius: 18px;
+  border-radius: calc(18px * var(--sidebar-density-scale));
   background: transparent;
   color: inherit;
   text-align: left;
@@ -119,18 +119,18 @@
   align-items: center;
   color: var(--app-muted);
   display: inline-flex;
-  height: 18px;
+  height: calc(18px * var(--sidebar-density-scale));
   justify-content: center;
   opacity: 0;
   padding: 0;
   pointer-events: none;
   position: absolute;
-  right: 10px;
-  top: 10px;
+  right: calc(10px * var(--sidebar-density-scale));
+  top: calc(10px * var(--sidebar-density-scale));
   transition:
     opacity 120ms ease,
     color 120ms ease;
-  width: 18px;
+  width: calc(18px * var(--sidebar-density-scale));
   z-index: 2;
 }
 
@@ -184,14 +184,14 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--sidebar-density-scale));
   min-width: 0;
 }
 
 .session-alias-heading {
   grid-column: 2;
   width: 100%;
-  font-size: 13px;
+  font-size: calc(13px * var(--sidebar-density-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.3;
@@ -202,8 +202,8 @@
 }
 
 .session-agent-icon {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--sidebar-density-scale));
+  height: calc(18px * var(--sidebar-density-scale));
   background: var(--session-agent-icon-color, var(--app-foreground));
   opacity: 0.82;
   pointer-events: none;
@@ -239,8 +239,8 @@
 
 .session-agent-icon[data-agent-icon="t3"] {
   --session-agent-icon-color: #ffa6fb;
-  width: 22px;
-  height: 22px;
+  width: calc(22px * var(--sidebar-density-scale));
+  height: calc(22px * var(--sidebar-density-scale));
 }
 
 .session-agent-icon[data-agent-icon="claude"] {

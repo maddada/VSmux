@@ -76,7 +76,9 @@
 .session-head-actions {
   align-items: center;
   display: inline-flex;
-  gap: 6px;
+  gap: calc(6px * var(--sidebar-density-scale));
+  grid-column: 3;
+  justify-self: end;
   min-width: 0;
   position: relative;
   z-index: 1;
@@ -84,7 +86,7 @@
 
 .session-meta {
   color: var(--app-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--sidebar-density-scale));
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -94,10 +96,10 @@
 .session-meta {
   align-items: center;
   display: inline-flex;
-  gap: 6px;
+  gap: calc(6px * var(--sidebar-density-scale));
   flex: none;
   justify-self: end;
-  font-size: 9px;
+  font-size: calc(9px * var(--sidebar-density-scale));
   letter-spacing: 0.04em;
   line-height: 1;
   text-align: right;
@@ -124,8 +126,8 @@
 }
 
 .close-button {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--sidebar-density-scale));
+  height: calc(18px * var(--sidebar-density-scale));
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -148,19 +150,21 @@
 }
 
 .session-rename-button {
-  width: 18px;
-  height: 18px;
-  margin-right: -2px;
+  width: calc(18px * var(--sidebar-density-scale));
+  height: calc(18px * var(--sidebar-density-scale));
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   color: var(--app-muted);
-  flex: none;
   line-height: 1;
   opacity: 0;
   pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
   transition:
     opacity 120ms ease,
     color 120ms ease,
@@ -185,5 +189,5 @@
 
 .empty {
   color: var(--app-muted);
-  padding: 12px 2px 2px;
+  padding: calc(12px * var(--sidebar-density-scale)) 2px 2px;
 }

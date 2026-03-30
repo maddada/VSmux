@@ -1,7 +1,7 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { KeyboardSensor, PointerActivationConstraints, PointerSensor } from "@dnd-kit/dom";
 import { move } from "@dnd-kit/helpers";
-import { DragDropProvider, DragOverlay, type DragDropEventHandlers } from "@dnd-kit/react";
+import { DragDropProvider, type DragDropEventHandlers } from "@dnd-kit/react";
 import {
   IconBell,
   IconBellOff,
@@ -12,8 +12,8 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import {
-  startTransition,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -45,7 +45,6 @@ import { CreateGroupDropTarget } from "./create-group-drop-target";
 import { GitCommitModal } from "./git-commit-modal";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
-import { SessionCardContent } from "./session-card-content";
 import { getSidebarDropData } from "./sidebar-dnd";
 import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
@@ -129,10 +128,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [serverState, setServerState] = useState<SidebarState>(INITIAL_STATE);
   const [daemonSessionsState, setDaemonSessionsState] =
     useState<SidebarDaemonSessionsStateMessage>();
+  const [structureRevision, setStructureRevision] = useState(0);
   const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
   const [autoEditingGroupId, setAutoEditingGroupId] = useState<string>();
   const [draggedSessionId, setDraggedSessionId] = useState<string>();
-  const [dragOverlayWidth, setDragOverlayWidth] = useState<number>();
   const [agentCreateRequestId, setAgentCreateRequestId] = useState(0);
   const [commandCreateRequestId, setCommandCreateRequestId] = useState(0);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
@@ -148,8 +147,9 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const groupIdsRef = useRef<string[]>([]);
   const latestAppliedSidebarRevisionRef = useRef(0);
   const sessionIdsByGroupRef = useRef<SessionIdsByGroup>({});
+  const lastLoggedRenderedStructureRef = useRef<string>();
 
-  const logSidebarDebug = (event: string, details: Record<string, unknown>) => {
+  const logSidebarDebug = useEffectEvent((event: string, details: Record<string, unknown>) => {
     if (!serverState.hud.debuggingMode) {
       return;
     }
@@ -159,35 +159,36 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       event,
       type: "sidebarDebugLog",
     });
-  };
+  });
 
-  const applySidebarMessage = (message: SidebarHydrateMessage | SidebarSessionStateMessage) => {
-    if (message.revision < latestAppliedSidebarRevisionRef.current) {
-      logSidebarDebug("state.messageIgnoredAsStale", {
-        currentRevision: latestAppliedSidebarRevisionRef.current,
-        incomingRevision: message.revision,
-        messageType: message.type,
+  const applySidebarMessage = useEffectEvent(
+    (message: SidebarHydrateMessage | SidebarSessionStateMessage) => {
+      if (message.revision < latestAppliedSidebarRevisionRef.current) {
+        logSidebarDebug("state.messageIgnoredAsStale", {
+          currentRevision: latestAppliedSidebarRevisionRef.current,
+          incomingRevision: message.revision,
+          messageType: message.type,
+        });
+        return;
+      }
+
+      latestAppliedSidebarRevisionRef.current = message.revision;
+      setStructureRevision(message.revision);
+      const filteredMessage = {
+        ...message,
+        groups: reconcilePendingFocusedSession(message.groups),
+      };
+      logSidebarDebug("state.messageApplied", {
+        draggedSessionId: draggedSessionIdRef.current,
+        localGroupIds: [...groupIdsRef.current],
+        localSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
+        messageType: filteredMessage.type,
+        nextGroups: summarizeSidebarGroups(filteredMessage.groups),
+        revision: filteredMessage.revision,
+        pendingCreateGroup: pendingCreateGroupRef.current,
+        previousGroups: summarizeSidebarGroups(serverState.groups),
       });
-      return;
-    }
 
-    latestAppliedSidebarRevisionRef.current = message.revision;
-    const filteredMessage = {
-      ...message,
-      groups: reconcilePendingFocusedSession(message.groups),
-    };
-    logSidebarDebug("state.messageApplied", {
-      draggedSessionId: draggedSessionIdRef.current,
-      localGroupIds: [...groupIdsRef.current],
-      localSessionIdsByGroup: summarizeSessionIdsByGroup(sessionIdsByGroupRef.current),
-      messageType: filteredMessage.type,
-      nextGroups: summarizeSidebarGroups(filteredMessage.groups),
-      revision: filteredMessage.revision,
-      pendingCreateGroup: pendingCreateGroupRef.current,
-      previousGroups: summarizeSidebarGroups(serverState.groups),
-    });
-
-    startTransition(() => {
       setServerState((previous) => {
         if (pendingCreateGroupRef.current) {
           const nextGroupId = findCreatedGroupId(previous.groups, filteredMessage.groups);
@@ -204,11 +205,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           scratchPadContent: filteredMessage.scratchPadContent ?? "",
         };
       });
-    });
-  };
+    },
+  );
 
-  const applySessionPresentationMessage = (message: SidebarSessionPresentationChangedMessage) => {
-    startTransition(() => {
+  const applySessionPresentationMessage = useEffectEvent(
+    (message: SidebarSessionPresentationChangedMessage) => {
       setServerState((previous) => ({
         ...previous,
         groups: reconcilePendingFocusedSession(
@@ -220,31 +221,29 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           })),
         ),
       }));
-    });
-  };
+    },
+  );
 
   const applyLocalFocus = (groupId: string, sessionId: string) => {
     pendingFocusedSessionIdRef.current = sessionId;
-    startTransition(() => {
-      setServerState((previous) => ({
-        ...previous,
-        groups: previous.groups.map((group) => {
-          const isActiveGroup = group.groupId === groupId;
-          return {
-            ...group,
-            isActive: isActiveGroup,
-            sessions: group.sessions.map((session) => ({
-              ...session,
-              isFocused: isActiveGroup && session.sessionId === sessionId,
-              isVisible:
-                group.kind !== "browser" && isActiveGroup && session.sessionId === sessionId
-                  ? true
-                  : session.isVisible,
-            })),
-          };
-        }),
-      }));
-    });
+    setServerState((previous) => ({
+      ...previous,
+      groups: previous.groups.map((group) => {
+        const isActiveGroup = group.groupId === groupId;
+        return {
+          ...group,
+          isActive: isActiveGroup,
+          sessions: group.sessions.map((session) => ({
+            ...session,
+            isFocused: isActiveGroup && session.sessionId === sessionId,
+            isVisible:
+              group.kind !== "browser" && isActiveGroup && session.sessionId === sessionId
+                ? true
+                : session.isVisible,
+          })),
+        };
+      }),
+    }));
   };
 
   const reconcilePendingFocusedSession = (
@@ -307,52 +306,56 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     requestNewSession();
   };
 
+  const handleWindowMessage = useEffectEvent((event: MessageEvent<ExtensionToSidebarMessage>) => {
+    if (!event.data) {
+      return;
+    }
+
+    if (event.data.type === "playCompletionSound") {
+      void playCompletionSound(event.data.sound);
+      return;
+    }
+
+    if (event.data.type === "sessionPresentationChanged") {
+      logSidebarDebug("state.sessionPresentationChanged", {
+        activity: event.data.session.activity,
+        activityLabel: event.data.session.activityLabel,
+        primaryTitle: event.data.session.primaryTitle,
+        sessionId: event.data.session.sessionId,
+        terminalTitle: event.data.session.terminalTitle,
+      });
+      applySessionPresentationMessage(event.data);
+      return;
+    }
+
+    if (event.data.type === "daemonSessionsState") {
+      setDaemonSessionsState(event.data);
+      return;
+    }
+
+    if (event.data.type === "promptGitCommit") {
+      setGitCommitDraft(event.data);
+      return;
+    }
+
+    if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
+      return;
+    }
+
+    applySidebarMessage(event.data);
+  });
+
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<ExtensionToSidebarMessage>) => {
-      if (!event.data) {
-        return;
-      }
-
-      if (event.data.type === "playCompletionSound") {
-        void playCompletionSound(event.data.sound);
-        return;
-      }
-
-      if (event.data.type === "sessionPresentationChanged") {
-        logSidebarDebug("state.sessionPresentationChanged", {
-          activity: event.data.session.activity,
-          activityLabel: event.data.session.activityLabel,
-          primaryTitle: event.data.session.primaryTitle,
-          sessionId: event.data.session.sessionId,
-          terminalTitle: event.data.session.terminalTitle,
-        });
-        applySessionPresentationMessage(event.data);
-        return;
-      }
-
-      if (event.data.type === "daemonSessionsState") {
-        setDaemonSessionsState(event.data);
-        return;
-      }
-
-      if (event.data.type === "promptGitCommit") {
-        setGitCommitDraft(event.data);
-        return;
-      }
-
-      if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
-        return;
-      }
-
-      applySidebarMessage(event.data);
+    const handleMessage = (event: Event) => {
+      handleWindowMessage(event as MessageEvent<ExtensionToSidebarMessage>);
     };
 
-    messageSource.addEventListener("message", handleMessage as EventListener);
+    messageSource.addEventListener("message", handleMessage);
 
     return () => {
-      messageSource.removeEventListener("message", handleMessage as EventListener);
+      messageSource.removeEventListener("message", handleMessage);
     };
-  }, [messageSource]);
+  }, [handleWindowMessage, messageSource]);
 
   useEffect(() => {
     draggedSessionIdRef.current = draggedSessionId;
@@ -470,20 +473,33 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       }));
   }, [effectiveGroupIds, effectiveSessionIdsByGroup, workspaceGroups]);
 
+  useEffect(() => {
+    const renderedStructure = summarizeRenderedGroupsForDebug(orderedGroups);
+    const serializedStructure = safeSerializeSidebarDebugDetails({
+      draggedSessionId,
+      orderedGroups: renderedStructure,
+      serverGroups: summarizeSidebarGroups(workspaceGroups),
+      revision: latestAppliedSidebarRevisionRef.current,
+    });
+    if (serializedStructure === lastLoggedRenderedStructureRef.current) {
+      return;
+    }
+
+    lastLoggedRenderedStructureRef.current = serializedStructure;
+    const duplicateSessionIds = findDuplicateRenderedSessionIds(orderedGroups);
+    logSidebarDebug("render.structure", {
+      draggedSessionId,
+      duplicateSessionIds,
+      orderedGroups: renderedStructure,
+      revision: latestAppliedSidebarRevisionRef.current,
+      serverGroups: summarizeSidebarGroups(workspaceGroups),
+    });
+  }, [draggedSessionId, logSidebarDebug, orderedGroups, workspaceGroups]);
+
   const fixedGroups = useMemo(
     () => serverState.groups.filter((group) => group.kind === "browser"),
     [serverState.groups],
   );
-
-  const draggedSession = useMemo(() => {
-    if (!draggedSessionId) {
-      return undefined;
-    }
-
-    return orderedGroups
-      .flatMap((group) => group.orderedSessions)
-      .find((session) => session.sessionId === draggedSessionId);
-  }, [draggedSessionId, orderedGroups]);
 
   const handleDragStart = ((event) => {
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
@@ -492,12 +508,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     }
 
     draggedSessionIdRef.current = sourceData.sessionId;
-
-    const sourceElement = (event.operation.source as { element?: Element | undefined }).element;
-    if (sourceElement instanceof HTMLElement) {
-      setDragOverlayWidth(sourceElement.getBoundingClientRect().width);
-    }
-
     logSidebarDebug("dragStart.session", {
       groupId: sourceData.groupId,
       sessionId: sourceData.sessionId,
@@ -531,7 +541,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     const authoritativeSessionIdsByGroup = createSessionIdsByGroup(workspaceGroups);
 
     setDraggedSessionId(undefined);
-    setDragOverlayWidth(undefined);
 
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     const targetData = getSidebarDropData(event.operation.target as { data?: unknown });
@@ -884,6 +893,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             </div>
           ) : null}
           <DragDropProvider
+            key={`drag-structure-${structureRevision}`}
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
             onDragStart={handleDragStart}
@@ -910,33 +920,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 isVisible={Boolean(draggedSessionId) && orderedGroups.length < MAX_GROUP_COUNT}
               />
             </div>
-            <DragOverlay
-              dropAnimation={{
-                duration: 220,
-                easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-              }}
-            >
-              {draggedSession ? (
-                <div
-                  className="session session-drag-overlay"
-                  data-activity={draggedSession.activity}
-                  data-focused={String(draggedSession.isFocused)}
-                  data-has-agent-icon={String(Boolean(draggedSession.agentIcon))}
-                  data-running={String(draggedSession.isRunning)}
-                  data-visible={String(draggedSession.isVisible)}
-                  style={
-                    dragOverlayWidth ? { width: `${Math.round(dragOverlayWidth)}px` } : undefined
-                  }
-                >
-                  <SessionCardContent
-                    session={draggedSession}
-                    showCloseButton={false}
-                    showDebugSessionNumbers={serverState.hud.debuggingMode}
-                    showHotkeys={serverState.hud.showHotkeysOnSessionCards}
-                  />
-                </div>
-              ) : null}
-            </DragOverlay>
           </DragDropProvider>
           {fixedGroups.length === 0 &&
           orderedGroups.every((group) => group.sessions.length === 0) ? (
@@ -1167,6 +1150,43 @@ function summarizeSessionIdsByGroup(sessionIdsByGroup: SessionIdsByGroup | undef
   return Object.fromEntries(
     Object.entries(sessionIdsByGroup).map(([groupId, sessionIds]) => [groupId, [...sessionIds]]),
   );
+}
+
+function summarizeRenderedGroupsForDebug(
+  groups: readonly (SidebarSessionGroup & { orderedSessions: SidebarSessionItem[] })[],
+) {
+  return groups.map((group) => ({
+    groupId: group.groupId,
+    isActive: group.isActive,
+    orderedSessions: group.orderedSessions.map((session) => ({
+      alias: session.alias,
+      primaryTitle: session.primaryTitle,
+      sessionId: session.sessionId,
+      terminalTitle: session.terminalTitle,
+    })),
+    sessions: group.sessions.map((session) => ({
+      alias: session.alias,
+      primaryTitle: session.primaryTitle,
+      sessionId: session.sessionId,
+      terminalTitle: session.terminalTitle,
+    })),
+    title: group.title,
+  }));
+}
+
+function findDuplicateRenderedSessionIds(
+  groups: readonly (SidebarSessionGroup & { orderedSessions: SidebarSessionItem[] })[],
+): string[] {
+  const counts = new Map<string, number>();
+  for (const group of groups) {
+    for (const session of group.orderedSessions) {
+      counts.set(session.sessionId, (counts.get(session.sessionId) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([sessionId]) => sessionId);
 }
 
 function safeSerializeSidebarDebugDetails(details: Record<string, unknown>): string {
