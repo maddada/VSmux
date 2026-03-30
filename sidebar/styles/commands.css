@@ -176,7 +176,7 @@
 .commands-grid {
   display: grid;
   gap: calc(8px * var(--sidebar-density-scale));
-  grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
 }
 
 .agents-grid > *,
@@ -242,7 +242,7 @@
 }
 
 .agent-button[data-icon-only="true"] {
-  min-width: 40px;
+  min-width: 30px;
   padding: 0;
 }
 

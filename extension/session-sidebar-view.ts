@@ -4,7 +4,6 @@ import type {
   ExtensionToSidebarMessage,
   SidebarToExtensionMessage,
 } from "../shared/session-grid-contract";
-import { logVSmuxDebug } from "./vsmux-debug-log";
 
 const EXTENSION_ID = "maddada.VSmux";
 
@@ -16,7 +15,6 @@ type SessionSidebarViewOptions = {
 export class SessionSidebarViewProvider implements vscode.Disposable, vscode.WebviewViewProvider {
   private readonly disposables: vscode.Disposable[] = [];
   private messageQueue: Promise<void> = Promise.resolve();
-  private nextMessageSequence = 0;
   private view: vscode.WebviewView | undefined;
   private latestMessage: ExtensionToSidebarMessage | undefined;
 
@@ -82,40 +80,9 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           return;
         }
 
-        if (message.type === "sidebarDebugLog") {
-          logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
-          return;
-        }
-
-        if (message.type === "promptRenameSession") {
-          logVSmuxDebug("sidebar.webview.received.promptRenameSession", {
-            sessionId: message.sessionId,
-          });
-        }
-        const messageSequence = ++this.nextMessageSequence;
-        logVSmuxDebug("sidebar.webview.messageQueued", {
-          messageSequence,
-          type: message.type,
-        });
         this.messageQueue = this.messageQueue
-          .then(async () => {
-            logVSmuxDebug("sidebar.webview.messageStarted", {
-              messageSequence,
-              type: message.type,
-            });
-            await this.options.onMessage(message);
-            logVSmuxDebug("sidebar.webview.messageCompleted", {
-              messageSequence,
-              type: message.type,
-            });
-          })
-          .catch((error) => {
-            logVSmuxDebug("sidebar.webview.messageHandlerError", {
-              error: error instanceof Error ? error.message : String(error),
-              messageSequence,
-              type: message.type,
-            });
-          });
+          .catch(() => undefined)
+          .then(() => this.options.onMessage(message));
       }),
     );
 
@@ -206,12 +173,6 @@ function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMe
   switch (message.type) {
     case "ready":
       return true;
-    case "sidebarDebugLog":
-      return (
-        typeof message.event === "string" &&
-        message.event.length > 0 &&
-        (message.details === undefined || typeof message.details === "string")
-      );
     case "openSettings":
     case "toggleCompletionBell":
     case "refreshDaemonSessions":

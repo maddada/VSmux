@@ -16,6 +16,7 @@ const VSMUX_LABEL = "vsmux";
 const VSMUX_VIEW_TYPE_PREFIX = "vsmux.";
 const VSCODE_WELCOME_LABEL = "welcome";
 const WORKING_TREE_LABEL_FRAGMENT = "(Working Tree)";
+const INDEX_LABEL_FRAGMENT = '(Index)';
 
 export type LiveBrowserTabEntry = {
   detail?: string;
@@ -125,7 +126,7 @@ function getLiveBrowserTabMetadata(tab: vscode.Tab):
       viewType?: string;
     }
   | undefined {
-  if (tab.label.includes(WORKING_TREE_LABEL_FRAGMENT)) {
+  if (tab.label.includes(WORKING_TREE_LABEL_FRAGMENT) || tab.label.includes(INDEX_LABEL_FRAGMENT)) {
     return undefined;
   }
 

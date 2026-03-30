@@ -182,14 +182,13 @@
 
 .session-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: calc(8px * var(--sidebar-density-scale));
   min-width: 0;
 }
 
 .session-alias-heading {
-  grid-column: 2;
   width: 100%;
   font-size: calc(13px * var(--sidebar-density-scale));
   font-weight: 600;
@@ -201,13 +200,17 @@
   white-space: nowrap;
 }
 
-.session-agent-icon {
-  width: calc(18px * var(--sidebar-density-scale));
-  height: calc(18px * var(--sidebar-density-scale));
+.session-floating-agent-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(15px * var(--sidebar-density-scale));
+  height: calc(15px * var(--sidebar-density-scale));
   background: var(--session-agent-icon-color, var(--app-foreground));
-  opacity: 0.82;
+  opacity: 0.74;
   pointer-events: none;
-  flex: none;
+  translate: calc(-5px * var(--sidebar-density-scale)) calc(-4px * var(--sidebar-density-scale));
+  z-index: 3;
   -webkit-mask-image: var(--session-agent-logo);
   -webkit-mask-position: center;
   -webkit-mask-repeat: no-repeat;
@@ -218,40 +221,44 @@
   mask-size: contain;
 }
 
-.session-agent-tabler-icon {
+.session-floating-agent-tabler-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
   color: var(--session-agent-icon-color, var(--app-foreground));
-  opacity: 0.82;
-  flex: none;
+  opacity: 0.74;
   pointer-events: none;
+  translate: calc(-5px * var(--sidebar-density-scale)) calc(-4px * var(--sidebar-density-scale));
+  z-index: 3;
 }
 
-.session-agent-icon[data-agent-icon="codex"] {
+.session-floating-agent-icon[data-agent-icon="codex"] {
   --session-agent-icon-color: #ffffff;
 }
 
-.session-agent-tabler-icon[data-agent-icon="browser"] {
+.session-floating-agent-tabler-icon[data-agent-icon="browser"] {
   --session-agent-icon-color: #82b7ff;
 }
 
-.session-agent-icon[data-agent-icon="browser"] {
+.session-floating-agent-icon[data-agent-icon="browser"] {
   --session-agent-icon-color: #82b7ff;
 }
 
-.session-agent-icon[data-agent-icon="t3"] {
+.session-floating-agent-icon[data-agent-icon="t3"] {
   --session-agent-icon-color: #ffa6fb;
-  width: calc(22px * var(--sidebar-density-scale));
-  height: calc(22px * var(--sidebar-density-scale));
+  width: calc(17px * var(--sidebar-density-scale));
+  height: calc(17px * var(--sidebar-density-scale));
 }
 
-.session-agent-icon[data-agent-icon="claude"] {
+.session-floating-agent-icon[data-agent-icon="claude"] {
   --session-agent-icon-color: #d97757;
 }
 
-.session-agent-icon[data-agent-icon="gemini"] {
+.session-floating-agent-icon[data-agent-icon="gemini"] {
   --session-agent-icon-color: #8b9aff;
 }
 
-.session-agent-icon[data-agent-icon="opencode"] {
+.session-floating-agent-icon[data-agent-icon="opencode"] {
   --session-agent-icon-color: #6d96c0;
 }
 

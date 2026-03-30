@@ -54,7 +54,6 @@ export function SessionCardContent({
   return (
     <>
       <div className="session-head">
-        <SessionAgentIcon agentIcon={session.agentIcon} />
         <OverflowTooltipText
           className="session-alias-heading"
           textRef={aliasHeadingRef}
@@ -106,14 +105,14 @@ type SessionAgentIconProps = {
   agentIcon: SidebarSessionItem["agentIcon"];
 };
 
-function SessionAgentIcon({ agentIcon }: SessionAgentIconProps) {
+export function SessionFloatingAgentIcon({ agentIcon }: SessionAgentIconProps) {
   if (agentIcon === "browser") {
     return (
       <IconWorld
         aria-hidden="true"
-        className="session-agent-tabler-icon"
+        className="session-floating-agent-tabler-icon"
         data-agent-icon="browser"
-        size={18}
+        size={14}
         stroke={1.8}
       />
     );
@@ -126,7 +125,7 @@ function SessionAgentIcon({ agentIcon }: SessionAgentIconProps) {
   return (
     <span
       aria-hidden="true"
-      className="session-agent-icon"
+      className="session-floating-agent-icon"
       data-agent-icon={agentIcon}
       style={
         {

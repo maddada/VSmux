@@ -77,7 +77,7 @@
   align-items: center;
   display: inline-flex;
   gap: calc(6px * var(--sidebar-density-scale));
-  grid-column: 3;
+  grid-column: 2;
   justify-self: end;
   min-width: 0;
   position: relative;

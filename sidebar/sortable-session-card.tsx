@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
-import { SessionCardContent } from "./session-card-content";
+import { SessionCardContent, SessionFloatingAgentIcon } from "./session-card-content";
 import { createSessionDragData } from "./sidebar-dnd";
 import type { WebviewApi } from "./webview-api";
 
@@ -18,9 +18,9 @@ const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 156;
 const CONTEXT_MENU_ITEM_HEIGHT_PX = 34;
 const CONTEXT_MENU_VERTICAL_PADDING_PX = 12;
-const SESSION_CARD_DRAG_HOLD_DELAY_MS = 250;
+const SESSION_CARD_DRAG_HOLD_DELAY_MS = 190;
 const SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 8;
-const TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS = 250;
+const TOUCH_SESSION_CARD_DRAG_HOLD_DELAY_MS = 190;
 const TOUCH_SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 5;
 
 const sessionCardSensors = [
@@ -174,11 +174,6 @@ export function SortableSessionCard({
     }
 
     setContextMenuPosition(undefined);
-    console.debug("[VSmux Sidebar] promptRenameSession click", {
-      groupId,
-      sessionAlias: session.alias,
-      sessionId: session.sessionId,
-    });
     vscode.postMessage({
       sessionId: session.sessionId,
       type: "promptRenameSession",
@@ -202,11 +197,14 @@ export function SortableSessionCard({
   };
 
   const requestFocusSession = () => {
-    if (session.isFocused) {
+    const shouldAcknowledgeAttention = session.activity === "attention";
+    if (session.isFocused && !shouldAcknowledgeAttention) {
       return;
     }
 
-    onFocusRequested?.(groupId, session.sessionId);
+    if (!session.isFocused) {
+      onFocusRequested?.(groupId, session.sessionId);
+    }
     vscode.postMessage({ sessionId: session.sessionId, type: "focusSession" });
   };
 
@@ -238,6 +236,7 @@ export function SortableSessionCard({
         data-visible={String(session.isVisible)}
         ref={sortable.ref}
       >
+        <SessionFloatingAgentIcon agentIcon={session.agentIcon} />
         <article
           aria-expanded={contextMenuPosition ? true : undefined}
           aria-haspopup="menu"

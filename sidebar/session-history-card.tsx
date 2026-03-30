@@ -1,7 +1,7 @@
 import { IconTrash } from "@tabler/icons-react";
 import { useRef } from "react";
 import type { SidebarPreviousSessionItem } from "../shared/session-grid-contract";
-import { SessionCardContent } from "./session-card-content";
+import { SessionCardContent, SessionFloatingAgentIcon } from "./session-card-content";
 
 export type SessionHistoryCardProps = {
   onDelete: () => void;
@@ -29,6 +29,7 @@ export function SessionHistoryCard({
       data-restorable={String(session.isRestorable)}
       data-visible="false"
     >
+      <SessionFloatingAgentIcon agentIcon={session.agentIcon} />
       <article
         aria-disabled={!session.isRestorable}
         aria-pressed="false"
