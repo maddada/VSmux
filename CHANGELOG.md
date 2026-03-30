@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 1.13.0 - 2026-03-30
+
+- VSmux now has a much more capable workspace experience, with a new terminal workspace panel, pane reordering, better terminal appearance controls, and a Ghostty-based terminal frontend.
+- The sidebar is much more powerful: it can track live browser tabs, keep session agent launches persistent, surface daemon sessions, and offers richer Git actions directly inside VSmux.
+- Session handling is more polished overall, with better browser grouping, terminal reattach behavior, focus management, activity detection, and optional terminal exit sounds.
+
 ## 1.12.1 - 2026-03-27
 
 - Fixed installation compatibility for Cursor builds based on VS Code 1.105.x, so VSmux should install again on Cursor 2.6.21 and similar versions.
