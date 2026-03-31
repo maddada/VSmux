@@ -1,23 +1,22 @@
 import { IconRefresh, IconX } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
-import type { SidebarDaemonSessionsStateMessage } from "../shared/session-grid-contract";
 import { ConfirmationModal } from "./confirmation-modal";
+import { useSidebarStore } from "./sidebar-store";
 import type { WebviewApi } from "./webview-api";
 
 export type DaemonSessionsModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  state: SidebarDaemonSessionsStateMessage | undefined;
   vscode: WebviewApi;
 };
 
 export function DaemonSessionsModal({
   isOpen,
   onClose,
-  state,
   vscode,
 }: DaemonSessionsModalProps) {
+  const state = useSidebarStore((storeState) => storeState.daemonSessionsState);
   const [searchQuery, setSearchQuery] = useState("");
   const [isKillDaemonConfirmOpen, setIsKillDaemonConfirmOpen] = useState(false);
 

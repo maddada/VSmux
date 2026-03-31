@@ -1380,18 +1380,18 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         primaryTitle: sidebarSession.primaryTitle,
         terminalTitle: sidebarSession.terminalTitle,
       };
-      this.lastPostedSidebarPresentationBySessionId.set(sessionId, nextSidebarPresentation);
+      const payloadChanged =
+        previousSidebarPresentation?.activity !== nextSidebarPresentation.activity ||
+        previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel ||
+        previousSidebarPresentation?.primaryTitle !== nextSidebarPresentation.primaryTitle ||
+        previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle;
       logVSmuxDebug("controller.postSessionPresentationMessage.sidebar", {
         activity: sidebarSession.activity,
         activityChanged: previousSidebarPresentation?.activity !== nextSidebarPresentation.activity,
         activityLabel: sidebarSession.activityLabel,
         activityLabelChanged:
           previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel,
-        payloadChanged:
-          previousSidebarPresentation?.activity !== nextSidebarPresentation.activity ||
-          previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel ||
-          previousSidebarPresentation?.primaryTitle !== nextSidebarPresentation.primaryTitle ||
-          previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle,
+        payloadChanged,
         previousSidebarPresentation,
         primaryTitle: sidebarSession.primaryTitle,
         primaryTitleChanged:
@@ -1401,10 +1401,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         terminalTitleChanged:
           previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle,
       });
-      await this.sidebarProvider.postMessage({
-        session: sidebarSession,
-        type: "sessionPresentationChanged",
-      });
+      if (payloadChanged) {
+        this.lastPostedSidebarPresentationBySessionId.set(sessionId, nextSidebarPresentation);
+        await this.sidebarProvider.postMessage({
+          session: sidebarSession,
+          type: "sessionPresentationChanged",
+        });
+      }
     }
 
     if (!isTerminalSession(sessionRecord) || !this.isSessionVisibleInWorkspace(sessionId)) {

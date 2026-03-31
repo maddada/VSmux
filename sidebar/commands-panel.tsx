@@ -11,9 +11,11 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { SidebarCommandButton } from "../shared/sidebar-commands";
 import type { SidebarGitState } from "../shared/sidebar-git";
 import { GitActionRow } from "./git-action-row";
+import { useSidebarStore } from "./sidebar-store";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import { CommandConfigModal, type CommandConfigDraft } from "./command-config-modal";
 import type { WebviewApi } from "./webview-api";
@@ -23,9 +25,7 @@ const CONTEXT_MENU_WIDTH_PX = 188;
 const CONTEXT_MENU_HEIGHT_PX = 110;
 
 type CommandsPanelProps = {
-  commands: SidebarCommandButton[];
   createRequestId: number;
-  git: SidebarGitState;
   titlebarActions?: ReactNode;
   vscode: WebviewApi;
 };
@@ -78,12 +78,16 @@ function getCommandDragData(candidate: { data?: unknown } | null | undefined) {
 }
 
 export function CommandsPanel({
-  commands,
   createRequestId,
-  git,
   titlebarActions,
   vscode,
 }: CommandsPanelProps) {
+  const { commands, git } = useSidebarStore(
+    useShallow((state) => ({
+      commands: state.hud.commands,
+      git: state.hud.git,
+    })),
+  );
   const [contextMenu, setContextMenu] = useState<CommandMenuState>();
   const [draftCommandIds, setDraftCommandIds] = useState<string[] | undefined>();
   const [editingCommand, setEditingCommand] = useState<CommandConfigDraft>();

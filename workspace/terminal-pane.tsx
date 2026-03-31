@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { IconArrowBigDownFilled } from "@tabler/icons-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -21,7 +22,9 @@ import "./terminal-pane.css";
 const DATA_BUFFER_FLUSH_MS = 5;
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const POST_RECONNECT_REFIT_DELAY_MS = 3_000;
-const POST_RECONNECT_HEIGHT_NUDGE_PX = 20;
+const POST_RECONNECT_HEIGHT_NUDGE_PX = 100;
+const NUDGE_RESTORE_TIMEOUT_MS = 250;
+const SCROLL_TO_BOTTOM_BUTTON_MARGIN_PX = 200;
 
 export type TerminalPaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
@@ -31,6 +34,7 @@ export type TerminalPaneProps = {
   isVisible: boolean;
   onActivate: () => void;
   pane: WorkspacePanelTerminalPane;
+  refreshRequestId: number;
   terminalAppearance: WorkspacePanelTerminalAppearance;
 };
 
@@ -42,6 +46,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   isVisible,
   onActivate,
   pane,
+  refreshRequestId,
   terminalAppearance,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -49,8 +54,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   const debuggingModeRef = useRef(debuggingMode);
   const fitRef = useRef<FitAddon | null>(null);
   const handledAutoFocusRequestIdRef = useRef<number | undefined>(undefined);
+  const handledRefreshRequestIdRef = useRef(refreshRequestId);
+  const isVisibleRef = useRef(isVisible);
   const lastMeasuredSizeRef = useRef<{ height: number; width: number }>();
+  const nudgeTerminalHeightRef = useRef<((afterNudge?: () => void) => void) | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const updateScrollToBottomButtonVisibilityRef = useRef<(() => void) | null>(null);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
 
   useEffect(() => {
     debugLogRef.current = debugLog;
@@ -59,6 +69,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   useEffect(() => {
     debuggingModeRef.current = debuggingMode;
   }, [debuggingMode]);
+
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
 
   const reportDebug = (event: string, payload?: Record<string, unknown>) => {
     logWorkspaceDebug(debuggingModeRef.current, event, payload);
@@ -109,11 +123,35 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     let didDispose = false;
     let websocket: WebSocket | undefined;
     let dataBuffer: Uint8Array[] = [];
+    let firstData = true;
     let flushTimer: number | undefined;
+    let nudgeRestoreTimeoutId: number | undefined;
+    let nudgeToken = 0;
     let pendingSocketMessages: string[] = [];
     let pendingReconnectRefitAfterData = false;
     let reconnectRefitTimeoutId: number | undefined;
     let suppressPasteEvent = false;
+
+    const updateScrollToBottomButtonVisibility = () => {
+      const container = containerRef.current;
+      if (!container || !isVisibleRef.current || terminal.rows <= 0) {
+        setShowScrollToBottomButton(false);
+        return;
+      }
+
+      const bounds = container.getBoundingClientRect();
+      if (bounds.height <= 0) {
+        setShowScrollToBottomButton(false);
+        return;
+      }
+
+      const rowHeightPx = bounds.height / terminal.rows;
+      const activeBuffer = terminal.buffer.active;
+      const distanceFromBottom =
+        Math.max(0, activeBuffer.baseY - activeBuffer.viewportY) * rowHeightPx;
+      setShowScrollToBottomButton(distanceFromBottom > SCROLL_TO_BOTTOM_BUTTON_MARGIN_PX);
+    };
+    updateScrollToBottomButtonVisibilityRef.current = updateScrollToBottomButtonVisibility;
 
     const sendSocketMessage = (message: string) => {
       if (!websocket) {
@@ -176,6 +214,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       terminal.refresh(0, terminal.rows - 1);
     };
 
+    const clearPendingNudgeRestore = () => {
+      if (nudgeRestoreTimeoutId !== undefined) {
+        window.clearTimeout(nudgeRestoreTimeoutId);
+        nudgeRestoreTimeoutId = undefined;
+      }
+    };
+
     const scheduleReconnectRefit = () => {
       if (!pendingReconnectRefitAfterData) {
         return;
@@ -204,7 +249,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       }, POST_RECONNECT_REFIT_DELAY_MS);
     };
 
-    const nudgeTerminalHeight = () => {
+    const nudgeTerminalHeight = (afterNudge?: () => void) => {
       const container = containerRef.current;
       if (!container) {
         return;
@@ -215,19 +260,34 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         return;
       }
 
-      const previousInlineHeight = container.style.height;
-      container.style.height = `${Math.round(bounds.height) + POST_RECONNECT_HEIGHT_NUDGE_PX}px`;
+      clearPendingNudgeRestore();
+      nudgeToken += 1;
+      const currentNudgeToken = nudgeToken;
+      const rowHeightPx = bounds.height / Math.max(1, terminal.rows);
+      const rowNudge = Math.max(1, Math.round(POST_RECONNECT_HEIGHT_NUDGE_PX / rowHeightPx));
+      const restoreFromNudge = () => {
+        if (didDispose || currentNudgeToken !== nudgeToken) {
+          return;
+        }
+
+        clearPendingNudgeRestore();
+        refitTerminal();
+        updateScrollToBottomButtonVisibility();
+        afterNudge?.();
+      };
+
+      terminal.resize(terminal.cols, terminal.rows + rowNudge);
+      terminal.refresh(0, terminal.rows - 1);
+      nudgeRestoreTimeoutId = window.setTimeout(() => {
+        restoreFromNudge();
+      }, NUDGE_RESTORE_TIMEOUT_MS);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (didDispose) {
-            return;
-          }
-
-          container.style.height = previousInlineHeight;
-          refitTerminal();
+          restoreFromNudge();
         });
       });
     };
+    nudgeTerminalHeightRef.current = nudgeTerminalHeight;
 
     const connectWebsocket = () => {
       if (connection.mock || websocket || didDispose) {
@@ -314,6 +374,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           sessionId: pane.sessionId,
         });
         refitTerminal();
+        updateScrollToBottomButtonVisibility();
         connectWebsocket();
       });
     });
@@ -327,9 +388,16 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       const chunks = dataBuffer;
       dataBuffer = [];
       flushTimer = undefined;
+      if (firstData) {
+        firstData = false;
+        terminal.reset();
+      }
       for (const chunk of chunks) {
         terminal.write(chunk);
       }
+      requestAnimationFrame(() => {
+        updateScrollToBottomButtonVisibility();
+      });
     };
 
     if (connection.mock) {
@@ -433,6 +501,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     containerRef.current.addEventListener("copy", handleCopy, true);
     containerRef.current.addEventListener("paste", handlePaste, true);
+    const scrollDisposable = terminal.onScroll(() => {
+      requestAnimationFrame(() => {
+        updateScrollToBottomButtonVisibility();
+      });
+    });
 
     let rafId = 0;
     const resizeObserver = new ResizeObserver((entries) => {
@@ -496,17 +569,22 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       if (reconnectRefitTimeoutId !== undefined) {
         window.clearTimeout(reconnectRefitTimeoutId);
       }
+      clearPendingNudgeRestore();
       cancelAnimationFrame(rafId);
       window.removeEventListener("focus", onWindowFocus);
       resizeObserver.disconnect();
       themeObserver.disconnect();
+      scrollDisposable.dispose();
       containerRef.current?.removeEventListener("copy", handleCopy, true);
       containerRef.current?.removeEventListener("paste", handlePaste, true);
       websocket?.close();
       terminal.dispose();
       lastMeasuredSizeRef.current = undefined;
+      nudgeTerminalHeightRef.current = null;
       terminalRef.current = null;
       fitRef.current = null;
+      updateScrollToBottomButtonVisibilityRef.current = null;
+      setShowScrollToBottomButton(false);
     };
   }, [connection.baseUrl, connection.token, pane.sessionId]);
 
@@ -519,6 +597,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     terminal.options = getTerminalAppearanceOptions(terminalAppearance);
     fitRef.current?.fit();
     terminal.refresh(0, terminal.rows - 1);
+    requestAnimationFrame(() => {
+      updateScrollToBottomButtonVisibilityRef.current?.();
+    });
   }, [
     terminalAppearance.cursorBlink,
     terminalAppearance.cursorStyle,
@@ -565,9 +646,25 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         lastMeasuredSizeRef.current = nextMeasuredSize;
         fitRef.current?.fit();
         terminal.refresh(0, terminal.rows - 1);
+        updateScrollToBottomButtonVisibilityRef.current?.();
       });
     });
   }, [isVisible, pane.sessionId]);
+
+  useEffect(() => {
+    if (handledRefreshRequestIdRef.current === refreshRequestId) {
+      return;
+    }
+
+    handledRefreshRequestIdRef.current = refreshRequestId;
+    if (!isVisible) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      nudgeTerminalHeightRef.current?.();
+    });
+  }, [isVisible, refreshRequestId]);
 
   useEffect(() => {
     if (
@@ -607,6 +704,26 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       }}
     >
       <div className="terminal-pane-canvas terminal-tab" ref={containerRef} />
+      {isVisible && showScrollToBottomButton ? (
+        <button
+          aria-label="Scroll terminal to bottom"
+          className="terminal-pane-scroll-to-bottom"
+          onClick={(event) => {
+            event.stopPropagation();
+            terminalRef.current?.focus();
+            terminalRef.current?.scrollToBottom();
+            nudgeTerminalHeightRef.current?.(() => {
+              terminalRef.current?.scrollToBottom();
+              requestAnimationFrame(() => {
+                updateScrollToBottomButtonVisibilityRef.current?.();
+              });
+            });
+          }}
+          type="button"
+        >
+          <IconArrowBigDownFilled aria-hidden size={16} stroke={1.8} />
+        </button>
+      ) : null}
     </div>
   );
 };

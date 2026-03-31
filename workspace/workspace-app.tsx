@@ -15,6 +15,7 @@ import {
 } from "../shared/session-grid-contract";
 import { logWorkspaceDebug } from "./workspace-debug";
 import { WorkspacePaneCloseButton } from "./workspace-pane-close-button";
+import { WorkspacePaneRefreshButton } from "./workspace-pane-refresh-button";
 import {
   buildFullSessionOrderFromVisiblePaneOrder,
   buildVisiblePaneOrderForDrop,
@@ -44,6 +45,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const [localPaneOrder, setLocalPaneOrder] = useState<string[] | undefined>();
   const [draggedPaneId, setDraggedPaneId] = useState<string | undefined>();
   const [dropTargetPaneId, setDropTargetPaneId] = useState<string | undefined>();
+  const [terminalRefreshRequestId, setTerminalRefreshRequestId] = useState(0);
   const focusRequestSequenceRef = useRef(0);
   const pendingFocusRequestRef = useRef<
     | {
@@ -397,6 +399,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             })
           }
           pane={pane}
+          refreshRequestId={terminalRefreshRequestId}
           terminalAppearance={workspaceState.terminalAppearance}
           canDrag={pane.kind === "terminal" && pane.isVisible && reorderablePaneIds.length > 1}
           autoFocusRequest={
@@ -445,6 +448,9 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
             requestPaneReorder(sourcePaneId, pane.sessionId);
           }}
+          onRefreshAllTerminals={() => {
+            setTerminalRefreshRequestId((currentValue) => currentValue + 1);
+          }}
         />
       ))}
       {visiblePanes.length === 0 ? (
@@ -472,7 +478,9 @@ type WorkspacePaneViewProps = {
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
+  onRefreshAllTerminals: () => void;
   pane: WorkspacePanelPane;
+  refreshRequestId: number;
   terminalAppearance: WorkspacePanelHydrateMessage["terminalAppearance"];
 };
 
@@ -494,7 +502,9 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   onDragOver,
   onDragStart,
   onDrop,
+  onRefreshAllTerminals,
   pane,
+  refreshRequestId,
   terminalAppearance,
 }) => {
   const primaryTitle = getWorkspacePanePrimaryTitle(pane);
@@ -531,7 +541,12 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
         onDragStart={canDrag ? onDragStart : undefined}
       >
         <div className="workspace-pane-title">{primaryTitle}</div>
-        {pane.kind === "terminal" ? <WorkspacePaneCloseButton onConfirmClose={onClose} /> : null}
+        {pane.kind === "terminal" ? (
+          <div className="workspace-pane-header-actions">
+            <WorkspacePaneRefreshButton onRefresh={onRefreshAllTerminals} />
+            <WorkspacePaneCloseButton onConfirmClose={onClose} />
+          </div>
+        ) : null}
       </header>
       <div className="workspace-pane-body">
         {pane.kind === "terminal" ? (
@@ -548,6 +563,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
               }
             }}
             pane={pane}
+            refreshRequestId={refreshRequestId}
             terminalAppearance={terminalAppearance}
           />
         ) : (

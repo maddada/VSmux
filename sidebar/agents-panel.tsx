@@ -11,8 +11,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { SidebarAgentButton } from "../shared/sidebar-agents";
 import { AGENT_LOGOS } from "./agent-logos";
+import { useSidebarStore } from "./sidebar-store";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import { AgentConfigModal, type AgentConfigDraft } from "./agent-config-modal";
 import type { WebviewApi } from "./webview-api";
@@ -22,9 +24,7 @@ const CONTEXT_MENU_WIDTH_PX = 180;
 const CONTEXT_MENU_HEIGHT_PX = 110;
 
 type AgentsPanelProps = {
-  agents: SidebarAgentButton[];
   createRequestId: number;
-  pendingAgentIds: string[];
   titlebarActions?: ReactNode;
   vscode: WebviewApi;
 };
@@ -77,12 +77,16 @@ function getAgentDragData(candidate: { data?: unknown } | null | undefined) {
 }
 
 export function AgentsPanel({
-  agents,
   createRequestId,
-  pendingAgentIds,
   titlebarActions,
   vscode,
 }: AgentsPanelProps) {
+  const { agents, pendingAgentIds } = useSidebarStore(
+    useShallow((state) => ({
+      agents: state.hud.agents,
+      pendingAgentIds: state.hud.pendingAgentIds,
+    })),
+  );
   const [contextMenu, setContextMenu] = useState<AgentMenuState>();
   const [draftAgentIds, setDraftAgentIds] = useState<string[] | undefined>();
   const [editingAgent, setEditingAgent] = useState<AgentConfigDraft>();

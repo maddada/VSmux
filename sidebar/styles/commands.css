@@ -98,7 +98,8 @@
   font-size: calc(10px * var(--sidebar-density-scale));
   font-weight: 700;
   gap: calc(1px * var(--sidebar-density-scale));
-  margin-right: calc(5px * var(--sidebar-density-scale));
+  margin-inline-end: calc(5px * var(--sidebar-density-scale));
+  margin-inline-start: auto;
 }
 
 .git-action-diff-stat-additions {
@@ -120,6 +121,9 @@
     gap: 0;
     grid-template-columns: 1fr;
     line-height: 1.05;
+    justify-items: end;
+    margin-inline-start: auto;
+    text-align: end;
   }
 
   .git-action-diff-stat-divider {

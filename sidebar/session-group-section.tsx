@@ -12,12 +12,11 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type {
-  SidebarSessionGroup,
-  SidebarSessionItem,
   VisibleSessionCount,
 } from "../shared/session-grid-contract";
 import { ConfirmationModal } from "./confirmation-modal";
 import { createGroupDropData, type SidebarSessionDropTarget } from "./sidebar-dnd";
+import { useSidebarStore } from "./sidebar-store";
 import { SortableSessionCard } from "./sortable-session-card";
 import type { WebviewApi } from "./webview-api";
 
@@ -37,15 +36,11 @@ type GroupControlMenu = "visible-count";
 export type SessionGroupSectionProps = {
   autoEdit: boolean;
   canClose: boolean;
-  group: SidebarSessionGroup;
+  groupId: string;
   index: number;
   onAutoEditHandled: () => void;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
-  orderedSessions: SidebarSessionItem[];
   sessionDragIndicator?: SidebarSessionDropTarget;
-  showDebugSessionNumbers: boolean;
-  showCloseButton: boolean;
-  showHotkeys: boolean;
   vscode: WebviewApi;
 };
 
@@ -87,36 +82,41 @@ function getVisibleCountMenuLabel(visibleCount: VisibleSessionCount): string {
 export function SessionGroupSection({
   autoEdit,
   canClose,
-  group,
+  groupId,
   index,
   onAutoEditHandled,
   onFocusRequested,
-  orderedSessions,
   sessionDragIndicator,
-  showDebugSessionNumbers,
-  showCloseButton,
-  showHotkeys,
   vscode,
 }: SessionGroupSectionProps) {
+  const group = useSidebarStore((state) => state.groupsById[groupId]);
+  const orderedSessionIds = useSidebarStore((state) => state.sessionIdsByGroup[groupId] ?? []);
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>();
-  const [draftTitle, setDraftTitle] = useState(group.title);
+  const [draftTitle, setDraftTitle] = useState(group?.title ?? "");
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [openControlMenu, setOpenControlMenu] = useState<GroupControlMenu>();
   const menuRef = useRef<HTMLDivElement>(null);
   const controlMenuRef = useRef<HTMLDivElement>(null);
   const visibleCountButtonRef = useRef<HTMLButtonElement>(null);
-  const isBrowserGroup = group.kind === "browser";
+  const isBrowserGroup = group?.kind === "browser";
+  const isSessionDropTargetGroup = sessionDragIndicator?.groupId === groupId;
   const sortable = useSortable({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
-    data: createGroupDropData(group.groupId),
+    data: createGroupDropData(groupId),
     disabled: isBrowserGroup,
-    id: group.groupId,
+    id: groupId,
     index,
     plugins: [SortableKeyboardPlugin],
     type: "group",
   });
+
+  if (!group) {
+    return null;
+  }
+
+  const isGroupDropTarget = sortable.isDropTarget || isSessionDropTargetGroup;
 
   useEffect(() => {
     if (isEditing) {
@@ -309,7 +309,7 @@ export function SessionGroupSection({
     }
 
     setContextMenuPosition(undefined);
-    if (orderedSessions.length <= 1) {
+    if (orderedSessionIds.length <= 1) {
       vscode.postMessage({
         groupId: group.groupId,
         type: "closeGroup",
@@ -342,7 +342,7 @@ export function SessionGroupSection({
         className="group"
         data-active={String(group.isActive)}
         data-dragging={String(Boolean(sortable.isDragging))}
-        data-drop-target={String(sortable.isDropTarget)}
+        data-drop-target={String(isGroupDropTarget)}
         data-sidebar-group-id={group.groupId}
         onClick={() => {
           if (!isBrowserGroup) {
@@ -446,40 +446,37 @@ export function SessionGroupSection({
         </div>
         <div
           className="group-sessions"
-          data-drop-target={String(sortable.isDropTarget)}
+          data-drop-target={String(isGroupDropTarget)}
         >
-          {orderedSessions.length > 0 ? (
-            orderedSessions.map((session, sessionIndex) => (
+          {orderedSessionIds.length > 0 ? (
+            orderedSessionIds.map((sessionId, sessionIndex) => (
               <SortableSessionCard
                 dropPosition={
                   sessionDragIndicator?.kind === "session" &&
                   sessionDragIndicator.groupId === group.groupId &&
-                  sessionDragIndicator.sessionId === session.sessionId
+                  sessionDragIndicator.sessionId === sessionId
                     ? sessionDragIndicator.position
                     : undefined
                 }
                 groupId={group.groupId}
                 index={sessionIndex}
-                key={session.sessionId}
+                key={sessionId}
                 onFocusRequested={onFocusRequested}
-                session={session}
-                showDebugSessionNumbers={showDebugSessionNumbers}
-                showCloseButton={showCloseButton}
-                showHotkeys={showHotkeys}
+                sessionId={sessionId}
                 vscode={vscode}
               />
             ))
           ) : isBrowserGroup ? (
             <div
               className="group-empty-drop-target"
-              data-drop-target={String(sortable.isDropTarget)}
+              data-drop-target={String(isGroupDropTarget)}
             >
               <div className="group-empty-state">No browsers</div>
             </div>
           ) : (
             <div
               className="group-empty-drop-target"
-              data-drop-target={String(sortable.isDropTarget)}
+              data-drop-target={String(isGroupDropTarget)}
             >
               <div className="group-empty-state">No sessions</div>
             </div>
@@ -560,7 +557,7 @@ export function SessionGroupSection({
       {!isBrowserGroup ? (
         <ConfirmationModal
           confirmLabel="Terminate Group"
-          description={`This will terminate all ${orderedSessions.length} session${orderedSessions.length === 1 ? "" : "s"} in ${group.title}.`}
+          description={`This will terminate all ${orderedSessionIds.length} session${orderedSessionIds.length === 1 ? "" : "s"} in ${group.title}.`}
           isOpen={isConfirmOpen}
           onCancel={() => setIsConfirmOpen(false)}
           onConfirm={() => {

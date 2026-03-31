@@ -129,10 +129,6 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
               key={item.action}
               onClick={() => {
                 setPrimaryAction(item.action);
-                if (!item.disabled) {
-                  runAction(item.action);
-                  return;
-                }
                 setIsMenuOpen(false);
               }}
               role="menuitem"

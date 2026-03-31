@@ -10,9 +10,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import type { SidebarSessionItem } from "../shared/session-grid-contract";
+import { useShallow } from "zustand/react/shallow";
 import { SessionCardContent, SessionFloatingAgentIcon } from "./session-card-content";
 import { createSessionDragData } from "./sidebar-dnd";
+import { useSidebarStore } from "./sidebar-store";
 import type { WebviewApi } from "./webview-api";
 
 const CONTEXT_MENU_MARGIN_PX = 12;
@@ -57,10 +58,7 @@ export type SortableSessionCardProps = {
   groupId: string;
   index: number;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
-  session: SidebarSessionItem;
-  showDebugSessionNumbers: boolean;
-  showCloseButton: boolean;
-  showHotkeys: boolean;
+  sessionId: string;
   vscode: WebviewApi;
 };
 
@@ -87,17 +85,22 @@ export function SortableSessionCard({
   groupId,
   index,
   onFocusRequested,
-  session,
-  showDebugSessionNumbers,
-  showCloseButton,
-  showHotkeys,
+  sessionId,
   vscode,
 }: SortableSessionCardProps) {
+  const session = useSidebarStore((state) => state.sessionsById[sessionId]);
+  const { showCloseButton, showDebugSessionNumbers, showHotkeys } = useSidebarStore(
+    useShallow((state) => ({
+      showCloseButton: state.hud.showCloseButtonOnSessionCards,
+      showDebugSessionNumbers: state.hud.debuggingMode,
+      showHotkeys: state.hud.showHotkeysOnSessionCards,
+    })),
+  );
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>();
   const menuRef = useRef<HTMLDivElement>(null);
   const aliasHeadingRef = useRef<HTMLDivElement>(null);
-  const isBrowserSession = session.kind === "browser";
-  const canCopyResumeCommand = !isBrowserSession && supportsResumeCommandCopy(session);
+  const isBrowserSession = session?.kind === "browser";
+  const canCopyResumeCommand = session ? !isBrowserSession && supportsResumeCommandCopy(session) : false;
   const postSessionDragDebugLog = (event: string, details: Record<string, unknown>) => {
     if (!showDebugSessionNumbers) {
       return;
@@ -107,7 +110,7 @@ export function SortableSessionCard({
       details: {
         groupId,
         index,
-        sessionId: session.sessionId,
+        sessionId,
         ...details,
       },
       event,
@@ -120,12 +123,16 @@ export function SortableSessionCard({
     disabled: isBrowserSession || contextMenuPosition !== undefined,
     feedback: "clone",
     group: groupId,
-    id: session.sessionId,
+    id: sessionId,
     index,
     plugins: [SortableKeyboardPlugin],
     sensors: sessionCardSensors,
     type: "session",
   });
+
+  if (!session) {
+    return null;
+  }
 
   useEffect(() => {
     setContextMenuPosition(undefined);

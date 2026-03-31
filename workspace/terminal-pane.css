@@ -1,5 +1,6 @@
 .terminal-pane-root {
   height: 100%;
+  position: relative;
   width: 100%;
 }
 
@@ -53,4 +54,34 @@
 
 .terminal-pane-canvas .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {
   background: rgba(228, 238, 255, 0.48) !important;
+}
+
+.terminal-pane-scroll-to-bottom {
+  align-items: center;
+  backdrop-filter: blur(6px);
+  background: rgba(18, 20, 26, 0.82);
+  border: 1px solid rgba(208, 217, 255, 0.2);
+  border-radius: 999px;
+  bottom: 12px;
+  color: rgba(242, 246, 255, 0.96);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  height: 30px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0;
+  position: absolute;
+  right: 17px;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+  transition: background 120ms ease, border-color 120ms ease;
+  width: 30px;
+  z-index: 20;
+}
+
+.terminal-pane-scroll-to-bottom:hover {
+  background: rgba(30, 35, 46, 0.92);
+  border-color: rgba(208, 217, 255, 0.34);
 }

@@ -19,23 +19,11 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { createDefaultSidebarAgentButtons } from "../shared/sidebar-agents";
-import { createDefaultSidebarCommandButtons } from "../shared/sidebar-commands";
-import { createDefaultSidebarGitState } from "../shared/sidebar-git";
+import { useShallow } from "zustand/react/shallow";
 import {
-  type SidebarDaemonSessionsStateMessage,
   MAX_GROUP_COUNT,
   type ExtensionToSidebarMessage,
-  type SidebarHydrateMessage,
-  type SidebarHudState,
-  type SidebarPromptGitCommitMessage,
-  type SidebarSessionPresentationChangedMessage,
-  type SidebarPreviousSessionItem,
-  type SidebarSessionGroup,
-  type SidebarSessionItem,
-  type SidebarSessionStateMessage,
   type SidebarToExtensionMessage,
-  type SidebarTheme,
 } from "../shared/session-grid-contract";
 import { playCompletionSound } from "./completion-sound-player";
 import { AgentsPanel } from "./agents-panel";
@@ -44,6 +32,7 @@ import { DaemonSessionsModal } from "./daemon-sessions-modal";
 import { GitCommitModal } from "./git-commit-modal";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
+import { resetSidebarStore, useSidebarStore } from "./sidebar-store";
 import {
   getClientPoint,
   getSidebarDropData,
@@ -61,40 +50,7 @@ export type SidebarAppProps = {
   vscode: WebviewApi;
 };
 
-type SidebarState = {
-  groups: SidebarSessionGroup[];
-  hud: SidebarHudState;
-  previousSessions: SidebarPreviousSessionItem[];
-  scratchPadContent: string;
-};
-
 type SessionIdsByGroup = Record<string, string[]>;
-
-const INITIAL_STATE: SidebarState = {
-  groups: [],
-  hud: {
-    agentManagerZoomPercent: 100,
-    agents: createDefaultSidebarAgentButtons(),
-    commands: createDefaultSidebarCommandButtons(),
-    completionBellEnabled: false,
-    completionSound: "ping",
-    completionSoundLabel: "Ping",
-    debuggingMode: false,
-    focusedSessionTitle: undefined,
-    git: createDefaultSidebarGitState(),
-    highlightedVisibleCount: 1,
-    isFocusModeActive: false,
-    pendingAgentIds: [],
-    showCloseButtonOnSessionCards: false,
-    showHotkeysOnSessionCards: false,
-    theme: getInitialSidebarTheme(),
-    viewMode: "grid",
-    visibleCount: 1,
-    visibleSlotLabels: [],
-  },
-  previousSessions: [],
-  scratchPadContent: "",
-};
 
 const SIDEBAR_EMPTY_SPACE_BLOCKER_SELECTOR = [
   "button",
@@ -123,18 +79,7 @@ const sensors = [
 
 const SIDEBAR_STARTUP_INTERACTION_BLOCK_MS = 1500;
 
-function getInitialSidebarTheme(): SidebarTheme {
-  return document.body.classList.contains("vscode-light") ||
-    document.body.classList.contains("vscode-high-contrast-light")
-    ? "light-blue"
-    : "dark-blue";
-}
-
 export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) {
-  const [serverState, setServerState] = useState<SidebarState>(INITIAL_STATE);
-  const [daemonSessionsState, setDaemonSessionsState] =
-    useState<SidebarDaemonSessionsStateMessage>();
-  const [structureRevision, setStructureRevision] = useState(0);
   const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
   const [autoEditingGroupId, setAutoEditingGroupId] = useState<string>();
   const [agentCreateRequestId, setAgentCreateRequestId] = useState(0);
@@ -143,126 +88,49 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isDaemonSessionsOpen, setIsDaemonSessionsOpen] = useState(false);
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
-  const [gitCommitDraft, setGitCommitDraft] = useState<SidebarPromptGitCommitMessage>();
   const [sessionDragIndicator, setSessionDragIndicator] = useState<SidebarSessionDropTarget>();
   const pendingCreateGroupRef = useRef(false);
-  const pendingFocusedSessionIdRef = useRef<string>();
+  const didResetStoreRef = useRef(false);
   const overflowControlsRef = useRef<HTMLDivElement>(null);
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const groupIdsRef = useRef<string[]>([]);
-  const latestAppliedSidebarRevisionRef = useRef(0);
   const sessionIdsByGroupRef = useRef<SessionIdsByGroup>({});
 
-  const applySidebarMessage = useEffectEvent(
-    (message: SidebarHydrateMessage | SidebarSessionStateMessage) => {
-      if (message.revision < latestAppliedSidebarRevisionRef.current) {
-        return;
-      }
+  if (!didResetStoreRef.current) {
+    resetSidebarStore();
+    didResetStoreRef.current = true;
+  }
 
-      latestAppliedSidebarRevisionRef.current = message.revision;
-      setStructureRevision(message.revision);
-      const filteredMessage = {
-        ...message,
-        groups: reconcilePendingFocusedSession(message.groups),
-      };
-
-      setServerState((previous) => {
-        if (pendingCreateGroupRef.current) {
-          const nextGroupId = findCreatedGroupId(previous.groups, filteredMessage.groups);
-          if (nextGroupId) {
-            setAutoEditingGroupId(nextGroupId);
-            pendingCreateGroupRef.current = false;
-          }
-        }
-
-        return {
-          groups: filteredMessage.groups,
-          hud: filteredMessage.hud,
-          previousSessions: filteredMessage.previousSessions ?? [],
-          scratchPadContent: filteredMessage.scratchPadContent ?? "",
-        };
-      });
-    },
+  const applyLocalFocus = useSidebarStore((state) => state.applyLocalFocus);
+  const applySessionPresentationMessage = useSidebarStore(
+    (state) => state.applySessionPresentationMessage,
   );
-
-  const applySessionPresentationMessage = useEffectEvent(
-    (message: SidebarSessionPresentationChangedMessage) => {
-      setServerState((previous) => ({
-        ...previous,
-        groups: reconcilePendingFocusedSession(
-          previous.groups.map((group) => ({
-            ...group,
-            sessions: group.sessions.map((session) =>
-              session.sessionId === message.session.sessionId ? message.session : session,
-            ),
-          })),
-        ),
-      }));
-    },
+  const applySidebarMessage = useSidebarStore((state) => state.applySidebarMessage);
+  const setDaemonSessionsState = useSidebarStore((state) => state.setDaemonSessionsState);
+  const setGitCommitDraft = useSidebarStore((state) => state.setGitCommitDraft);
+  const {
+    agentManagerZoomPercent,
+    browserGroupIds,
+    completionBellEnabled,
+    debuggingMode,
+    groupOrder,
+    structureRevision,
+    theme,
+    workspaceGroupIds,
+  } = useSidebarStore(
+    useShallow((state) => ({
+      agentManagerZoomPercent: state.hud.agentManagerZoomPercent,
+      browserGroupIds: state.browserGroupIds,
+      completionBellEnabled: state.hud.completionBellEnabled,
+      debuggingMode: state.hud.debuggingMode,
+      groupOrder: state.groupOrder,
+      structureRevision: state.revision,
+      theme: state.hud.theme,
+      workspaceGroupIds: state.workspaceGroupIds,
+    })),
   );
-
-  const applyLocalFocus = (groupId: string, sessionId: string) => {
-    pendingFocusedSessionIdRef.current = sessionId;
-    setServerState((previous) => ({
-      ...previous,
-      groups: previous.groups.map((group) => {
-        const isActiveGroup = group.groupId === groupId;
-        return {
-          ...group,
-          isActive: isActiveGroup,
-          sessions: group.sessions.map((session) => ({
-            ...session,
-            isFocused: isActiveGroup && session.sessionId === sessionId,
-            isVisible:
-              group.kind !== "browser" && isActiveGroup && session.sessionId === sessionId
-                ? true
-                : session.isVisible,
-          })),
-        };
-      }),
-    }));
-  };
-
-  const reconcilePendingFocusedSession = (
-    groups: readonly SidebarSessionGroup[],
-  ): SidebarSessionGroup[] => {
-    const pendingFocusedSessionId = pendingFocusedSessionIdRef.current;
-    if (!pendingFocusedSessionId) {
-      return [...groups];
-    }
-
-    const containingGroup = groups.find((group) =>
-      group.sessions.some((session) => session.sessionId === pendingFocusedSessionId),
-    );
-    if (!containingGroup) {
-      pendingFocusedSessionIdRef.current = undefined;
-      return [...groups];
-    }
-
-    const isConfirmed = containingGroup.sessions.some(
-      (session) => session.sessionId === pendingFocusedSessionId && session.isFocused,
-    );
-    if (isConfirmed) {
-      pendingFocusedSessionIdRef.current = undefined;
-      return [...groups];
-    }
-
-    return groups.map((group) => {
-      const isActiveGroup = group.groupId === containingGroup.groupId;
-      return {
-        ...group,
-        isActive: isActiveGroup,
-        sessions: group.sessions.map((session) => ({
-          ...session,
-          isFocused: isActiveGroup && session.sessionId === pendingFocusedSessionId,
-          isVisible:
-            group.kind !== "browser" && isActiveGroup && session.sessionId === pendingFocusedSessionId
-              ? true
-              : session.isVisible,
-        })),
-      };
-    });
-  };
+  const gitCommitDraft = useSidebarStore((state) => state.gitCommitDraft);
+  const authoritativeSessionIdsByGroup = useSidebarStore((state) => state.sessionIdsByGroup);
 
   const isSidebarInteractionBlocked = isStartupInteractionBlocked;
 
@@ -312,6 +180,14 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       return;
     }
 
+    if (pendingCreateGroupRef.current) {
+      const nextGroupId = findCreatedGroupId(groupOrder, event.data.groups.map((group) => group.groupId));
+      if (nextGroupId) {
+        setAutoEditingGroupId(nextGroupId);
+        pendingCreateGroupRef.current = false;
+      }
+    }
+
     applySidebarMessage(event.data);
   });
 
@@ -342,23 +218,20 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   }, [vscode]);
 
   useEffect(() => {
-    document.body.dataset.sidebarTheme = serverState.hud.theme;
+    document.body.dataset.sidebarTheme = theme;
 
     return () => {
       delete document.body.dataset.sidebarTheme;
     };
-  }, [serverState.hud.theme]);
+  }, [theme]);
 
   useEffect(() => {
-    document.body.style.setProperty(
-      "--vsmux-agent-manager-zoom",
-      `${serverState.hud.agentManagerZoomPercent}%`,
-    );
+    document.body.style.setProperty("--vsmux-agent-manager-zoom", `${agentManagerZoomPercent}%`);
 
     return () => {
       document.body.style.removeProperty("--vsmux-agent-manager-zoom");
     };
-  }, [serverState.hud.agentManagerZoomPercent]);
+  }, [agentManagerZoomPercent]);
 
   useEffect(() => {
     if (!sessionGroupsPanelRef.current) {
@@ -401,19 +274,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     };
   }, [isOverflowMenuOpen]);
 
-  const workspaceGroups = useMemo(
-    () => getWorkspaceSidebarGroups(serverState.groups),
-    [serverState.groups],
-  );
-
-  const effectiveGroupIds = useMemo(
-    () => workspaceGroups.map((group) => group.groupId),
-    [workspaceGroups],
-  );
+  const effectiveGroupIds = workspaceGroupIds;
 
   const effectiveSessionIdsByGroup = useMemo(
-    () => createSessionIdsByGroup(workspaceGroups),
-    [workspaceGroups],
+    () => createWorkspaceSessionIdsByGroup(workspaceGroupIds, authoritativeSessionIdsByGroup),
+    [authoritativeSessionIdsByGroup, workspaceGroupIds],
   );
 
   useEffect(() => {
@@ -424,28 +289,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     sessionIdsByGroupRef.current = effectiveSessionIdsByGroup;
   }, [effectiveSessionIdsByGroup]);
 
-  const orderedGroups = useMemo(() => {
-    const groupById = new Map(workspaceGroups.map((group) => [group.groupId, group] as const));
-
-    return effectiveGroupIds
-      .map((groupId) => groupById.get(groupId))
-      .filter((group): group is SidebarSessionGroup => group !== undefined)
-      .map((group) => ({
-        ...group,
-        orderedSessions: applySessionOrder(
-          new Map(group.sessions.map((session) => [session.sessionId, session] as const)),
-          effectiveSessionIdsByGroup[group.groupId],
-        ),
-      }));
-  }, [effectiveGroupIds, effectiveSessionIdsByGroup, workspaceGroups]);
-
-  const fixedGroups = useMemo(
-    () => serverState.groups.filter((group) => group.kind === "browser"),
-    [serverState.groups],
-  );
-
   const postSidebarDebugLog = useEffectEvent((event: string, details: unknown) => {
-    if (!serverState.hud.debuggingMode) {
+    if (!debuggingMode) {
       return;
     }
 
@@ -511,8 +356,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     setSessionDragIndicator(undefined);
     const currentGroupIds = groupIdsRef.current;
     const currentSessionIdsByGroup = sessionIdsByGroupRef.current;
-    const authoritativeGroupIds = workspaceGroups.map((group) => group.groupId);
-    const authoritativeSessionIdsByGroup = createSessionIdsByGroup(workspaceGroups);
+    const authoritativeGroupIds = workspaceGroupIds;
+    const previousSessionIdsByGroup = effectiveSessionIdsByGroup;
 
     const sourceData = getSidebarDropData(event.operation.source as { data?: unknown });
     const targetData = getSidebarDropData(event.operation.target as { data?: unknown });
@@ -578,7 +423,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             resolvedSessionDropTarget,
           )
         : move(currentSessionIdsByGroup, event);
-    const previousSessionIdsByGroup = authoritativeSessionIdsByGroup;
     const previousGroupId = findSessionGroupId(previousSessionIdsByGroup, sourceData.sessionId);
     const nextGroupId = findSessionGroupId(nextSessionIdsByGroup, sourceData.sessionId);
     if (!previousGroupId || !nextGroupId) {
@@ -618,13 +462,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       <div
         className="stack"
         data-dimmed={String(isStartupInteractionBlocked)}
-        data-sidebar-theme={serverState.hud.theme}
+        data-sidebar-theme={theme}
         onDoubleClick={handleSidebarDoubleClick}
       >
         <CommandsPanel
-          commands={serverState.hud.commands}
           createRequestId={commandCreateRequestId}
-          git={serverState.hud.git}
           titlebarActions={
             <div
               className="sidebar-titlebar-controls"
@@ -703,7 +545,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                     role="menuitem"
                     type="button"
                   >
-                    {serverState.hud.completionBellEnabled ? (
+                    {completionBellEnabled ? (
                       <IconBellOff
                         aria-hidden="true"
                         className="session-context-menu-icon"
@@ -716,7 +558,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                         size={14}
                       />
                     )}
-                    {getCompletionBellMenuLabel(serverState.hud)}
+                    {getCompletionBellMenuLabel(completionBellEnabled)}
                   </button>
                   <button
                     className="session-context-menu-item"
@@ -759,9 +601,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
           vscode={vscode}
         />
         <AgentsPanel
-          agents={serverState.hud.agents}
           createRequestId={agentCreateRequestId}
-          pendingAgentIds={serverState.hud.pendingAgentIds}
           titlebarActions={
             <Tooltip.Root>
               <Tooltip.Trigger
@@ -819,20 +659,16 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
               </ToolbarIconButton>
             </div>
           </div>
-          {fixedGroups.length > 0 ? (
+          {browserGroupIds.length > 0 ? (
             <div className="group-list">
-              {fixedGroups.map((group) => (
+              {browserGroupIds.map((groupId) => (
                 <SessionGroupSection
                   autoEdit={false}
                   canClose={false}
-                  group={group}
+                  groupId={groupId}
                   index={-1}
-                  key={group.groupId}
+                  key={groupId}
                   onAutoEditHandled={() => undefined}
-                  orderedSessions={group.sessions}
-                  showDebugSessionNumbers={serverState.hud.debuggingMode}
-                  showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
-                  showHotkeys={serverState.hud.showHotkeysOnSessionCards}
                   vscode={vscode}
                 />
               ))}
@@ -847,20 +683,16 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             sensors={sensors}
           >
             <div className="group-list">
-              {orderedGroups.map((group, groupIndex) => (
+              {effectiveGroupIds.map((groupId, groupIndex) => (
                 <SessionGroupSection
-                  autoEdit={autoEditingGroupId === group.groupId}
-                  canClose={orderedGroups.length > 1}
-                  group={group}
+                  autoEdit={autoEditingGroupId === groupId}
+                  canClose={effectiveGroupIds.length > 1}
+                  groupId={groupId}
                   index={groupIndex}
-                  key={group.groupId}
+                  key={groupId}
                   onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
                   onFocusRequested={applyLocalFocus}
-                  orderedSessions={group.orderedSessions}
                   sessionDragIndicator={sessionDragIndicator}
-                  showDebugSessionNumbers={serverState.hud.debuggingMode}
-                  showCloseButton={serverState.hud.showCloseButtonOnSessionCards}
-                  showHotkeys={serverState.hud.showHotkeysOnSessionCards}
                   vscode={vscode}
                 />
               ))}
@@ -870,7 +702,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             aria-label="Create a new group"
             className="group-create-button"
             data-empty-space-blocking="true"
-            disabled={orderedGroups.length >= MAX_GROUP_COUNT}
+            disabled={effectiveGroupIds.length >= MAX_GROUP_COUNT}
             onClick={() => {
               pendingCreateGroupRef.current = true;
               vscode.postMessage({ type: "createGroup" });
@@ -880,8 +712,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             <IconPlus aria-hidden="true" className="group-create-button-icon" size={14} />
             New Group
           </button>
-          {fixedGroups.length === 0 &&
-          orderedGroups.every((group) => group.sessions.length === 0) ? (
+          {browserGroupIds.length === 0 &&
+          effectiveGroupIds.every((groupId) => (effectiveSessionIdsByGroup[groupId] ?? []).length === 0) ? (
             <div className="empty" data-empty-space-blocking="true">
               Create the first session to start the workspace.
             </div>
@@ -890,19 +722,14 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         <PreviousSessionsModal
           isOpen={isPreviousSessionsOpen}
           onClose={() => setIsPreviousSessionsOpen(false)}
-          previousSessions={serverState.previousSessions}
-          showDebugSessionNumbers={serverState.hud.debuggingMode}
-          showHotkeys={serverState.hud.showHotkeysOnSessionCards}
           vscode={vscode}
         />
         <DaemonSessionsModal
           isOpen={isDaemonSessionsOpen}
           onClose={() => setIsDaemonSessionsOpen(false)}
-          state={daemonSessionsState}
           vscode={vscode}
         />
         <ScratchPadModal
-          content={serverState.scratchPadContent}
           isOpen={isScratchPadOpen}
           onClose={() => setIsScratchPadOpen(false)}
           onSave={(content) => {
@@ -1029,9 +856,12 @@ function ToolbarIconButton({
   );
 }
 
-function createSessionIdsByGroup(groups: readonly SidebarSessionGroup[]): SessionIdsByGroup {
+function createWorkspaceSessionIdsByGroup(
+  workspaceGroupIds: readonly string[],
+  sessionIdsByGroup: SessionIdsByGroup,
+): SessionIdsByGroup {
   return Object.fromEntries(
-    groups.map((group) => [group.groupId, group.sessions.map((session) => session.sessionId)]),
+    workspaceGroupIds.map((groupId) => [groupId, sessionIdsByGroup[groupId] ?? []]),
   );
 }
 
@@ -1096,8 +926,8 @@ function OverflowIcon() {
   );
 }
 
-function getCompletionBellMenuLabel(hud: SidebarHudState): string {
-  return hud.completionBellEnabled ? "Disable Notifying" : "Enable Notifying";
+function getCompletionBellMenuLabel(completionBellEnabled: boolean): string {
+  return completionBellEnabled ? "Disable Notifying" : "Enable Notifying";
 }
 
 function resolveSessionDropTargetFromPoint(
