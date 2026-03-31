@@ -3,6 +3,7 @@ import type {
   NativeTerminalDebugHydrateMessage,
   NativeTerminalDebugPanelState,
 } from "../shared/native-terminal-debug-contract";
+import { createDefaultSidebarGitState } from "../shared/sidebar-git";
 import {
   Field,
   formatTimestamp,
@@ -53,6 +54,7 @@ const EMPTY_STATE: NativeTerminalDebugPanelState = {
       completionSoundLabel: "Ping",
       debuggingMode: false,
       focusedSessionTitle: undefined,
+      git: createDefaultSidebarGitState(),
       highlightedVisibleCount: 1,
       isFocusModeActive: false,
       pendingAgentIds: [],
@@ -282,7 +284,7 @@ export function DebugPanelApp({ clearUrl, stateUrl, vscode }: DebugPanelAppProps
                 >
                   <div className="history-meta">
                     <StatusPill
-                      label={entry.event}
+                      label={entry.event ?? "update"}
                       tone={
                         entry.event === "fallback"
                           ? "warn"

@@ -21,6 +21,7 @@ import {
   type VisibleSessionCount,
 } from "../../shared/session-grid-contract";
 import { getSidebarAgentIconById, type SidebarAgentIcon } from "../../shared/sidebar-agents";
+import type { GitTextGenerationSettings } from "../../shared/git-text-generation-provider";
 import {
   createDefaultSidebarGitState,
   resolveSidebarGitPrimaryActionState,
@@ -37,14 +38,17 @@ import {
   type PreparedSidebarGitCommit,
 } from "../git/actions";
 import { getGitStatusDetails, loadSidebarGitState } from "../git/status";
-import { getGitTextGenerationAgent } from "../git-text-generation-agent-preferences";
+import {
+  getGitTextGenerationSettings,
+  hasConfiguredGitTextGenerationProvider,
+} from "../git-text-generation-preferences";
 import {
   buildSidebarMessage,
   createSidebarSessionItem,
   createPreviousSessionEntry,
 } from "../native-terminal-workspace-sidebar-state";
 import { getInterestingTitleSymbols } from "../session-title-activity";
-import { getEffectiveSessionActivity } from "./activity";
+import { getEffectiveSessionActivity, syncKnownSessionActivities } from "./activity";
 import {
   PreviousSessionHistory,
   type PreviousSessionHistoryEntry,
@@ -91,7 +95,9 @@ import {
 } from "../native-terminal-workspace-session-agent-launch";
 import {
   getPrimarySidebarGitAction,
+  getSidebarGitConfirmSuggestedCommit,
   savePrimarySidebarGitAction,
+  saveSidebarGitConfirmSuggestedCommit,
 } from "../sidebar-git-preferences";
 import {
   COMPLETION_BELL_ENABLED_KEY,
@@ -104,7 +110,6 @@ import {
   getClampedSidebarThemeSetting,
   getDefaultBrowserLaunchUrl,
   getDebuggingMode,
-  getGitSkipSuggestedCommitConfirmation,
   getShowCloseButtonOnSessionCards,
   getShowHotkeysOnSessionCards,
   getSidebarThemeVariant,
@@ -173,13 +178,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private pendingSidebarGitCommitConfirmation:
     | {
         action: SidebarGitAction;
-        agent: {
-          command: string;
-          agentId: string;
-          icon?: SidebarAgentIcon;
-          isDefault: boolean;
-          name: string;
-        };
+        generator: GitTextGenerationSettings;
         preparedCommit: PreparedSidebarGitCommit;
         requestId: string;
       }
@@ -239,10 +238,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.workspacePanel,
       this.sidebarProvider,
       this.backend.onDidChangeSessions(() => {
-        void this.refreshSidebar();
+        void (async () => {
+          await this.syncKnownSessionActivities(false);
+          await this.refreshSidebar();
+        })();
       }),
       this.backend.onDidChangeSessionPresentation(({ sessionId, title }) => {
         const snapshot = this.backend.getSessionSnapshot(sessionId);
+        this.syncCompletionSoundForSession(sessionId, snapshot?.agentStatus ?? "idle");
         this.logSessionTitleSymbols(sessionId, title ?? snapshot?.title, snapshot?.agentName);
         logVSmuxDebug("controller.sessionPresentationChanged", {
           agentName: snapshot?.agentName,
@@ -283,6 +286,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessionCount: this.getAllSessionRecords().length,
     });
     await this.backend.initialize(this.getAllSessionRecords());
+    await this.syncKnownSessionActivities(false);
     this.syncSurfaceManagers();
     await this.reconcileProjectedSessions();
     await this.refreshSidebar("hydrate");
@@ -692,17 +696,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    const agent = getGitTextGenerationAgent();
-    if (!agent?.command) {
+    const generator = getGitTextGenerationSettings();
+    if (!hasConfiguredGitTextGenerationProvider(generator)) {
       void vscode.window.showErrorMessage(
-        "No Git text generation agent is configured. Check VSmux.agents and VSmux.gitTextGenerationAgentId.",
+        "Git text generation is set to custom, but VSmux.gitTextGenerationCustomCommand is empty.",
       );
       return;
     }
-    const runnableAgent = {
-      ...agent,
-      command: agent.command,
-    };
 
     this.pendingSidebarGitCommitConfirmation = undefined;
     this.gitActionInProgress = true;
@@ -714,7 +714,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const cwd = getDefaultWorkspaceCwd();
       const status = await getGitStatusDetails(cwd);
       const needsCommit = action === "commit" || status.hasWorkingTreeChanges;
-      const shouldPromptForCommit = needsCommit && !getGitSkipSuggestedCommitConfirmation();
+      const shouldPromptForCommit =
+        needsCommit && getSidebarGitConfirmSuggestedCommit(this.context, this.workspaceId);
 
       if (shouldPromptForCommit) {
         const preparedCommit = await vscode.window.withProgress(
@@ -725,8 +726,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           async (progress) =>
             prepareSidebarGitCommit({
               action,
-              agent: runnableAgent,
               cwd,
+              generator,
               onProgress: (message) => progress.report({ message }),
             }),
         );
@@ -736,7 +737,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         const requestId = randomUUID();
         this.pendingSidebarGitCommitConfirmation = {
           action,
-          agent: runnableAgent,
+          generator,
           preparedCommit,
           requestId,
         };
@@ -757,7 +758,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.gitActionInProgress = false;
       this.invalidateSidebarGitHudState();
       await this.refreshSidebar();
-      await this.executeSidebarGitAction(action, runnableAgent);
+      await this.executeSidebarGitAction(action, generator);
     } catch (error) {
       void vscode.window.showErrorMessage(getErrorMessage(error));
     } finally {
@@ -778,6 +779,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
   }
 
+  public async setSidebarGitCommitConfirmationEnabled(enabled: boolean): Promise<void> {
+    await saveSidebarGitConfirmSuggestedCommit(this.context, this.workspaceId, enabled);
+    this.invalidateSidebarGitHudState();
+    await this.refreshSidebar();
+  }
+
   public async confirmSidebarGitCommit(requestId: string, subject: string): Promise<void> {
     const pending = this.pendingSidebarGitCommitConfirmation;
     if (!pending || pending.requestId !== requestId || this.gitActionInProgress) {
@@ -793,7 +800,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.pendingSidebarGitCommitConfirmation = undefined;
     await this.executeSidebarGitAction(
       pending.action,
-      pending.agent,
+      pending.generator,
       {
         ...pending.preparedCommit,
         subject: trimmedSubject,
@@ -811,13 +818,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async executeSidebarGitAction(
     action: SidebarGitAction,
-    agent: {
-      command: string;
-      agentId: string;
-      icon?: SidebarAgentIcon;
-      isDefault: boolean;
-      name: string;
-    },
+    generator: GitTextGenerationSettings,
     preparedCommit?: PreparedSidebarGitCommit,
   ): Promise<void> {
     if (this.gitActionInProgress) {
@@ -837,8 +838,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         async (progress) =>
           runSidebarGitActionWorkflow({
             action,
-            agent,
             cwd: getDefaultWorkspaceCwd(),
+            generator,
             onProgress: (message) => progress.report({ message }),
             preparedCommit,
           }),
@@ -1183,6 +1184,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           command,
           url,
         ),
+      setSidebarGitCommitConfirmationEnabled: async (enabled) =>
+        this.setSidebarGitCommitConfirmationEnabled(enabled),
       setSidebarGitPrimaryAction: async (action) => this.setSidebarGitPrimaryAction(action),
       setViewMode: async (viewMode) => this.setViewMode(viewMode),
       setVisibleCount: async (visibleCount) => this.setVisibleCount(visibleCount),
@@ -1827,6 +1830,30 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     };
   }
 
+  private async syncKnownSessionActivities(playSound: boolean): Promise<void> {
+    await syncKnownSessionActivities(
+      this.createSessionActivityContext(),
+      this.getAllSessionRecords(),
+      playSound,
+    );
+  }
+
+  private syncCompletionSoundForSession(
+    sessionId: string,
+    nextActivity: "idle" | "working" | "attention",
+  ): void {
+    const previousActivity = this.lastKnownActivityBySessionId.get(sessionId);
+    if (nextActivity === "attention") {
+      if (previousActivity !== undefined && previousActivity !== "attention") {
+        this.queueCompletionSound(sessionId);
+      }
+    } else {
+      this.clearPendingCompletionSound(sessionId);
+    }
+
+    this.lastKnownActivityBySessionId.set(sessionId, nextActivity);
+  }
+
   private clearPendingCompletionSound(sessionId: string): void {
     const timeout = this.pendingCompletionSoundTimeoutBySessionId.get(sessionId);
     if (!timeout) {
@@ -2008,7 +2035,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const cached = this.gitHudStateCache;
     if (cached && !cached.isStale && Date.now() - cached.updatedAt < 1_500) {
       if (cached.value.isBusy === this.gitActionInProgress) {
-        return cached.value;
+        return this.withSidebarGitPreferences(cached.value);
       }
     }
 
@@ -2022,24 +2049,24 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       updatedAt: Date.now(),
       value: nextState,
     };
-    return nextState;
+    return this.withSidebarGitPreferences(nextState);
   }
 
   private getCachedSidebarGitHudState(): SidebarGitState {
     const cached = this.gitHudStateCache;
     if (cached) {
       if (cached.value.isBusy !== this.gitActionInProgress) {
-        return {
+        return this.withSidebarGitPreferences({
           ...cached.value,
           isBusy: this.gitActionInProgress,
-        };
+        });
       }
 
-      return cached.value;
+      return this.withSidebarGitPreferences(cached.value);
     }
 
-    return createDefaultSidebarGitState(
-      getPrimarySidebarGitAction(this.context, this.workspaceId),
+    return this.withSidebarGitPreferences(
+      createDefaultSidebarGitState(getPrimarySidebarGitAction(this.context, this.workspaceId)),
     );
   }
 
@@ -2082,6 +2109,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     return cached.value.primaryAction !== getPrimarySidebarGitAction(this.context, this.workspaceId);
+  }
+
+  private withSidebarGitPreferences(state: SidebarGitState): SidebarGitState {
+    return {
+      ...state,
+      confirmSuggestedCommit: getSidebarGitConfirmSuggestedCommit(this.context, this.workspaceId),
+    };
   }
 
   private getSidebarContainerId(): string {

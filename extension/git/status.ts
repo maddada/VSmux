@@ -51,6 +51,7 @@ export async function loadSidebarGitState(
     aheadCount: details.aheadCount,
     behindCount: details.behindCount,
     branch: details.branch,
+    confirmSuggestedCommit: false,
     deletions: details.workingTree.deletions,
     hasGitHubCli: details.hasGitHubCli,
     hasOriginRemote: details.hasOriginRemote,

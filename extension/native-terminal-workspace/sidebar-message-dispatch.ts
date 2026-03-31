@@ -41,6 +41,7 @@ export type SidebarMessageHandlers = {
   runSidebarAgent: (agentId: string) => Promise<void>;
   runSidebarCommand: (commandId: string) => Promise<void>;
   runSidebarGitAction: (action: SidebarGitAction) => Promise<void>;
+  setSidebarGitCommitConfirmationEnabled: (enabled: boolean) => Promise<void>;
   saveScratchPad: (content: string) => Promise<void>;
   saveSidebarAgent: (
     agentId: string | undefined,
@@ -126,6 +127,9 @@ export async function dispatchSidebarMessage(
       return;
     case "refreshGitState":
       await handlers.refreshGitState();
+      return;
+    case "setSidebarGitCommitConfirmationEnabled":
+      await handlers.setSidebarGitCommitConfirmationEnabled(message.enabled);
       return;
     case "confirmSidebarGitCommit":
       await handlers.confirmSidebarGitCommit(message.requestId, message.subject);

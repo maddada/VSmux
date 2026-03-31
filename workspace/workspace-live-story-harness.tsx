@@ -356,9 +356,13 @@ function parseLiveBootstrapResponse(value: unknown): LiveBootstrapResponse | und
     return undefined;
   }
 
+  const definedSessions = sessions.filter(
+    (session): session is LiveBootstrapSession => session !== undefined,
+  );
+
   return {
     connection,
-    sessions,
+    sessions: definedSessions,
   };
 }
 

@@ -20,6 +20,7 @@ import "./terminal-pane.css";
 const DATA_BUFFER_FLUSH_MS = 5;
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const POST_RECONNECT_REFIT_DELAY_MS = 3_000;
+const VISIBLE_REFIT_DELAY_MS = 2_000;
 const POST_RECONNECT_HEIGHT_NUDGE_PX = 100;
 const NUDGE_RESTORE_TIMEOUT_MS = 250;
 const SCROLL_TO_BOTTOM_BUTTON_MARGIN_PX = 200;
@@ -338,6 +339,14 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       reconnectRefitTimeoutId = window.setTimeout(() => {
         reconnectRefitTimeoutId = undefined;
         if (didDispose) {
+          return;
+        }
+
+        if (!isVisibleRef.current) {
+          lastMeasuredSizeRef.current = undefined;
+          reportDebug("terminal.reconnectRepairDeferredHidden", {
+            sessionId: pane.sessionId,
+          });
           return;
         }
 
@@ -752,34 +761,38 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   useEffect(() => {
     if (!isVisible) {
       lastMeasuredSizeRef.current = undefined;
+      setShowScrollToBottomButton(false);
       return;
     }
 
-    const terminal = terminalRef.current;
-    if (!terminal) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
+    const visibleRefitTimeoutId = window.setTimeout(() => {
       requestAnimationFrame(() => {
-        if (!terminalRef.current || !containerRef.current) {
-          return;
-        }
+        requestAnimationFrame(() => {
+          const container = containerRef.current;
+          const terminal = terminalRef.current;
+          if (!container || !terminal) {
+            return;
+          }
 
-        const bounds = containerRef.current.getBoundingClientRect();
-        if (bounds.width <= 0 || bounds.height <= 0) {
-          return;
-        }
+          const bounds = container.getBoundingClientRect();
+          if (bounds.width <= 0 || bounds.height <= 0) {
+            return;
+          }
 
-        lastMeasuredSizeRef.current = {
-          height: Math.round(bounds.height),
-          width: Math.round(bounds.width),
-        };
-        fitRef.current?.fit();
-        terminal.refresh(0, terminal.rows - 1);
-        updateScrollToBottomButtonVisibilityRef.current?.();
+          lastMeasuredSizeRef.current = {
+            height: Math.round(bounds.height),
+            width: Math.round(bounds.width),
+          };
+          fitRef.current?.fit();
+          terminal.refresh(0, terminal.rows - 1);
+          updateScrollToBottomButtonVisibilityRef.current?.();
+        });
       });
-    });
+    }, VISIBLE_REFIT_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(visibleRefitTimeoutId);
+    };
   }, [isVisible, pane.sessionId]);
 
   useEffect(() => {

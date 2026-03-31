@@ -174,7 +174,9 @@ export function AgentsPanel({
   }, [createRequestId]);
 
   const orderedAgents = useMemo(() => {
-    const agentById = new Map(agents.map((agent) => [agent.agentId, agent] as const));
+    const agentById = new Map<string, SidebarAgentButton>(
+      agents.map((agent) => [agent.agentId, agent]),
+    );
     const orderedAgentIds = draftAgentIds
       ? mergeAgentIds(
           draftAgentIds,
@@ -197,6 +199,10 @@ export function AgentsPanel({
     }
 
     const { source, target } = event.operation;
+    if (!source || !target) {
+      return;
+    }
+
     const sourceData = getAgentDragData(source);
     const targetData = getAgentDragData(target);
     if (!sourceData || !targetData || sourceData.agentId === targetData.agentId) {

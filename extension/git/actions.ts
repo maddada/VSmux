@@ -1,8 +1,8 @@
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { GitTextGenerationSettings } from "../../shared/git-text-generation-provider";
 import { getSidebarGitDisabledReason, type SidebarGitAction } from "../../shared/sidebar-git";
-import type { SidebarAgentButton } from "../../shared/sidebar-agents";
 import { generateCommitMessage, generatePrContent } from "./text-generation";
 import {
   getGitStatusDetails,
@@ -15,10 +15,6 @@ import { buildCommandLine, runGitCommand, runGitStdout, runShellCommand } from "
 const COMMIT_TIMEOUT_MS = 180_000;
 const GITHUB_CLI_TIMEOUT_MS = 60_000;
 
-type RunnableSidebarAgentButton = SidebarAgentButton & {
-  command: string;
-};
-
 export type SidebarGitCommitScope = "allChanges" | "stagedOnly";
 
 export type PreparedSidebarGitCommit = {
@@ -29,8 +25,8 @@ export type PreparedSidebarGitCommit = {
 
 export type RunSidebarGitActionInput = {
   action: SidebarGitAction;
-  agent: RunnableSidebarAgentButton;
   cwd: string;
+  generator: GitTextGenerationSettings;
   onProgress?: (message: string) => void;
   preparedCommit?: PreparedSidebarGitCommit;
 };
@@ -42,8 +38,8 @@ export type RunSidebarGitActionResult = {
 
 export type PrepareSidebarGitCommitInput = {
   action: SidebarGitAction;
-  agent: RunnableSidebarAgentButton;
   cwd: string;
+  generator: GitTextGenerationSettings;
   onProgress?: (message: string) => void;
 };
 
@@ -65,9 +61,9 @@ export async function prepareSidebarGitCommit(
 
   input.onProgress?.("Generating commit message...");
   const generated = await generateCommitMessage({
-    agent: input.agent,
     branch: status.branch,
     cwd: input.cwd,
+    settings: input.generator,
     stagedPatch: commitContext.stagedPatch,
     stagedSummary: commitContext.stagedSummary,
   });
@@ -93,7 +89,7 @@ export async function runSidebarGitActionWorkflow(
     const commitResult = await commitWorkingTree(
       input.cwd,
       status,
-      input.agent,
+      input.generator,
       input.onProgress,
       input.preparedCommit,
     );
@@ -107,7 +103,7 @@ export async function runSidebarGitActionWorkflow(
     latestCommit = await commitWorkingTree(
       input.cwd,
       status,
-      input.agent,
+      input.generator,
       input.onProgress,
       input.preparedCommit,
     );
@@ -147,7 +143,7 @@ export async function runSidebarGitActionWorkflow(
     };
   }
 
-  const createdPr = await createPullRequest(input.cwd, status, input.agent, input.onProgress);
+  const createdPr = await createPullRequest(input.cwd, status, input.generator, input.onProgress);
   return {
     message: createdPr.number ? `Created PR #${createdPr.number}.` : "Created pull request.",
     prUrl: createdPr.url,
@@ -157,7 +153,7 @@ export async function runSidebarGitActionWorkflow(
 async function commitWorkingTree(
   cwd: string,
   status: GitStatusDetails,
-  agent: RunnableSidebarAgentButton,
+  generator: GitTextGenerationSettings,
   onProgress?: (message: string) => void,
   preparedCommit?: PreparedSidebarGitCommit,
 ): Promise<{ commitSha: string; subject: string }> {
@@ -171,9 +167,9 @@ async function commitWorkingTree(
 
     onProgress?.("Generating commit message...");
     const commitMessage = await generateCommitMessage({
-      agent,
       branch: status.branch,
       cwd,
+      settings: generator,
       stagedPatch: commitContext.stagedPatch,
       stagedSummary: commitContext.stagedSummary,
     });
@@ -195,7 +191,7 @@ async function commitWorkingTree(
 async function createPullRequest(
   cwd: string,
   status: GitStatusDetails,
-  agent: RunnableSidebarAgentButton,
+  generator: GitTextGenerationSettings,
   onProgress?: (message: string) => void,
 ): Promise<{ number?: number; url: string }> {
   if (!status.branch) {
@@ -215,13 +211,13 @@ async function createPullRequest(
 
   onProgress?.("Generating PR content...");
   const generated = await generatePrContent({
-    agent,
     baseBranch,
     commitSummary,
     cwd,
     diffPatch,
     diffSummary,
     headBranch: status.branch,
+    settings: generator,
   });
 
   onProgress?.("Creating PR...");

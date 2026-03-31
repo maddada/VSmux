@@ -297,6 +297,10 @@ export type SidebarToExtensionMessage =
       type: "refreshGitState";
     }
   | {
+      enabled: boolean;
+      type: "setSidebarGitCommitConfirmationEnabled";
+    }
+  | {
       requestId: string;
       subject: string;
       type: "confirmSidebarGitCommit";

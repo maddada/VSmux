@@ -894,11 +894,11 @@ function haveSameSessionOrder(left: readonly string[], right: readonly string[])
 }
 
 function findCreatedGroupId(
-  previousGroups: readonly { groupId: string }[],
-  nextGroups: readonly { groupId: string }[],
+  previousGroups: readonly string[],
+  nextGroups: readonly string[],
 ): string | undefined {
-  const previousGroupIds = new Set(previousGroups.map((group) => group.groupId));
-  return nextGroups.find((group) => !previousGroupIds.has(group.groupId))?.groupId;
+  const previousGroupIds = new Set(previousGroups);
+  return nextGroups.find((groupId) => !previousGroupIds.has(groupId));
 }
 
 function OverflowIcon() {

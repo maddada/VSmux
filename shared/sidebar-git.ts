@@ -12,6 +12,7 @@ export type SidebarGitState = {
   aheadCount: number;
   behindCount: number;
   branch: string | null;
+  confirmSuggestedCommit: boolean;
   deletions: number;
   hasGitHubCli: boolean;
   hasOriginRemote: boolean;
@@ -41,12 +42,14 @@ export const DEFAULT_SIDEBAR_GIT_ACTION: SidebarGitAction = "commit";
 
 export function createDefaultSidebarGitState(
   primaryAction: SidebarGitAction = DEFAULT_SIDEBAR_GIT_ACTION,
+  confirmSuggestedCommit = false,
 ): SidebarGitState {
   return {
     additions: 0,
     aheadCount: 0,
     behindCount: 0,
     branch: null,
+    confirmSuggestedCommit,
     deletions: 0,
     hasGitHubCli: false,
     hasOriginRemote: false,

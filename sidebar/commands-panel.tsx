@@ -193,7 +193,9 @@ export function CommandsPanel({
   }, [createRequestId]);
 
   const orderedCommands = useMemo(() => {
-    const commandById = new Map(commands.map((command) => [command.commandId, command] as const));
+    const commandById = new Map<string, SidebarCommandButton>(
+      commands.map((command) => [command.commandId, command]),
+    );
     const orderedCommandIds = draftCommandIds
       ? mergeCommandIds(
           draftCommandIds,
@@ -216,6 +218,10 @@ export function CommandsPanel({
     }
 
     const { source, target } = event.operation;
+    if (!source || !target) {
+      return;
+    }
+
     const sourceData = getCommandDragData(source);
     const targetData = getCommandDragData(target);
     if (!sourceData || !targetData || sourceData.commandId === targetData.commandId) {

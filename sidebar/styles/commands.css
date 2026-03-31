@@ -146,6 +146,13 @@
   z-index: 12;
 }
 
+.git-action-menu-divider {
+  background: color-mix(in srgb, var(--app-border) 88%, transparent);
+  block-size: 1px;
+  inline-size: 100%;
+  margin: calc(2px * var(--sidebar-density-scale)) 0;
+}
+
 .git-action-menu-item {
   align-items: center;
   background: transparent;
@@ -182,6 +189,35 @@
 .git-action-menu-item-trailing-icon {
   color: color-mix(in srgb, var(--app-muted) 84%, var(--app-foreground) 16%);
   flex: none;
+}
+
+.git-action-menu-toggle-item {
+  gap: calc(10px * var(--sidebar-density-scale));
+}
+
+.git-action-menu-toggle-check {
+  align-items: center;
+  block-size: calc(16px * var(--sidebar-density-scale));
+  border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent);
+  border-radius: calc(5px * var(--sidebar-density-scale));
+  color: color-mix(in srgb, var(--app-button-background) 70%, var(--app-foreground) 30%);
+  display: inline-flex;
+  flex: none;
+  inline-size: calc(16px * var(--sidebar-density-scale));
+  justify-content: center;
+}
+
+.git-action-menu-toggle-check[data-selected="true"] {
+  background: color-mix(in srgb, var(--app-button-background) 18%, var(--app-card-active) 82%);
+  border-color: color-mix(in srgb, var(--app-button-background) 48%, var(--app-border));
+}
+
+.git-action-menu-toggle-state {
+  color: color-mix(in srgb, var(--app-muted) 82%, var(--app-foreground) 18%);
+  flex: none;
+  font-size: calc(10px * var(--sidebar-density-scale));
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 @container (max-width: 180px) {

@@ -438,19 +438,37 @@
           },
           "description": "User-level agent definitions shown in the VSmux sidebar. Built-in agents can be customized or hidden, and extra custom variants can reuse the same agent type icons."
         },
+        "VSmux.gitTextGenerationProvider": {
+          "title": "Git Text Generation Provider",
+          "type": "string",
+          "scope": "application",
+          "default": "codex",
+          "enum": [
+            "codex",
+            "claude",
+            "custom"
+          ],
+          "enumItemLabels": [
+            "Codex",
+            "Claude",
+            "Custom"
+          ],
+          "description": "Provider used to generate Git commit messages and PR text. Codex uses codex -m gpt-5.4-mini with high reasoning effort and Claude uses claude --model haiku --effort high."
+        },
+        "VSmux.gitTextGenerationCustomCommand": {
+          "title": "Git Text Generation Custom Command",
+          "type": "string",
+          "scope": "application",
+          "default": "",
+          "description": "Shell command template used when VSmux.gitTextGenerationProvider is custom. Use {prompt} for the full prompt and {outputFile} for the absolute output file path. Placeholders are shell-quoted automatically."
+        },
         "VSmux.gitTextGenerationAgentId": {
           "title": "Git Text Generation Agent Id",
           "type": "string",
           "scope": "application",
           "default": "codex",
-          "description": "Agent ID from VSmux.agents used to generate Git commit messages and PR text. Defaults to codex. If unavailable, VSmux falls back to claude and then the first configured agent with a command."
-        },
-        "VSmux.gitSkipSuggestedCommitConfirmation": {
-          "title": "Git Skip Suggested Commit Confirmation",
-          "type": "boolean",
-          "scope": "resource",
-          "default": false,
-          "description": "Skip the sidebar commit-title confirmation modal and immediately use the suggested Git commit title."
+          "description": "Deprecated. Use VSmux.gitTextGenerationProvider and VSmux.gitTextGenerationCustomCommand instead.",
+          "deprecationMessage": "Use VSmux.gitTextGenerationProvider and VSmux.gitTextGenerationCustomCommand instead."
         },
         "VSmux.agentOrder": {
           "title": "Agent Order",

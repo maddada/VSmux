@@ -26,6 +26,8 @@ export const DEBUGGING_MODE_SETTING = "debuggingMode";
 export const COMPLETION_SOUND_SETTING = "completionSound";
 export const DEFAULT_BROWSER_LAUNCH_URL_SETTING = "defaultBrowserLaunchUrl";
 export const AGENTS_SETTING = "agents";
+export const GIT_TEXT_GENERATION_PROVIDER_SETTING = "gitTextGenerationProvider";
+export const GIT_TEXT_GENERATION_CUSTOM_COMMAND_SETTING = "gitTextGenerationCustomCommand";
 export const GIT_TEXT_GENERATION_AGENT_ID_SETTING = "gitTextGenerationAgentId";
 export const GIT_SKIP_SUGGESTED_COMMIT_CONFIRMATION_SETTING = "gitSkipSuggestedCommitConfirmation";
 export const TERMINAL_FONT_FAMILY_SETTING = "terminalFontFamily";
@@ -83,6 +85,14 @@ export function getCompletionSoundConfigurationKey(): string {
 
 export function getAgentsConfigurationKey(): string {
   return `${SETTINGS_SECTION}.${AGENTS_SETTING}`;
+}
+
+export function getGitTextGenerationProviderConfigurationKey(): string {
+  return `${SETTINGS_SECTION}.${GIT_TEXT_GENERATION_PROVIDER_SETTING}`;
+}
+
+export function getGitTextGenerationCustomCommandConfigurationKey(): string {
+  return `${SETTINGS_SECTION}.${GIT_TEXT_GENERATION_CUSTOM_COMMAND_SETTING}`;
 }
 
 export function getGitTextGenerationAgentIdConfigurationKey(): string {

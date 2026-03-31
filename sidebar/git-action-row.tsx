@@ -1,4 +1,5 @@
 import {
+  IconCheck,
   IconChevronDown,
   IconExternalLink,
   IconGitCommit,
@@ -61,6 +62,13 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
     vscode.postMessage({
       action,
       type: "setSidebarGitPrimaryAction",
+    });
+  };
+
+  const setCommitConfirmationEnabled = (enabled: boolean) => {
+    vscode.postMessage({
+      enabled,
+      type: "setSidebarGitCommitConfirmationEnabled",
     });
   };
 
@@ -146,6 +154,35 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
               ) : null}
             </button>
           ))}
+          <div aria-hidden="true" className="git-action-menu-divider" />
+          <button
+            aria-label={
+              git.confirmSuggestedCommit
+                ? "Disable suggested commit review"
+                : "Enable suggested commit review"
+            }
+            className="git-action-menu-item git-action-menu-toggle-item"
+            onClick={() => setCommitConfirmationEnabled(!git.confirmSuggestedCommit)}
+            role="menuitemcheckbox"
+            title={
+              git.confirmSuggestedCommit
+                ? "Review suggested commit message before running the git action"
+                : "Use the suggested commit message immediately without opening the review modal"
+            }
+            type="button"
+          >
+            <span
+              aria-hidden="true"
+              className="git-action-menu-toggle-check"
+              data-selected={String(git.confirmSuggestedCommit)}
+            >
+              {git.confirmSuggestedCommit ? <IconCheck size={14} /> : null}
+            </span>
+            <span className="git-action-menu-item-label">Review Suggested Commit</span>
+            <span className="git-action-menu-toggle-state">
+              {git.confirmSuggestedCommit ? "On" : "Off"}
+            </span>
+          </button>
         </div>
       ) : null}
     </div>

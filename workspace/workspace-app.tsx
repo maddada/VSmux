@@ -254,20 +254,23 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     () => orderedPanes.filter((pane) => pane.kind === "terminal").map((pane) => pane.sessionId),
     [orderedPanes],
   );
-  const workspaceShellStyle = useMemo<WorkspaceShellStyle>(
-    () => ({
+  const workspaceShellStyle = useMemo(
+    () => {
+      const nextStyle: WorkspaceShellStyle = {
         "--workspace-active-pane-border-color":
           workspaceState?.layoutAppearance.activePaneBorderColor,
         "--workspace-pane-gap": `${String(workspaceState?.layoutAppearance.paneGap ?? 12)}px`,
-        ...(visiblePanes.length > 0
-          ? {
-              gridTemplateColumns: getWorkspaceGridTemplateColumns(
-                workspaceState?.viewMode ?? "grid",
-                visiblePanes.length,
-              ),
-            }
-          : {}),
-      }),
+      };
+
+      if (visiblePanes.length > 0) {
+        nextStyle.gridTemplateColumns = getWorkspaceGridTemplateColumns(
+          workspaceState?.viewMode ?? "grid",
+          visiblePanes.length,
+        );
+      }
+
+      return nextStyle;
+    },
     [
       workspaceState?.layoutAppearance.activePaneBorderColor,
       workspaceState?.layoutAppearance.paneGap,
@@ -304,20 +307,6 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     setDraggedPaneId(undefined);
     setDropTargetPaneId(undefined);
   }, [workspacePaneIdsKey, workspaceState?.activeGroupId]);
-
-  useEffect(() => {
-    if (!workspaceState) {
-      return;
-    }
-
-    const repairTimerId = window.setTimeout(() => {
-      setTerminalRefreshRequestId((currentValue) => currentValue + 1);
-    }, 250);
-
-    return () => {
-      window.clearTimeout(repairTimerId);
-    };
-  }, [visiblePaneIdsKey, workspacePaneIdsKey, workspaceState?.activeGroupId]);
 
   const requestFocusSession = (sessionId: string) => {
     const requestId = ++focusRequestSequenceRef.current;
