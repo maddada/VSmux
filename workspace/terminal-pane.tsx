@@ -25,6 +25,7 @@ const POST_RECONNECT_REFIT_DELAY_MS = 3_000;
 const POST_RECONNECT_HEIGHT_NUDGE_PX = 100;
 const NUDGE_RESTORE_TIMEOUT_MS = 250;
 const SCROLL_TO_BOTTOM_BUTTON_MARGIN_PX = 200;
+const SOCKET_ACTIVITY_IDLE_SUMMARY_MS = 1_000;
 
 export type TerminalPaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
@@ -105,9 +106,26 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     try {
       const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      rendererMode = "webgl";
+      reportDebug("terminal.rendererReady", {
+        rendererMode,
+        sessionId: pane.sessionId,
+      });
+      webgl.onContextLoss(() => {
+        rendererMode = "fallback";
+        reportDebug("terminal.rendererContextLoss", {
+          sessionId: pane.sessionId,
+        });
+        webgl.dispose();
+      });
       terminal.loadAddon(webgl);
-    } catch {
+    } catch (error) {
+      rendererMode = "fallback";
+      reportDebug("terminal.rendererReady", {
+        message: error instanceof Error ? error.message : String(error),
+        rendererMode,
+        sessionId: pane.sessionId,
+      });
       // Fall back to xterm's default renderer when WebGL is unavailable.
     }
 
@@ -130,7 +148,19 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     let pendingSocketMessages: string[] = [];
     let pendingReconnectRefitAfterData = false;
     let reconnectRefitTimeoutId: number | undefined;
+    let rendererMode: "fallback" | "unknown" | "webgl" = "unknown";
     let suppressPasteEvent = false;
+    let socketConnectionSequence = 0;
+    let socketConnectionId = 0;
+    let socketOpenedAtMs: number | undefined;
+    let socketFirstBinaryAtMs: number | undefined;
+    let socketBinaryBytes = 0;
+    let socketBinaryChunks = 0;
+    let socketFlushBytes = 0;
+    let socketFlushCount = 0;
+    let socketIdleSummaryTimeoutId: number | undefined;
+    let socketLargestFlushBytes = 0;
+    let socketResizeCount = 0;
 
     const updateScrollToBottomButtonVisibility = () => {
       const container = containerRef.current;
@@ -221,6 +251,82 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       }
     };
 
+    const clearSocketIdleSummaryTimeout = () => {
+      if (socketIdleSummaryTimeoutId !== undefined) {
+        window.clearTimeout(socketIdleSummaryTimeoutId);
+        socketIdleSummaryTimeoutId = undefined;
+      }
+    };
+
+    const resetSocketConnectionMetrics = () => {
+      socketOpenedAtMs = undefined;
+      socketFirstBinaryAtMs = undefined;
+      socketBinaryBytes = 0;
+      socketBinaryChunks = 0;
+      socketFlushBytes = 0;
+      socketFlushCount = 0;
+      socketLargestFlushBytes = 0;
+      socketResizeCount = 0;
+      clearSocketIdleSummaryTimeout();
+    };
+
+    const logSocketConnectionSummary = (reason: "close" | "error" | "idle") => {
+      if (!socketOpenedAtMs) {
+        return;
+      }
+
+      reportDebug("terminal.connectionSummary", {
+        binaryBytes: socketBinaryBytes,
+        binaryChunks: socketBinaryChunks,
+        cols: terminal.cols,
+        connectionId: socketConnectionId,
+        flushBytes: socketFlushBytes,
+        flushCount: socketFlushCount,
+        largestFlushBytes: socketLargestFlushBytes,
+        msSinceFirstBinary:
+          socketFirstBinaryAtMs === undefined
+            ? undefined
+            : Math.round(performance.now() - socketFirstBinaryAtMs),
+        msSinceSocketOpen: Math.round(performance.now() - socketOpenedAtMs),
+        reason,
+        rendererMode,
+        resizeCount: socketResizeCount,
+        rows: terminal.rows,
+        sessionId: pane.sessionId,
+      });
+      if (reason !== "idle") {
+        resetSocketConnectionMetrics();
+      }
+    };
+
+    const scheduleSocketIdleSummary = () => {
+      clearSocketIdleSummaryTimeout();
+      socketIdleSummaryTimeoutId = window.setTimeout(() => {
+        logSocketConnectionSummary("idle");
+      }, SOCKET_ACTIVITY_IDLE_SUMMARY_MS);
+    };
+
+    const noteSocketBinaryChunk = (byteLength: number) => {
+      if (!socketOpenedAtMs) {
+        return;
+      }
+
+      if (socketFirstBinaryAtMs === undefined) {
+        socketFirstBinaryAtMs = performance.now();
+        reportDebug("terminal.socketFirstBinaryData", {
+          byteLength,
+          connectionId: socketConnectionId,
+          msAfterSocketOpen: Math.round(socketFirstBinaryAtMs - socketOpenedAtMs),
+          rendererMode,
+          sessionId: pane.sessionId,
+        });
+      }
+
+      socketBinaryBytes += byteLength;
+      socketBinaryChunks += 1;
+      scheduleSocketIdleSummary();
+    };
+
     const scheduleReconnectRefit = () => {
       if (!pendingReconnectRefitAfterData) {
         return;
@@ -273,9 +379,21 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         clearPendingNudgeRestore();
         refitTerminal();
         updateScrollToBottomButtonVisibility();
+        reportDebug("terminal.reconnectNudgeRestore", {
+          cols: terminal.cols,
+          rowNudge,
+          rows: terminal.rows,
+          sessionId: pane.sessionId,
+        });
         afterNudge?.();
       };
 
+      reportDebug("terminal.reconnectNudgeStart", {
+        cols: terminal.cols,
+        rowNudge,
+        rows: terminal.rows,
+        sessionId: pane.sessionId,
+      });
       terminal.resize(terminal.cols, terminal.rows + rowNudge);
       terminal.refresh(0, terminal.rows - 1);
       nudgeRestoreTimeoutId = window.setTimeout(() => {
@@ -309,6 +427,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         }
 
         if (event.data instanceof ArrayBuffer) {
+          noteSocketBinaryChunk(event.data.byteLength);
           scheduleReconnectRefit();
           dataBuffer.push(new Uint8Array(event.data));
           if (flushTimer === undefined) {
@@ -319,6 +438,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
         if (event.data instanceof Blob) {
           void event.data.arrayBuffer().then((buffer) => {
+            noteSocketBinaryChunk(buffer.byteLength);
             scheduleReconnectRefit();
             dataBuffer.push(new Uint8Array(buffer));
             if (flushTimer === undefined) {
@@ -328,8 +448,14 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         }
       };
       websocket.onopen = () => {
+        socketConnectionSequence += 1;
+        socketConnectionId = socketConnectionSequence;
+        resetSocketConnectionMetrics();
+        socketOpenedAtMs = performance.now();
         reportDebug("terminal.socketOpen", {
           cols: terminal.cols,
+          connectionId: socketConnectionId,
+          rendererMode,
           rows: terminal.rows,
           sessionId: pane.sessionId,
         });
@@ -340,7 +466,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         pendingReconnectRefitAfterData = true;
       };
       websocket.onclose = () => {
+        logSocketConnectionSummary("close");
         reportDebug("terminal.socketClose", {
+          connectionId: socketConnectionId,
           sessionId: pane.sessionId,
         });
         pendingSocketMessages = [];
@@ -351,7 +479,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         }
       };
       websocket.onerror = () => {
+        logSocketConnectionSummary("error");
         reportDebug("terminal.socketError", {
+          connectionId: socketConnectionId,
           sessionId: pane.sessionId,
         });
         pendingSocketMessages = [];
@@ -388,9 +518,18 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       const chunks = dataBuffer;
       dataBuffer = [];
       flushTimer = undefined;
+      const flushBytes = chunks.reduce((totalBytes, chunk) => totalBytes + chunk.byteLength, 0);
+      socketFlushBytes += flushBytes;
+      socketFlushCount += 1;
+      socketLargestFlushBytes = Math.max(socketLargestFlushBytes, flushBytes);
       if (firstData) {
         firstData = false;
         terminal.reset();
+        reportDebug("terminal.firstDataReset", {
+          connectionId: socketConnectionId,
+          flushBytes,
+          sessionId: pane.sessionId,
+        });
       }
       for (const chunk of chunks) {
         terminal.write(chunk);
@@ -461,6 +600,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     });
 
     terminal.onResize(({ cols, rows }) => {
+      socketResizeCount += 1;
       const resizeMessage: TerminalResizeMessage = {
         cols,
         rows,
@@ -570,6 +710,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         window.clearTimeout(reconnectRefitTimeoutId);
       }
       clearPendingNudgeRestore();
+      clearSocketIdleSummaryTimeout();
       cancelAnimationFrame(rafId);
       window.removeEventListener("focus", onWindowFocus);
       resizeObserver.disconnect();

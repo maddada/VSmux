@@ -134,6 +134,8 @@ export function createSidebarStoryMessage(
       workspace.options.agents,
       workspace.options.commands,
     ),
+    previousSessions: [],
+    revision: 1,
     scratchPadContent: workspace.options.scratchPadContent,
     type,
   };

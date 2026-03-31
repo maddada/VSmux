@@ -73,6 +73,8 @@ export function createSidebarStoryMessage(args: SidebarStoryArgs): SidebarHydrat
   return {
     groups,
     hud,
+    previousSessions: [],
+    revision: 1,
     scratchPadContent: "",
     type: "hydrate",
   };
