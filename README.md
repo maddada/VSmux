@@ -6,11 +6,11 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 2.1.0
+## Latest Release: 2.2.0
 
-- More polished workspace terminal behavior, especially when panes become visible again, refresh, or reconnect.
-- Cleaner terminal presentation in the workspace, with updated visuals and better title/state updates.
-- Safer sidebar organization flows with sturdier drag and drop for sessions, agents, and commands.
+- In-pane terminal search is now available, with next/previous match controls plus case-sensitive and regex options.
+- Session restore behavior is more reliable, so bringing previous sessions back feels smoother and less fragile.
+- Broader compatibility across VS Code forks, including Windsurf, Cursor, and similar editors.
 
 Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 
