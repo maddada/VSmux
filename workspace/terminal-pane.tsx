@@ -1061,9 +1061,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         };
         fitRef.current?.fit();
         terminal.refresh(0, terminal.rows - 1);
-        nudgeTerminalHeightRef.current?.(() => {
-          updateScrollToBottomButtonVisibilityRef.current?.();
-        });
+        updateScrollToBottomButtonVisibilityRef.current?.();
       });
     });
   }, [isVisible, refreshRequestId]);
