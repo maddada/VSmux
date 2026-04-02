@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowDownBar } from "@tabler/icons-react";
+import { AttachAddon } from "@xterm/addon-attach";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -19,7 +20,6 @@ import { logWorkspaceDebug } from "./workspace-debug";
 import { getTerminalTheme } from "./terminal-theme";
 import "./terminal-pane.css";
 
-const DATA_BUFFER_FLUSH_MS = 5;
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const POST_RECONNECT_REFIT_DELAY_MS = 3_000;
 const VISIBLE_REFIT_DELAY_MS = 2_000;
@@ -81,18 +81,20 @@ function getLoadableWebFontFamilies(fontFamily: string | undefined): string[] {
   }
 
   const seen = new Set<string>();
-  return fontFamily
-    .match(/"[^"]+"|'[^']+'|[^,]+/g)
-    ?.map((family) => family.trim().replace(/^['"]|['"]$/g, ""))
-    .filter((family) => family.length > 0)
-    .filter((family) => !GENERIC_FONT_FAMILIES.has(family.toLowerCase()))
-    .filter((family) => {
-      if (seen.has(family)) {
-        return false;
-      }
-      seen.add(family);
-      return true;
-    }) ?? [];
+  return (
+    fontFamily
+      .match(/"[^"]+"|'[^']+'|[^,]+/g)
+      ?.map((family) => family.trim().replace(/^['"]|['"]$/g, ""))
+      .filter((family) => family.length > 0)
+      .filter((family) => !GENERIC_FONT_FAMILIES.has(family.toLowerCase()))
+      .filter((family) => {
+        if (seen.has(family)) {
+          return false;
+        }
+        seen.add(family);
+        return true;
+      }) ?? []
+  );
 }
 
 export const TerminalPane: React.FC<TerminalPaneProps> = ({
@@ -119,6 +121,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   const nudgeTerminalHeightRef = useRef<((afterNudge?: () => void) => void) | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const streamAttachAddonRef = useRef<AttachAddon | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const updateScrollToBottomButtonVisibilityRef = useRef<(() => void) | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -255,9 +258,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     let didDispose = false;
     let websocket: WebSocket | undefined;
-    let dataBuffer: Uint8Array[] = [];
-    let firstData = true;
-    let flushTimer: number | undefined;
     let nudgeRestoreTimeoutId: number | undefined;
     let nudgeToken = 0;
     let pendingSocketMessages: string[] = [];
@@ -457,6 +457,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
       socketBinaryBytes += byteLength;
       socketBinaryChunks += 1;
+      socketFlushBytes += byteLength;
+      socketFlushCount += 1;
+      socketLargestFlushBytes = Math.max(socketLargestFlushBytes, byteLength);
       scheduleSocketIdleSummary();
     };
 
@@ -560,28 +563,34 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       socketUrl.searchParams.set("cols", String(terminal.cols));
       socketUrl.searchParams.set("rows", String(terminal.rows));
 
-      firstData = true;
-      dataBuffer = [];
-      if (flushTimer !== undefined) {
-        window.clearTimeout(flushTimer);
-        flushTimer = undefined;
-      }
+      streamAttachAddonRef.current?.dispose();
+      streamAttachAddonRef.current = null;
+      terminal.reset();
 
       const sessionSocket = new WebSocket(socketUrl.toString());
       websocket = sessionSocket;
       sessionSocket.binaryType = "arraybuffer";
-      sessionSocket.onmessage = (event) => {
+      const attachAddon = new AttachAddon(sessionSocket, {
+        bidirectional: false,
+      });
+      streamAttachAddonRef.current = attachAddon;
+      terminal.loadAddon(attachAddon);
+      sessionSocket.addEventListener("message", (event) => {
         if (typeof event.data === "string") {
+          noteSocketBinaryChunk(new TextEncoder().encode(event.data).byteLength);
+          scheduleReconnectRefit();
+          requestAnimationFrame(() => {
+            updateScrollToBottomButtonVisibility();
+          });
           return;
         }
 
         if (event.data instanceof ArrayBuffer) {
           noteSocketBinaryChunk(event.data.byteLength);
           scheduleReconnectRefit();
-          dataBuffer.push(new Uint8Array(event.data));
-          if (flushTimer === undefined) {
-            flushTimer = window.setTimeout(flushData, DATA_BUFFER_FLUSH_MS);
-          }
+          requestAnimationFrame(() => {
+            updateScrollToBottomButtonVisibility();
+          });
           return;
         }
 
@@ -589,13 +598,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           void event.data.arrayBuffer().then((buffer) => {
             noteSocketBinaryChunk(buffer.byteLength);
             scheduleReconnectRefit();
-            dataBuffer.push(new Uint8Array(buffer));
-            if (flushTimer === undefined) {
-              flushTimer = window.setTimeout(flushData, DATA_BUFFER_FLUSH_MS);
-            }
+            requestAnimationFrame(() => {
+              updateScrollToBottomButtonVisibility();
+            });
           });
         }
-      };
+      });
       sessionSocket.onopen = () => {
         socketConnectionSequence += 1;
         socketConnectionId = socketConnectionSequence;
@@ -649,6 +657,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           window.clearTimeout(reconnectRefitTimeoutId);
           reconnectRefitTimeoutId = undefined;
         }
+        if (streamAttachAddonRef.current === attachAddon) {
+          streamAttachAddonRef.current.dispose();
+          streamAttachAddonRef.current = null;
+        }
         if (websocket === sessionSocket) {
           websocket = undefined;
         }
@@ -664,6 +676,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         if (reconnectRefitTimeoutId !== undefined) {
           window.clearTimeout(reconnectRefitTimeoutId);
           reconnectRefitTimeoutId = undefined;
+        }
+        if (streamAttachAddonRef.current === attachAddon) {
+          streamAttachAddonRef.current.dispose();
+          streamAttachAddonRef.current = null;
         }
         if (websocket === sessionSocket) {
           websocket = undefined;
@@ -725,36 +741,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         });
       });
     });
-
-    const flushData = () => {
-      if (dataBuffer.length === 0) {
-        flushTimer = undefined;
-        return;
-      }
-
-      const chunks = dataBuffer;
-      dataBuffer = [];
-      flushTimer = undefined;
-      const flushBytes = chunks.reduce((totalBytes, chunk) => totalBytes + chunk.byteLength, 0);
-      socketFlushBytes += flushBytes;
-      socketFlushCount += 1;
-      socketLargestFlushBytes = Math.max(socketLargestFlushBytes, flushBytes);
-      if (firstData) {
-        firstData = false;
-        terminal.reset();
-        reportDebug("terminal.firstDataReset", {
-          connectionId: socketConnectionId,
-          flushBytes,
-          sessionId: pane.sessionId,
-        });
-      }
-      for (const chunk of chunks) {
-        terminal.write(chunk);
-      }
-      requestAnimationFrame(() => {
-        updateScrollToBottomButtonVisibility();
-      });
-    };
 
     if (connection.mock) {
       reportDebug("terminal.mockConnected", {
@@ -891,9 +877,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         const previousMeasuredSize = lastMeasuredSizeRef.current;
         if (
           !isTerminalOpenRef.current ||
-          previousMeasuredSize &&
-          previousMeasuredSize.width === nextMeasuredSize.width &&
-          previousMeasuredSize.height === nextMeasuredSize.height
+          (previousMeasuredSize &&
+            previousMeasuredSize.width === nextMeasuredSize.width &&
+            previousMeasuredSize.height === nextMeasuredSize.height)
         ) {
           return;
         }
@@ -931,10 +917,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     return () => {
       didDispose = true;
-      if (flushTimer !== undefined) {
-        clearTimeout(flushTimer);
-        flushData();
-      }
       if (reconnectRefitTimeoutId !== undefined) {
         window.clearTimeout(reconnectRefitTimeoutId);
       }
@@ -949,6 +931,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       searchResultsDisposable.dispose();
       containerRef.current?.removeEventListener("copy", handleCopy, true);
       containerRef.current?.removeEventListener("paste", handlePaste, true);
+      streamAttachAddonRef.current?.dispose();
+      streamAttachAddonRef.current = null;
       websocket?.close();
       terminal.dispose();
       isTerminalOpenRef.current = false;
@@ -1290,10 +1274,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   );
 };
 
-function getTerminalSearchStatusLabel(
-  query: string,
-  searchResults: SearchResultsState,
-): string {
+function getTerminalSearchStatusLabel(query: string, searchResults: SearchResultsState): string {
   if (query.length === 0) {
     return "Type to search";
   }

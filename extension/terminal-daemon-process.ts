@@ -3,6 +3,8 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import * as pty from "@lydell/node-pty";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import {
   createManagedTerminalEnvironment,
 } from "./native-managed-terminal";
@@ -34,7 +36,6 @@ import type {
   TerminalInputMessage,
   TerminalResizeMessage,
   TerminalSessionSnapshot,
-  TerminalStateMessage,
 } from "../shared/terminal-host-protocol";
 import { TERMINAL_HOST_PROTOCOL_VERSION } from "../shared/terminal-host-protocol";
 
@@ -49,10 +50,12 @@ type DaemonInfo = {
 type ManagedSession = {
   cols: number;
   cwd: string;
+  headlessTerminal: HeadlessTerminal;
   historyBuffer: TerminalDaemonRingBuffer;
   liveTitle?: string;
   lastKnownPersistedTitle?: string;
   pendingAttachQueues: Buffer[][];
+  serializeAddon: SerializeAddon;
   titleActivity?: TitleDerivedSessionActivity;
   titleActivityTimer?: NodeJS.Timeout;
   titleCarryover: string;
@@ -281,7 +284,6 @@ async function handleResizeRequest(
     resizeSession(session, request.cols, request.rows);
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(session.sessionKey, snapshot);
   }
   socket.send(JSON.stringify(okResponse(undefined, undefined, request)));
 }
@@ -315,7 +317,6 @@ async function handleAcknowledgeAttentionRequest(
     }
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(session.sessionKey, snapshot);
   }
   socket.send(JSON.stringify({ type: "response", ok: true, requestId: request.sessionId }));
 }
@@ -334,10 +335,19 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     name: "xterm-256color",
     rows: request.rows,
   });
+  const headlessTerminal = new HeadlessTerminal({
+    allowProposedApi: true,
+    cols: request.cols,
+    rows: request.rows,
+    scrollback: 200_000,
+  });
+  const serializeAddon = new SerializeAddon();
+  headlessTerminal.loadAddon(serializeAddon);
 
   const session: ManagedSession = {
     cols: request.cols,
     cwd: request.cwd,
+    headlessTerminal,
     historyBuffer: new TerminalDaemonRingBuffer(MAX_HISTORY_BYTES),
     liveTitle: undefined,
     pendingAttachQueues: [],
@@ -346,6 +356,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     sessionId: request.sessionId,
     sessionKey,
     sessionStateFilePath: request.sessionStateFilePath,
+    serializeAddon,
     shell: request.shell,
     snapshot: {
       agentName: undefined,
@@ -368,6 +379,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
 
   spawnedPty.onData((data: string) => {
     const outputBuffer = normalizePtyOutputChunk(data);
+    session.headlessTerminal.write(outputBuffer);
     session.historyBuffer.write(outputBuffer);
     for (const pendingAttachQueue of session.pendingAttachQueues) {
       pendingAttachQueue.push(outputBuffer);
@@ -391,7 +403,6 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     };
     void buildSnapshot(session, false).then((snapshot) => {
       broadcastControlSessionState(snapshot);
-      broadcastSessionState(session.sessionKey, snapshot);
     });
   });
 
@@ -406,6 +417,7 @@ function resizeSession(session: ManagedSession, cols: number, rows: number): voi
     cols,
     rows,
   };
+  session.headlessTerminal.resize(cols, rows);
   session.pty.resize(cols, rows);
 }
 
@@ -419,7 +431,7 @@ async function buildSnapshot(
     ...session.snapshot,
     agentName: session.titleActivity?.agentName ?? persistedState.agentName,
     agentStatus: session.titleActivity?.activity ?? persistedState.agentStatus,
-    history: includeHistory ? session.historyBuffer.snapshot().toString("utf8") : undefined,
+    history: includeHistory ? serializeTerminalState(session) : undefined,
     isAttached:
       sessionSocketsBySessionKey.get(session.sessionKey)?.readyState === WebSocket.OPEN,
     title: session.liveTitle ?? persistedState.title,
@@ -438,19 +450,8 @@ function broadcastControlSessionState(snapshot: TerminalSessionSnapshot): void {
   }
 }
 
-function broadcastSessionState(sessionKey: string, snapshot: TerminalSessionSnapshot): void {
-  const event: TerminalStateMessage = {
-    session: snapshot,
-    type: "terminalSessionState",
-  };
-  broadcastSessionMessage(sessionKey, event);
-}
-
-function broadcastSessionMessage(
-  sessionKey: string,
-  message: Buffer | TerminalStateMessage,
-): void {
-  const payload = Buffer.isBuffer(message) ? message : JSON.stringify(message);
+function broadcastSessionMessage(sessionKey: string, message: Buffer | string): void {
+  const payload = message;
   const socket = sessionSocketsBySessionKey.get(sessionKey);
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(payload);
@@ -463,7 +464,7 @@ async function handleSessionMessage(sessionKey: string, rawMessage: string): Pro
     return;
   }
 
-  if (!rawMessage.startsWith("{")) {
+  if (!rawMessage.trimStart().startsWith("{")) {
     session.pty.write(rawMessage);
     return;
   }
@@ -472,6 +473,12 @@ async function handleSessionMessage(sessionKey: string, rawMessage: string): Pro
   try {
     message = JSON.parse(rawMessage) as TerminalInputMessage | TerminalResizeMessage;
   } catch {
+    session.pty.write(rawMessage);
+    return;
+  }
+
+  if (message.type !== "terminalInput" && message.type !== "terminalResize") {
+    session.pty.write(rawMessage);
     return;
   }
 
@@ -484,7 +491,6 @@ async function handleSessionMessage(sessionKey: string, rawMessage: string): Pro
     resizeSession(session, message.cols, message.rows);
     const snapshot = await buildSnapshot(session, false);
     broadcastControlSessionState(snapshot);
-    broadcastSessionState(sessionKey, snapshot);
   }
 }
 
@@ -707,7 +713,7 @@ async function attachSessionSocketWithReplay(
       previousSocket.close();
     }
 
-    const replaySnapshot = session.historyBuffer.snapshot();
+    const replaySnapshot = serializeTerminalState(session);
     if (replaySnapshot.length > 0) {
       socket.send(replaySnapshot);
     }
@@ -763,7 +769,6 @@ function bindSessionSocket(
     }
     void buildSnapshot(session, false).then((snapshot) => {
       broadcastControlSessionState(snapshot);
-      broadcastSessionState(session.sessionKey, snapshot);
     });
     scheduleIdleShutdownIfNeeded();
   });
@@ -773,10 +778,13 @@ function bindSessionSocket(
     }
     void buildSnapshot(session, false).then((snapshot) => {
       broadcastControlSessionState(snapshot);
-      broadcastSessionState(session.sessionKey, snapshot);
     });
     scheduleIdleShutdownIfNeeded();
   });
+}
+
+function serializeTerminalState(session: ManagedSession): string {
+  return session.serializeAddon.serialize();
 }
 
 function removePendingAttachQueue(session: ManagedSession, pendingAttachQueue: Buffer[]): void {

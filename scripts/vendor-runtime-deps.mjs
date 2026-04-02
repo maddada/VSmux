@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,8 @@ const require = createRequire(import.meta.url);
 const runtimePackages = [
   "ws",
   "@lydell/node-pty",
+  "@xterm/addon-serialize",
+  "@xterm/headless",
 ];
 
 async function main() {
@@ -25,14 +27,14 @@ async function main() {
 }
 
 async function copyPackage(packageName) {
-  const sourceDir = resolvePackageDir(packageName);
+  const sourceDir = await resolvePackageDir(packageName);
   const destinationDir = path.join(outNodeModulesDir, packageName);
   await mkdir(path.dirname(destinationDir), { recursive: true });
   await cp(sourceDir, destinationDir, { dereference: true, recursive: true });
 }
 
 async function copyInstalledNodePtyPlatformPackages() {
-  const nodePtyDir = resolvePackageDir("@lydell/node-pty");
+  const nodePtyDir = await resolvePackageDir("@lydell/node-pty");
   const lydellDir = path.join(nodePtyDir, "..");
   const entries = await readdir(lydellDir, { withFileTypes: true });
 
@@ -50,11 +52,27 @@ async function copyInstalledNodePtyPlatformPackages() {
   }
 }
 
-function resolvePackageDir(packageName) {
+async function resolvePackageDir(packageName) {
   const packageEntryPath = require.resolve(packageName, {
     paths: [repoRoot],
   });
-  return path.dirname(packageEntryPath);
+  let currentDir = path.dirname(packageEntryPath);
+  const repoRootPath = path.parse(currentDir).root;
+
+  while (currentDir !== repoRootPath) {
+    const packageJsonPath = path.join(currentDir, "package.json");
+    try {
+      const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+      if (packageJson?.name === packageName) {
+        return currentDir;
+      }
+    } catch {
+      // Keep walking upward until the package root is found.
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  throw new Error(`Unable to resolve package root for ${packageName}.`);
 }
 
 main().catch((error) => {
