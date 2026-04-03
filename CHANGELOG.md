@@ -2,11 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
-## 2.3.0 - 2026-04-03
+## 2.3.1 - 2026-04-03
 
 - T3 sessions are much more capable now, with stronger embed/session management, improved RPC handling, and richer clipboard bridging so paste flows work better across the workspace and T3 panes.
 - Workspace layout control is more direct, with visible split commands and shortcuts for common pane layouts like 3, 4, 6, and 9-way splits.
 - Session state is more resilient overall, with better persisted terminal snapshots, cleaner sidebar/session group behavior, and more reliable terminal/runtime upgrades under the hood.
+- Git actions are more dependable now when committing all current working-tree changes, so the Git button flow handles modified, deleted, renamed, and untracked files more cleanly.
 
 ## 2.2.0 - 2026-04-02
 

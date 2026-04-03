@@ -6,7 +6,7 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 2.3.0
+## Latest Release: 2.3.1
 
 - T3 panes are much more capable now, with better session handling and stronger clipboard bridging.
 - Workspace splitting is easier, with direct commands and shortcuts for common multi-pane layouts.
