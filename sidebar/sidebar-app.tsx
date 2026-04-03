@@ -289,12 +289,26 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       }
     };
 
+    const handleBlur = () => {
+      setIsOverflowMenuOpen(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        setIsOverflowMenuOpen(false);
+      }
+    };
+
     document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
 
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [isOverflowMenuOpen]);
 
