@@ -85,6 +85,15 @@ export const ToolbarActions: Story = {
       await expectMessage({ type: "openSettings" });
     });
 
+    await step("collapse the sidebar menu from its trigger", async () => {
+      await userEvent.click(canvas.getByRole("button", { name: "Open sidebar menu" }));
+      await body.findByRole("menuitem", { name: "Add Agent" });
+      await userEvent.click(canvas.getByRole("button", { name: "Open sidebar menu" }));
+      await waitFor(() => {
+        expect(body.queryByRole("menuitem", { name: "Add Agent" })).toBeNull();
+      });
+    });
+
     await step("zoom terminals without closing the sidebar menu", async () => {
       resetSidebarStoryMessages();
       await userEvent.click(canvas.getByRole("button", { name: "Open sidebar menu" }));

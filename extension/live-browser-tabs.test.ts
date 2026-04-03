@@ -188,6 +188,24 @@ describe("getLiveBrowserTabs", () => {
     expect(browserTabs).toEqual([]);
   });
 
+  test("should ignore tabs whose title includes Extension:", () => {
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: new vscode.TabInputWebview("workbench.extension.someExtension"),
+            isActive: true,
+            label: "Extension: Some Extension",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toEqual([]);
+  });
+
   test("should ignore the VS Code Welcome tab", () => {
     const browserTabs = getLiveBrowserTabs([
       {

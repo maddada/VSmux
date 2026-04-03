@@ -131,7 +131,7 @@ import { playCloseTerminalOnExitSound } from '../terminal-exit-sound';
 
 const SHORTCUT_LABEL_PLATFORM = process.platform === 'darwin' ? 'mac' : 'default';
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
-const COMPLETION_SOUND_CONFIRMATION_DELAY_MS = 2_000;
+const COMPLETION_SOUND_CONFIRMATION_DELAY_MS = 1_000;
 const SIMPLE_BROWSER_OPEN_COMMAND = 'simpleBrowser.api.open';
 const TOGGLE_MAXIMIZE_EDITOR_GROUP_COMMAND = 'workbench.action.toggleMaximizeEditorGroup';
 

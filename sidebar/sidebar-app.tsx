@@ -94,12 +94,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const [isSessionsCollapsed, setIsSessionsCollapsed] = useState(false);
   const [sessionDragIndicator, setSessionDragIndicator] = useState<SidebarSessionDropTarget>();
+  const [overflowMenuAnchor, setOverflowMenuAnchor] = useState<HTMLElement>();
   const [overflowMenuPosition, setOverflowMenuPosition] = useState<FloatingMenuPosition>();
   const pendingCreateGroupRef = useRef(false);
   const didResetStoreRef = useRef(false);
-  const overflowControlsRef = useRef<HTMLDivElement>(null);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
-  const overflowMenuTriggerRef = useRef<HTMLDivElement>(null);
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const groupIdsRef = useRef<string[]>([]);
   const sessionIdsByGroupRef = useRef<SessionIdsByGroup>({});
@@ -273,11 +272,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         return;
       }
 
-      if (overflowControlsRef.current?.contains(target)) {
+      if (overflowMenuRef.current?.contains(target)) {
         return;
       }
 
-      if (overflowMenuRef.current?.contains(target)) {
+      if (target instanceof Element && target.closest('[data-sidebar-overflow-trigger="true"]')) {
         return;
       }
 
@@ -300,13 +299,19 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   }, [isOverflowMenuOpen]);
 
   useEffect(() => {
-    if (!isOverflowMenuOpen) {
+    if (!isOverflowMenuOpen || !overflowMenuAnchor) {
       setOverflowMenuPosition(undefined);
       return;
     }
 
     const updateOverflowMenuPosition = () => {
-      const triggerBounds = overflowMenuTriggerRef.current?.getBoundingClientRect();
+      if (!overflowMenuAnchor.isConnected) {
+        setIsOverflowMenuOpen(false);
+        setOverflowMenuAnchor(undefined);
+        return;
+      }
+
+      const triggerBounds = overflowMenuAnchor.getBoundingClientRect();
       if (!triggerBounds) {
         return;
       }
@@ -325,7 +330,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       window.removeEventListener('resize', updateOverflowMenuPosition);
       window.removeEventListener('scroll', updateOverflowMenuPosition, true);
     };
-  }, [isOverflowMenuOpen]);
+  }, [isOverflowMenuOpen, overflowMenuAnchor]);
+
+  const toggleOverflowMenu = (trigger: HTMLElement) => {
+    setOverflowMenuAnchor(trigger);
+    setIsOverflowMenuOpen((previous) => !previous);
+  };
 
   const effectiveGroupIds = workspaceGroupIds;
   const visibleBrowserGroupIds = sectionVisibility.browsers ? browserGroupIds : [];
@@ -594,12 +604,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     onOpenSettings: openSidebarSettings,
     onShowRunning: openRunningSessions,
     onToggleBell: toggleCompletionBell,
-    onToggleMenu: () => setIsOverflowMenuOpen((previous) => !previous),
+    onToggleMenu: toggleOverflowMenu,
     onToggleScratchPad: openScratchPad,
-    overflowControlsRef,
     overflowMenuPosition,
     overflowMenuRef,
-    overflowMenuTriggerRef,
   } satisfies Omit<RenderSidebarTopControlsOptions, 'showScratchPad'>;
 
   return (
@@ -828,9 +836,10 @@ type ToolbarIconButtonProps = {
   isDisabled?: boolean;
   isDimmed?: boolean;
   isSelected?: boolean;
-  onClick: () => void;
+  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   tabIndex?: number;
   tooltip: string;
+  triggerDataName?: string;
 };
 
 function ToolbarIconButton({
@@ -847,6 +856,7 @@ function ToolbarIconButton({
   onClick,
   tabIndex,
   tooltip,
+  triggerDataName,
 }: ToolbarIconButtonProps) {
   return (
     <Tooltip.Root>
@@ -861,13 +871,14 @@ function ToolbarIconButton({
             className={className ? `toolbar-button ${className}` : 'toolbar-button'}
             data-disabled={String(isDisabled)}
             data-dimmed={dataDimmed ?? String(isDimmed)}
+            data-sidebar-overflow-trigger={triggerDataName}
             data-selected={String(isSelected)}
-            onClick={() => {
+            onClick={(event) => {
               if (isDisabled) {
                 return;
               }
 
-              onClick();
+              onClick(event);
             }}
             tabIndex={tabIndex}
             type='button'
@@ -938,12 +949,10 @@ type RenderSidebarTopControlsOptions = {
   onOpenSettings: () => void;
   onShowRunning: () => void;
   onToggleBell: () => void;
-  onToggleMenu: () => void;
+  onToggleMenu: (trigger: HTMLElement) => void;
   onToggleScratchPad: () => void;
-  overflowControlsRef: RefObject<HTMLDivElement | null>;
   overflowMenuPosition?: FloatingMenuPosition;
   overflowMenuRef: RefObject<HTMLDivElement | null>;
-  overflowMenuTriggerRef: RefObject<HTMLDivElement | null>;
   showMenu?: boolean;
   showScratchPad: boolean;
 };
@@ -961,10 +970,8 @@ function renderSidebarTopControls({
   onToggleBell,
   onToggleMenu,
   onToggleScratchPad,
-  overflowControlsRef,
   overflowMenuPosition,
   overflowMenuRef,
-  overflowMenuTriggerRef,
   showMenu = true,
   showScratchPad,
 }: RenderSidebarTopControlsOptions) {
@@ -977,7 +984,6 @@ function renderSidebarTopControls({
       className='sidebar-titlebar-controls'
       data-empty-space-blocking='true'
       data-menu-open={String(isOverflowMenuOpen)}
-      ref={overflowControlsRef}
     >
       {showScratchPad ? (
         <Tooltip.Root>
@@ -1006,20 +1012,19 @@ function renderSidebarTopControls({
       ) : null}
       {showMenu ? (
         <>
-          <div ref={overflowMenuTriggerRef}>
-            <ToolbarIconButton
-              ariaControls='sidebar-overflow-menu'
-              ariaExpanded={isOverflowMenuOpen}
-              ariaHasPopup='menu'
-              ariaLabel='Open sidebar menu'
-              className='floating-toolbar-button section-titlebar-action-button'
-              isSelected={isOverflowMenuOpen}
-              onClick={onToggleMenu}
-              tooltip='More'
-            >
-              <OverflowIcon />
-            </ToolbarIconButton>
-          </div>
+          <ToolbarIconButton
+            ariaControls='sidebar-overflow-menu'
+            ariaExpanded={isOverflowMenuOpen}
+            ariaHasPopup='menu'
+            ariaLabel='Open sidebar menu'
+            className='floating-toolbar-button section-titlebar-action-button'
+            isSelected={isOverflowMenuOpen}
+            onClick={(event) => onToggleMenu(event.currentTarget)}
+            tooltip='More'
+            triggerDataName='true'
+          >
+            <OverflowIcon />
+          </ToolbarIconButton>
           {isOverflowMenuOpen && overflowMenuPosition
             ? createPortal(
                 <div
@@ -1036,6 +1041,38 @@ function renderSidebarTopControls({
                     zIndex: 250,
                   }}
                 >
+                  <div className='session-context-menu-group'>
+                    <div className='session-context-menu-group-label'>Terminal Zoom</div>
+                    <div className='session-context-menu-split-row' role='group' aria-label='Terminal zoom controls'>
+                      <button
+                        aria-label='Zoom Out'
+                        className='session-context-menu-split-item'
+                        onClick={() => onAdjustTerminalFontSize(-1)}
+                        role='menuitem'
+                        type='button'
+                      >
+                        <IconMinus aria-hidden='true' className='session-context-menu-icon' size={14} stroke={1.8} />
+                      </button>
+                      <button
+                        aria-label='Zoom In'
+                        className='session-context-menu-split-item'
+                        onClick={() => onAdjustTerminalFontSize(1)}
+                        role='menuitem'
+                        type='button'
+                      >
+                        <IconPlus aria-hidden='true' className='session-context-menu-icon' size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <button className='session-context-menu-item' onClick={onToggleBell} role='menuitem' type='button'>
+                    {completionBellEnabled ? (
+                      <IconBellOff aria-hidden='true' className='session-context-menu-icon' size={14} />
+                    ) : (
+                      <IconBell aria-hidden='true' className='session-context-menu-icon' size={14} />
+                    )}
+                    {getCompletionBellMenuLabel(completionBellEnabled)}
+                  </button>
+                  <div aria-hidden='true' className='session-context-menu-divider' />
                   <button className='session-context-menu-item' onClick={onAddAgent} role='menuitem' type='button'>
                     <IconPlus aria-hidden='true' className='session-context-menu-icon' size={14} />
                     Add Agent
@@ -1047,14 +1084,6 @@ function renderSidebarTopControls({
                   <button className='session-context-menu-item' onClick={onShowRunning} role='menuitem' type='button'>
                     <IconHistory aria-hidden='true' className='session-context-menu-icon' size={14} />
                     Running
-                  </button>
-                  <button className='session-context-menu-item' onClick={onToggleBell} role='menuitem' type='button'>
-                    {completionBellEnabled ? (
-                      <IconBellOff aria-hidden='true' className='session-context-menu-icon' size={14} />
-                    ) : (
-                      <IconBell aria-hidden='true' className='session-context-menu-icon' size={14} />
-                    )}
-                    {getCompletionBellMenuLabel(completionBellEnabled)}
                   </button>
                   <button className='session-context-menu-item' onClick={onMoveSidebar} role='menuitem' type='button'>
                     <IconLayoutSidebar
@@ -1068,25 +1097,6 @@ function renderSidebarTopControls({
                   <button className='session-context-menu-item' onClick={onOpenSettings} role='menuitem' type='button'>
                     <IconSettings aria-hidden='true' className='session-context-menu-icon' size={14} stroke={1.8} />
                     VSmux Settings
-                  </button>
-                  <div aria-hidden='true' className='session-context-menu-divider' />
-                  <button
-                    className='session-context-menu-item'
-                    onClick={() => onAdjustTerminalFontSize(-1)}
-                    role='menuitem'
-                    type='button'
-                  >
-                    <IconMinus aria-hidden='true' className='session-context-menu-icon' size={14} stroke={1.8} />
-                    Zoom Out Terminals
-                  </button>
-                  <button
-                    className='session-context-menu-item'
-                    onClick={() => onAdjustTerminalFontSize(1)}
-                    role='menuitem'
-                    type='button'
-                  >
-                    <IconPlus aria-hidden='true' className='session-context-menu-icon' size={14} />
-                    Zoom In Terminals
                   </button>
                 </div>,
                 document.body
