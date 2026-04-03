@@ -4,6 +4,12 @@ import type {
   WorkspacePanelT3Pane,
 } from "../shared/workspace-panel-contract";
 
+type T3ClipboardFilePayload = {
+  buffer: ArrayBuffer;
+  name: string;
+  type: string;
+};
+
 export type T3PaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
   isFocused: boolean;
@@ -69,6 +75,49 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   }, [autoFocusRequest, isFocused]);
 
   useEffect(() => {
+    const readClipboardPayload = async (): Promise<{
+      files: T3ClipboardFilePayload[];
+      text: string;
+    }> => {
+      let text = "";
+      const files: T3ClipboardFilePayload[] = [];
+
+      if (typeof navigator.clipboard.read === "function") {
+        const clipboardItems = await navigator.clipboard.read().catch(() => []);
+        let imageIndex = 0;
+        for (const item of clipboardItems) {
+          for (const mimeType of item.types) {
+            const blob = await item.getType(mimeType).catch(() => undefined);
+            if (!blob) {
+              continue;
+            }
+
+            if (!text && mimeType === "text/plain") {
+              text = await blob.text().catch(() => "");
+              continue;
+            }
+
+            if (!mimeType.startsWith("image/")) {
+              continue;
+            }
+
+            imageIndex += 1;
+            files.push({
+              buffer: await blob.arrayBuffer(),
+              name: inferClipboardImageName(mimeType, imageIndex),
+              type: mimeType,
+            });
+          }
+        }
+      }
+
+      if (!text) {
+        text = await navigator.clipboard.readText().catch(() => "");
+      }
+
+      return { files, text };
+    };
+
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow || typeof event.data?.type !== "string") {
         return;
@@ -87,16 +136,19 @@ export const T3Pane: React.FC<T3PaneProps> = ({
           return;
         }
 
-        void navigator.clipboard
-          .readText()
-          .catch(() => "")
-          .then((text) => {
-            postToFrame({
+        void readClipboardPayload().then(({ files, text }) => {
+          const transferables = files.map((file) => file.buffer);
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              files,
               requestId,
               text,
               type: "vsmuxT3ClipboardReadResult",
-            });
-          });
+            },
+            "*",
+            transferables,
+          );
+        });
       }
     };
 
@@ -124,3 +176,8 @@ export const T3Pane: React.FC<T3PaneProps> = ({
     </div>
   );
 };
+
+function inferClipboardImageName(mimeType: string, index: number): string {
+  const extension = mimeType.split("/")[1] ?? "png";
+  return `clipboard-image-${index}.${extension}`;
+}

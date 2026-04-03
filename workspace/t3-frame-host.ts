@@ -9,6 +9,17 @@ type T3FrameBootstrap = {
   wsUrl: string;
 };
 
+type T3ClipboardFilePayload = {
+  buffer: ArrayBuffer;
+  name: string;
+  type: string;
+};
+
+type T3ClipboardPayload = {
+  files: T3ClipboardFilePayload[];
+  text: string;
+};
+
 declare global {
   interface Window {
     __VSMUX_T3_BOOTSTRAP__?: {
@@ -66,7 +77,8 @@ document.addEventListener(
 );
 
 let nextClipboardRequestId = 0;
-const pendingClipboardReads = new Map<number, (text: string) => void>();
+const pendingClipboardReads = new Map<number, (payload: T3ClipboardPayload) => void>();
+let pendingPasteFallbackTimer: number | undefined;
 
 window.addEventListener("message", (event) => {
   if (event.data?.type !== "vsmuxT3ClipboardReadResult") {
@@ -84,7 +96,20 @@ window.addEventListener("message", (event) => {
   }
 
   pendingClipboardReads.delete(requestId);
-  resolver(typeof event.data.text === "string" ? event.data.text : "");
+  resolver({
+    files: Array.isArray(event.data.files)
+      ? event.data.files
+          .filter((entry): entry is T3ClipboardFilePayload => {
+            return (
+              entry != null &&
+              typeof entry.name === "string" &&
+              typeof entry.type === "string" &&
+              entry.buffer instanceof ArrayBuffer
+            );
+          })
+      : [],
+    text: typeof event.data.text === "string" ? event.data.text : "",
+  });
 });
 
 document.addEventListener(
@@ -118,10 +143,7 @@ document.addEventListener(
     }
 
     if (key === "v" && isEditableTarget(document.activeElement)) {
-      event.preventDefault();
-      void readClipboard().then((text) => {
-        insertTextIntoActiveTarget(text);
-      });
+      schedulePasteFallback();
     }
   },
   true,
@@ -160,10 +182,20 @@ document.addEventListener(
     if (!isEditableTarget(document.activeElement)) {
       return;
     }
+
+    clearPasteFallback();
+
+    const clipboardData = event.clipboardData;
+    if (clipboardData?.files.length) {
+      return;
+    }
+
+    if ((clipboardData?.getData("text/plain") ?? "").length > 0) {
+      return;
+    }
+
     event.preventDefault();
-    void readClipboard().then((text) => {
-      insertTextIntoActiveTarget(text);
-    });
+    void pasteFromClipboardBridge();
   },
   true,
 );
@@ -235,7 +267,7 @@ function writeClipboard(text: string) {
   );
 }
 
-function readClipboard(): Promise<string> {
+function readClipboard(): Promise<T3ClipboardPayload> {
   const requestId = nextClipboardRequestId++;
   return new Promise((resolve) => {
     pendingClipboardReads.set(requestId, resolve);
@@ -260,6 +292,45 @@ function readSelectedText(): string {
   return window.getSelection()?.toString() ?? "";
 }
 
+function schedulePasteFallback() {
+  clearPasteFallback();
+  pendingPasteFallbackTimer = window.setTimeout(() => {
+    pendingPasteFallbackTimer = undefined;
+    void pasteFromClipboardBridge();
+  }, 75);
+}
+
+function clearPasteFallback() {
+  if (pendingPasteFallbackTimer === undefined) {
+    return;
+  }
+
+  window.clearTimeout(pendingPasteFallbackTimer);
+  pendingPasteFallbackTimer = undefined;
+}
+
+async function pasteFromClipboardBridge() {
+  if (!isEditableTarget(document.activeElement)) {
+    return;
+  }
+
+  const payload = await readClipboard();
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement && activeElement.isContentEditable) {
+    window.postMessage(
+      {
+        files: payload.files,
+        text: payload.text,
+        type: "vsmuxPastePayload",
+      },
+      "*",
+    );
+    return;
+  }
+
+  insertTextIntoActiveTarget(payload.text);
+}
+
 function isEditableTarget(target: Element | null): target is HTMLInputElement | HTMLTextAreaElement | HTMLElement {
   return (
     target instanceof HTMLInputElement ||
@@ -282,21 +353,13 @@ function insertTextIntoActiveTarget(text: string) {
       new InputEvent("input", {
         bubbles: true,
         data: text,
-        inputType: "insertText",
+        inputType: "insertFromPaste",
       }),
     );
     return;
   }
 
   if (activeElement instanceof HTMLElement && activeElement.isContentEditable) {
-    if (dispatchSyntheticPaste(activeElement, text)) {
-      return;
-    }
-
-    if (dispatchSyntheticBeforeInput(activeElement, text)) {
-      return;
-    }
-
     activeElement.focus();
     if (typeof document.execCommand === "function" && document.execCommand("insertText", false, text)) {
       return;
@@ -327,39 +390,10 @@ function insertTextIntoActiveTarget(text: string) {
       new InputEvent("input", {
         bubbles: true,
         data: text,
-        inputType: "insertText",
+        inputType: "insertFromPaste",
       }),
     );
   }
-}
-
-function dispatchSyntheticPaste(target: HTMLElement, text: string): boolean {
-  if (typeof ClipboardEvent !== "function" || typeof DataTransfer !== "function") {
-    return false;
-  }
-
-  const dataTransfer = new DataTransfer();
-  dataTransfer.setData("text/plain", text);
-  const event = new ClipboardEvent("paste", {
-    bubbles: true,
-    cancelable: true,
-    clipboardData: dataTransfer,
-  });
-  return !target.dispatchEvent(event);
-}
-
-function dispatchSyntheticBeforeInput(target: HTMLElement, text: string): boolean {
-  if (typeof InputEvent !== "function") {
-    return false;
-  }
-
-  const event = new InputEvent("beforeinput", {
-    bubbles: true,
-    cancelable: true,
-    data: text,
-    inputType: "insertFromPaste",
-  });
-  return !target.dispatchEvent(event);
 }
 
 function deleteSelectionFromActiveTarget() {
