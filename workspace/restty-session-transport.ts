@@ -2,6 +2,7 @@ import type { PtyCallbacks, PtyTransport } from "restty/internal";
 
 const SOCKET_RECONNECT_BASE_DELAY_MS = 250;
 const SOCKET_RECONNECT_MAX_DELAY_MS = 2_000;
+const TERMINAL_RECONNECT_RESET_SEQUENCE = "\x1bc";
 
 export type WorkspaceResttyTransportController = {
   sendRawInput: (data: string) => boolean;
@@ -13,6 +14,22 @@ type CreateWorkspaceResttyTransportOptions = {
   sessionId: string;
 };
 
+function buildSocketUrlWithSize(url: string, cols: number, rows: number): string {
+  const socketUrl = new URL(url);
+  socketUrl.searchParams.set("cols", String(cols));
+  socketUrl.searchParams.set("rows", String(rows));
+  return socketUrl.toString();
+}
+
+function createResizeMessage(sessionId: string, cols: number, rows: number): string {
+  return JSON.stringify({
+    cols,
+    rows,
+    sessionId,
+    type: "terminalResize",
+  });
+}
+
 export function createWorkspaceResttyTransport(
   options: CreateWorkspaceResttyTransportOptions,
 ): WorkspaceResttyTransportController {
@@ -22,6 +39,7 @@ export function createWorkspaceResttyTransport(
   let reconnectAttempt = 0;
   let connectSequence = 0;
   let activeConnectId = 0;
+  let hasConnectedOnce = false;
   let explicitDisconnect = false;
   let desiredCols = 80;
   let desiredRows = 24;
@@ -31,7 +49,7 @@ export function createWorkspaceResttyTransport(
 
   const clearReconnectTimeout = () => {
     if (reconnectTimeoutId !== undefined) {
-      window.clearTimeout(reconnectTimeoutId);
+      globalThis.clearTimeout(reconnectTimeoutId);
       reconnectTimeoutId = undefined;
     }
   };
@@ -68,7 +86,7 @@ export function createWorkspaceResttyTransport(
       delayMs,
       sessionId: options.sessionId,
     });
-    reconnectTimeoutId = window.setTimeout(() => {
+    reconnectTimeoutId = globalThis.setTimeout(() => {
       reconnectTimeoutId = undefined;
       openSocket();
     }, delayMs);
@@ -92,7 +110,7 @@ export function createWorkspaceResttyTransport(
     const connectId = connectSequence + 1;
     connectSequence = connectId;
     activeConnectId = connectId;
-    const nextSocket = new WebSocket(desiredUrl);
+    const nextSocket = new WebSocket(buildSocketUrlWithSize(desiredUrl, desiredCols, desiredRows));
     nextSocket.binaryType = "arraybuffer";
     socket = nextSocket;
     decoder = new TextDecoder();
@@ -108,9 +126,19 @@ export function createWorkspaceResttyTransport(
       options.reportDebug?.("terminal.socketOpen", {
         cols: desiredCols,
         connectionId: connectId,
+        isReconnect: hasConnectedOnce,
         rows: desiredRows,
         sessionId: options.sessionId,
       });
+      if (hasConnectedOnce) {
+        callbacks?.onData?.(TERMINAL_RECONNECT_RESET_SEQUENCE);
+        options.reportDebug?.("terminal.socketReplayReset", {
+          connectionId: connectId,
+          sessionId: options.sessionId,
+        });
+      }
+      hasConnectedOnce = true;
+      nextSocket.send(createResizeMessage(options.sessionId, desiredCols, desiredRows));
       callbacks?.onConnect?.();
       flushPendingMessages();
     });
@@ -152,13 +180,10 @@ export function createWorkspaceResttyTransport(
       }
 
       cleanupSocket(nextSocket);
-      options.reportDebug?.(
-        reason === "close" ? "terminal.socketClose" : "terminal.socketError",
-        {
-          connectionId: connectId,
-          sessionId: options.sessionId,
-        },
-      );
+      options.reportDebug?.(reason === "close" ? "terminal.socketClose" : "terminal.socketError", {
+        connectionId: connectId,
+        sessionId: options.sessionId,
+      });
       callbacks?.onDisconnect?.();
       scheduleReconnect();
     };
@@ -229,12 +254,7 @@ export function createWorkspaceResttyTransport(
         desiredCols = Math.max(1, Math.round(cols));
         desiredRows = Math.max(1, Math.round(rows));
         return sendQueuedOrImmediate(
-          JSON.stringify({
-            cols: desiredCols,
-            rows: desiredRows,
-            sessionId: options.sessionId,
-            type: "terminalResize",
-          }),
+          createResizeMessage(options.sessionId, desiredCols, desiredRows),
         );
       },
       sendInput: (data) => sendRawInput(data),

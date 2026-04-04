@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowDownBar } from "@tabler/icons-react";
 import { Restty } from "restty";
-import type { WorkspacePanelAutoFocusRequest, WorkspacePanelConnection, WorkspacePanelTerminalAppearance, WorkspacePanelTerminalPane } from "../shared/workspace-panel-contract";
+import type {
+  WorkspacePanelAutoFocusRequest,
+  WorkspacePanelConnection,
+  WorkspacePanelTerminalAppearance,
+  WorkspacePanelTerminalPane,
+} from "../shared/workspace-panel-contract";
 import { logWorkspaceDebug } from "./workspace-debug";
 import { getResttyFontSources, getResttyTheme } from "./restty-terminal-config";
-import { createWorkspaceResttyTransport, type WorkspaceResttyTransportController } from "./restty-session-transport";
+import {
+  createWorkspaceResttyTransport,
+  type WorkspaceResttyTransportController,
+} from "./restty-session-transport";
 import "./terminal-pane.css";
 
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const RESTTY_STARTUP_BACKGROUND = "#121212";
 const SCROLL_TO_BOTTOM_THRESHOLD_PX = 200;
 const VISIBLE_RESIZE_DELAY_MS = 2_000;
 const SEARCH_RESULTS_EMPTY = {
@@ -168,20 +177,23 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
-    void restty.setFontSources(fontSources).then(() => {
-      if (appearanceRequestIdRef.current !== requestId) {
-        return;
-      }
+    void restty
+      .setFontSources(fontSources)
+      .then(() => {
+        if (appearanceRequestIdRef.current !== requestId) {
+          return;
+        }
 
-      appliedFontSourcesSignatureRef.current = fontSourcesSignature;
-      finishAppearanceApply();
-    }).catch(() => {
-      if (appearanceRequestIdRef.current !== requestId) {
-        return;
-      }
+        appliedFontSourcesSignatureRef.current = fontSourcesSignature;
+        finishAppearanceApply();
+      })
+      .catch(() => {
+        if (appearanceRequestIdRef.current !== requestId) {
+          return;
+        }
 
-      finishAppearanceApply();
-    });
+        finishAppearanceApply();
+      });
   };
 
   const updateTerminalSize = () => {
@@ -198,6 +210,31 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     activePane.updateSize(true);
     return true;
+  };
+
+  const seedResttyBackgroundSurfaces = () => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.style.backgroundColor = RESTTY_STARTUP_BACKGROUND;
+    const surfaceSelectors = [
+      ".restty-pane-root",
+      ".pane-split",
+      ".pane",
+      ".pane-canvas",
+      ".restty-native-scroll-root",
+      ".restty-native-scroll-host",
+      ".restty-native-scroll-canvas",
+      "canvas",
+    ];
+    for (const selector of surfaceSelectors) {
+      const elements = container.querySelectorAll<HTMLElement>(selector);
+      for (const element of elements) {
+        element.style.backgroundColor = RESTTY_STARTUP_BACKGROUND;
+      }
+    }
   };
 
   const getScrollHost = () =>
@@ -269,6 +306,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
+    container.style.backgroundColor = RESTTY_STARTUP_BACKGROUND;
     let didDispose = false;
     const transportController = connection.mock
       ? null
@@ -280,7 +318,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     const restty = new Restty({
       createInitialPane: true,
       defaultContextMenu: false,
-      paneStyles: true,
+      paneStyles: {
+        paneBackground: RESTTY_STARTUP_BACKGROUND,
+        splitBackground: RESTTY_STARTUP_BACKGROUND,
+      },
       root: container,
       searchUi: false,
       shortcuts: false,
@@ -327,6 +368,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     resttyRef.current = restty;
     activePaneRef.current = activePane;
+    seedResttyBackgroundSurfaces();
     applyAppearance("mount-setup");
     ensureScrollHostListener();
 
@@ -360,6 +402,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
         updateTerminalSize();
         applyAppearance("mount-visible");
+        seedResttyBackgroundSurfaces();
         ensureScrollHostListener();
         updateScrollToBottomVisibility();
         if (document.hasFocus()) {
@@ -370,11 +413,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           if (pane.snapshot?.history) {
             activePane.sendInput(pane.snapshot.history, "pty");
           }
+          seedResttyBackgroundSurfaces();
           return;
         }
 
         const socketUrl = buildSessionSocketUrl(connection, pane.sessionId);
         activePane.connectPty(socketUrl);
+        seedResttyBackgroundSurfaces();
       });
     });
 
@@ -393,7 +438,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       setShowScrollToBottom(false);
       setSearchResults(SEARCH_RESULTS_EMPTY);
     };
-  }, [connection.baseUrl, connection.mock, connection.token, connection.workspaceId, pane.sessionId]);
+  }, [
+    connection.baseUrl,
+    connection.mock,
+    connection.token,
+    connection.workspaceId,
+    pane.sessionId,
+  ]);
 
   useEffect(() => {
     applyAppearance("appearance-change");
@@ -416,6 +467,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         requestAnimationFrame(() => {
           updateTerminalSize();
           applyAppearance("visible");
+          seedResttyBackgroundSurfaces();
           ensureScrollHostListener();
           updateScrollToBottomVisibility();
         });
@@ -440,6 +492,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         updateTerminalSize();
+        seedResttyBackgroundSurfaces();
         updateScrollToBottomVisibility();
       });
     });
@@ -452,10 +505,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     }
 
     const intervalId = window.setInterval(() => {
+      seedResttyBackgroundSurfaces();
       ensureScrollHostListener();
       updateScrollToBottomVisibility();
     }, 250);
 
+    seedResttyBackgroundSurfaces();
     ensureScrollHostListener();
     updateScrollToBottomVisibility();
     return () => {
@@ -696,10 +751,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   );
 };
 
-function buildSessionSocketUrl(
-  connection: WorkspacePanelConnection,
-  sessionId: string,
-): string {
+function buildSessionSocketUrl(connection: WorkspacePanelConnection, sessionId: string): string {
   const socketUrl = new URL("/session", connection.baseUrl);
   socketUrl.searchParams.set("token", connection.token);
   socketUrl.searchParams.set("workspaceId", connection.workspaceId);

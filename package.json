@@ -30,6 +30,7 @@
     "storybook:live": "pnpm exec tsc -p ./tsconfig.extension.json && node ./scripts/storybook-live.mjs",
     "storybook:build": "vp exec storybook build",
     "storybook:test": "node ./scripts/storybook-test.mjs",
+    "workspace:reconnect:harness": "node ./scripts/workspace-reconnect-harness.mjs",
     "compile": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "t3:embed:build": "node ./scripts/build-t3-embed.mjs",
