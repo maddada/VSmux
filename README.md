@@ -6,11 +6,11 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 2.3.1
+## Latest Release: 2.4.0
 
-- T3 panes are much more capable now, with better session handling and stronger clipboard bridging.
-- Workspace splitting is easier, with direct commands and shortcuts for common multi-pane layouts.
-- Session and terminal state handling is more resilient overall, including persisted snapshot behavior and runtime improvements.
+- Workspace terminals are moving to a Ghostty-based frontend, with better rendering stability and readiness handling.
+- Replay, zoom controls, auto-resume, and typing-friendly scroll behavior make terminals much more capable day to day.
+- Workspace pane ordering, visibility, refresh, and session drag behavior are more reliable across multi-pane workflows.
 
 Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 
@@ -154,16 +154,16 @@ That document is the current source of truth for:
 
 ### Keyboard Shortcuts
 
-| Action                 | macOS              | Windows/Linux      |
-| ---------------------- | ------------------ | ------------------ |
-| Focus session slot 1–9 | Cmd+Alt+1–9        | Ctrl+Alt+1–9       |
-| New session            | Cmd+Alt+N          | Ctrl+Alt+N         |
-| Open settings          | Cmd+Alt+,          | Ctrl+Alt+,         |
-| Change sidebar         | Cmd+Alt+B          | Ctrl+Alt+B         |
-| Focus group 1–4        | Cmd+Alt+Shift+1–4  | Ctrl+Alt+Shift+1–4 |
-| Focus up/right/down/left | Cmd+Alt+Shift+Arrow | Ctrl+Alt+Shift+Arrow |
-| Rename active session  | Cmd+Alt+R          | Ctrl+Alt+R         |
-| Show 1/2/3/4/6/9 splits | Cmd+Alt+S, then 1/2/3/4/6/9 | Ctrl+Alt+S, then 1/2/3/4/6/9 |
+| Action                   | macOS                       | Windows/Linux                |
+| ------------------------ | --------------------------- | ---------------------------- |
+| Focus session slot 1–9   | Cmd+Alt+1–9                 | Ctrl+Alt+1–9                 |
+| New session              | Cmd+Alt+N                   | Ctrl+Alt+N                   |
+| Open settings            | Cmd+Alt+,                   | Ctrl+Alt+,                   |
+| Change sidebar           | Cmd+Alt+B                   | Ctrl+Alt+B                   |
+| Focus group 1–4          | Cmd+Alt+Shift+1–4           | Ctrl+Alt+Shift+1–4           |
+| Focus up/right/down/left | Cmd+Alt+Shift+Arrow         | Ctrl+Alt+Shift+Arrow         |
+| Rename active session    | Cmd+Alt+R                   | Ctrl+Alt+R                   |
+| Show 1/2/3/4/6/9 splits  | Cmd+Alt+S, then 1/2/3/4/6/9 | Ctrl+Alt+S, then 1/2/3/4/6/9 |
 
 ### Other
 

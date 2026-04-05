@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 2.4.0 - 2026-04-05
+
+- Workspace terminals are now moving onto the Ghostty-based rendering path, with better terminal readiness handling, stronger reconnect behavior, and more stable rendering overall.
+- The terminal experience is much more capable now, including replay support, zoom controls, auto-resume for visible sessions, and a new scroll-to-bottom-when-typing option.
+- Workspace and session management feel more reliable, with better pane ordering and visibility handling, safer session dragging, improved preferred session titles, and cleaner full-reload and refresh behavior.
+
 ## 2.3.1 - 2026-04-03
 
 - T3 sessions are much more capable now, with stronger embed/session management, improved RPC handling, and richer clipboard bridging so paste flows work better across the workspace and T3 panes.
