@@ -6,11 +6,11 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 2.4.0
+## Latest Release: 2.5.0
 
-- Workspace terminals are moving to a Ghostty-based frontend, with better rendering stability and readiness handling.
-- Replay, zoom controls, auto-resume, and typing-friendly scroll behavior make terminals much more capable day to day.
-- Workspace pane ordering, visibility, refresh, and session drag behavior are more reliable across multi-pane workflows.
+- Workspace panels can now recover more gracefully when rendering falls behind, with a reload path that gets you back to work faster.
+- Session cleanup and previous-session history are more reliable, so removed sessions and stale history entries behave more cleanly.
+- Pane ordering, visibility, and overall multi-pane stability have been tightened up across the workspace.
 
 Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 

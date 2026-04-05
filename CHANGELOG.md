@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 2.5.0 - 2026-04-06
+
+- Workspace panels can now detect serious render lag and offer a cleaner reload path that brings the workspace back and refocuses the active session.
+- Session cleanup is more reliable now: terminal runtimes are retired when sessions are removed, previous-session history is cleaner, and empty or noisy history entries are handled better.
+- Multi-pane work feels steadier overall, with stronger pane ordering and visibility behavior plus more stable daemon ownership and workspace refresh handling.
+
 ## 2.4.0 - 2026-04-05
 
 - Workspace terminals are now moving onto the Ghostty-based rendering path, with better terminal readiness handling, stronger reconnect behavior, and more stable rendering overall.
