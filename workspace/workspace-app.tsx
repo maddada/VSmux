@@ -651,6 +651,10 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             postWorkspaceDebugLog(workspaceState.debuggingMode, event, payload)
           }
           debuggingMode={workspaceState.debuggingMode}
+          fallbackLayoutStyle={
+            visiblePaneLayoutBySessionId.get(workspaceState.focusedSessionId ?? "") ??
+            visiblePaneLayoutBySessionId.get(visiblePanes[0]?.sessionId ?? "")
+          }
           isFocused={presentedFocusedSessionId === pane.sessionId}
           isWorkspaceFocused={isWorkspaceFocused}
           key={pane.kind === "terminal" ? `${pane.sessionId}:${pane.renderNonce}` : pane.sessionId}
@@ -737,6 +741,7 @@ type WorkspacePaneViewProps = {
   connection: WorkspacePanelHydrateMessage["connection"];
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
   debuggingMode: boolean;
+  fallbackLayoutStyle?: CSSProperties;
   isFocused: boolean;
   isWorkspaceFocused: boolean;
   canDrag: boolean;
@@ -760,6 +765,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   connection,
   debugLog,
   debuggingMode,
+  fallbackLayoutStyle,
   isFocused,
   isWorkspaceFocused,
   canDrag,
@@ -802,7 +808,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
           onFocus();
         }
       }}
-      style={pane.isVisible ? layoutStyle : undefined}
+      style={layoutStyle ?? fallbackLayoutStyle}
     >
       <header
         className={`workspace-pane-header ${canDrag ? "workspace-pane-header-draggable" : ""}`}

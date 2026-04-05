@@ -71,18 +71,15 @@ body {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
+  grid-area: 1 / 1;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .workspace-pane-hidden {
-  height: 100vh;
-  left: -200vw;
   pointer-events: none;
-  position: fixed;
-  top: 0;
   visibility: hidden;
-  width: 100vw;
   z-index: -1;
 }
 
