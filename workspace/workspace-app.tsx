@@ -38,6 +38,8 @@ export type WorkspaceAppProps = {
   };
 };
 
+type WorkspaceStateMessage = WorkspacePanelHydrateMessage | WorkspacePanelSessionStateMessage;
+
 type WorkspaceShellStyle = CSSProperties & {
   "--workspace-active-pane-border-color"?: string;
   "--workspace-pane-gap": string;
@@ -114,6 +116,12 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     | undefined
   >(undefined);
   const pendingFocusedSessionIdRef = useRef<string | undefined>(undefined);
+  const workspaceStateRef = useRef<WorkspaceStateMessage | undefined>(undefined);
+  const presentedFocusedSessionIdRef = useRef<string | undefined>(undefined);
+  const handleT3IframeFocusRef = useRef<
+    | ((sessionId: string, event: MessageEvent<{ sessionId?: string; type?: string }>) => void)
+    | undefined
+  >(undefined);
   const requestPaneReorderRef = useRef<(sourcePaneId: string, targetPaneId: string) => void>(
     () => {},
   );
@@ -124,6 +132,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       ? serverState
       : undefined;
   debuggingModeRef.current = workspaceState?.debuggingMode;
+  workspaceStateRef.current = workspaceState;
 
   const postWorkspaceDebugLog = (
     enabled: boolean | undefined,
@@ -315,10 +324,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         return;
       }
 
-      vscode.postMessage({
-        sessionId: event.data.sessionId,
-        type: "focusSession",
-      });
+      handleT3IframeFocusRef.current?.(event.data.sessionId, event);
     };
 
     const handleWorkspaceMessage = (event: Event) => {
@@ -422,6 +428,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     return nextLayoutBySessionId;
   }, [visiblePanes, workspaceState?.viewMode]);
   const presentedFocusedSessionId = localFocusedSessionId ?? workspaceState?.focusedSessionId;
+  presentedFocusedSessionIdRef.current = presentedFocusedSessionId;
   const visiblePaneIds = useMemo(() => visiblePanes.map((pane) => pane.sessionId), [visiblePanes]);
   const visiblePaneIdsKey = visiblePaneIds.join("|");
   const reorderablePaneIds = useMemo(
@@ -455,12 +462,27 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       return;
     }
 
-    if (pendingFocusedSessionIdRef.current) {
-      if (workspaceState.focusedSessionId === pendingFocusedSessionIdRef.current) {
+    const pendingFocusedSessionId = pendingFocusedSessionIdRef.current;
+    const pendingFocusRequest = pendingFocusRequestRef.current;
+
+    if (pendingFocusedSessionId) {
+      if (workspaceState.focusedSessionId === pendingFocusedSessionId) {
         pendingFocusedSessionIdRef.current = undefined;
         pendingFocusRequestRef.current = undefined;
       } else {
-        return;
+        postWorkspaceDebugLog(workspaceState.debuggingMode, "focus.pendingRequestSuperseded", {
+          pendingFocusRequest:
+            pendingFocusRequest === undefined
+              ? undefined
+              : {
+                  durationMs: Math.round(performance.now() - pendingFocusRequest.startedAt),
+                  requestId: pendingFocusRequest.requestId,
+                  sessionId: pendingFocusRequest.sessionId,
+                },
+          serverFocusedSessionId: workspaceState.focusedSessionId,
+        });
+        pendingFocusedSessionIdRef.current = undefined;
+        pendingFocusRequestRef.current = undefined;
       }
     }
 
@@ -528,6 +550,60 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     });
     return true;
   };
+
+  const handleT3IframeFocus = (
+    sessionId: string,
+    event: MessageEvent<{ sessionId?: string; type?: string }>,
+  ) => {
+    const activeWorkspaceState = workspaceStateRef.current;
+    const pane = activeWorkspaceState?.panes.find(
+      (candidate) => candidate.kind === "t3" && candidate.sessionId === sessionId,
+    );
+    const isVisible = pane?.isVisible === true;
+    const isFocused = presentedFocusedSessionIdRef.current === sessionId;
+    const ignoredForAutoFocus = shouldIgnorePaneActivation(sessionId);
+
+    postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusReceived", {
+      eventOrigin: event.origin,
+      ignoredForAutoFocus,
+      isFocused,
+      isVisible,
+      paneExists: pane !== undefined,
+      sessionId,
+    });
+
+    if (!pane) {
+      return;
+    }
+
+    if (!pane.isVisible) {
+      postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
+        reason: "hiddenPane",
+        sessionId,
+      });
+      return;
+    }
+
+    if (ignoredForAutoFocus) {
+      postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
+        reason: "autoFocusGuard",
+        sessionId,
+      });
+      return;
+    }
+
+    applyLocalFocusVisual(sessionId);
+    if (!isFocused) {
+      requestFocusSession(sessionId);
+      return;
+    }
+
+    postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
+      reason: "alreadyFocused",
+      sessionId,
+    });
+  };
+  handleT3IframeFocusRef.current = handleT3IframeFocus;
 
   const handleTerminalActivate = (sessionId: string, source: WorkspaceTerminalActivationSource) => {
     if (pointerDragStateRef.current) {
