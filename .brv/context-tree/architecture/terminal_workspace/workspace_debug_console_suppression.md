@@ -1,33 +1,37 @@
 ---
 title: Workspace Debug Console Suppression
 tags: []
-related: [architecture/terminal_workspace/context.md, facts/project/terminal_workspace_facts.md]
+related: [architecture/terminal_workspace/workspace_debug_console_suppression.md]
 keywords: []
-importance: 50
+importance: 60
 recency: 1
 maturity: draft
+updateCount: 2
 createdAt: "2026-04-06T21:17:24.919Z"
-updatedAt: "2026-04-06T21:17:24.919Z"
+updatedAt: "2026-04-06T22:10:57.564Z"
 ---
 
 ## Raw Concept
 
 **Task:**
-Document suppression of workspace webview debug events from the browser console.
+Document sidebar debug console suppression while preserving sidebar debug message flow and Storybook harness behavior
 
 **Changes:**
 
-- Changed logWorkspaceDebug to a no-op shim when debugging is enabled.
-- Kept workspace debug event flow to extension-side VSmux Debug output/file channel via workspaceDebugLog messages.
-- Added regression coverage to prevent terminal reconnect events from appearing in the desktop console.
+- Made sidebar/sidebar-debug.ts a no-op helper
+- Suppressed browser-console sidebar debug echoes such as session.dragIndicatorChanged
+- Preserved sidebarDebugLog messaging from sidebar/sidebar-app.tsx
+- Added regression coverage in sidebar/sidebar-debug.test.ts
 
 **Files:**
 
-- workspace/workspace-debug.ts
-- workspace/workspace-debug.test.ts
+- sidebar/sidebar-debug.ts
+- sidebar/sidebar-app.tsx
+- sidebar/sidebar-story-harness.tsx
+- sidebar/sidebar-debug.test.ts
 
 **Flow:**
-workspace event -> logWorkspaceDebug(enabled, event, payload) -> no browser console output -> event still handled through extension-side workspaceDebugLog channel
+sidebar event -> postSidebarDebugLog -> logSidebarDebug no-op -> vscode.postMessage({ type: sidebarDebugLog }) -> Storybook harness records message without browser console echo
 
 **Timestamp:** 2026-04-06
 
@@ -35,22 +39,23 @@ workspace event -> logWorkspaceDebug(enabled, event, payload) -> no browser cons
 
 ### Structure
 
-The workspace webview debug helper is implemented in workspace/workspace-debug.ts. The exported logWorkspaceDebug(enabled, \_event, \_payload) function now keeps the same signature but intentionally performs no console logging when enabled is true, returning early only when debugging is disabled.
+Sidebar debug logging now mirrors the workspace pattern by routing debug events through a dedicated helper in sidebar/sidebar-debug.ts that accepts the same signature as before but does not emit console output. sidebar/sidebar-app.tsx keeps its existing postSidebarDebugLog path, including debug-mode gating and vscode.postMessage dispatch for sidebarDebugLog events. sidebar/sidebar-story-harness.tsx still records outbound SidebarToExtensionMessage traffic and continues to invoke logSidebarDebug for sidebarDebugLog messages, preserving its message-path semantics while avoiding browser console noise.
 
 ### Dependencies
 
-Browser-console suppression is paired with extension-side logging that continues through workspaceDebugLog messages into the VSmux Debug output/file channel. Regression coverage depends on vite-plus/test and vi.spyOn(console, "debug") to verify the browser console remains silent.
+This behavior depends on the existing sidebar debug message contract remaining intact between SidebarApp, the VS Code webview bridge, and the Storybook harness. The regression test uses vite-plus/test and a console.debug spy to assert that enabled sidebar debug calls no longer write to the browser console.
 
 ### Highlights
 
-This change removes noisy terminal reconnect diagnostics such as terminal.socketOpen and terminal.timeoutFired from the desktop console without disabling the underlying workspace debug event stream. The test specifically verifies that calling logWorkspaceDebug(true, "terminal.socketOpen", { connectionId: 219, sessionId: "session-09" }) does not invoke console.debug.
+Browser-console sidebar debug echoes such as session.dragIndicatorChanged are now suppressed without removing sidebarDebugLog messaging. Existing sidebar actions and message types remain unchanged, including createSession, ready, syncGroupOrder, moveSessionToGroup, syncSessionOrder, refreshDaemonSessions, openSettings, adjustTerminalFontSize, toggleCompletionBell, moveSidebarToOtherSide, createGroup, saveScratchPad, cancelSidebarGitCommit, confirmSidebarGitCommit, and setSidebarSectionCollapsed. Storybook retains sidebarStoryMessages collection and STORYBOOK_DRAG_SETTLE_DELAY_MS = 900 while no longer printing mirrored debug echoes to the browser console.
 
 ### Examples
 
-API signature preserved: export function logWorkspaceDebug(enabled: boolean | undefined, \_event: string, \_payload?: Record<string, unknown>): void. Regression test example: logWorkspaceDebug(true, "terminal.socketOpen", { connectionId: 219, sessionId: "session-09" }); expect(consoleDebugSpy).not.toHaveBeenCalled();
+Example preserved path: postSidebarDebugLog("session.dragIndicatorChanged", { indicator: sessionDragIndicator }) still calls logSidebarDebug(debuggingMode, event, details) and then posts { details, event, type: "sidebarDebugLog" }. Example regression assertion: logSidebarDebug(true, "session.dragIndicatorChanged", { indicator: { groupId: "group-1", kind: "session", position: "after", sessionId: "session-09" } }) does not call console.debug.
 
 ## Facts
 
-- **workspace_debug_console_behavior**: logWorkspaceDebug is a no-op when debuggingMode is enabled and does not write workspace debug events to the browser console. [project]
-- **workspace_debug_log_sink**: Workspace debug events continue to flow to the extension-side VSmux Debug output/file channel through workspaceDebugLog messages. [project]
-- **workspace_debug_regression_test**: A regression test asserts that terminal.socketOpen does not call console.debug. [project]
+- **sidebar_debug_logging**: logSidebarDebug(enabled, \_event, \_payload?) no longer writes to console.debug and performs no action when enabled. [project]
+- **sidebar_debug_message_flow**: sidebar/sidebar-app.tsx still calls logSidebarDebug before posting sidebarDebugLog messages to the extension. [project]
+- **storybook_sidebar_debug_echo**: sidebar/sidebar-story-harness.tsx still calls logSidebarDebug for sidebarDebugLog messages, but browser console output is suppressed. [project]
+- **sidebar_debug_regression_test**: Regression coverage for sidebar debug console suppression was added in sidebar/sidebar-debug.test.ts. [project]

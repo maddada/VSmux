@@ -2,30 +2,34 @@
 title: Sidebar Session Card Last Interaction Timestamps
 tags: []
 keywords: []
-importance: 65
+importance: 75
 recency: 1
 maturity: validated
-updateCount: 3
+updateCount: 5
 createdAt: "2026-04-06T03:48:19.300Z"
-updatedAt: "2026-04-06T21:16:41.202Z"
+updatedAt: "2026-04-06T22:52:16.073Z"
 ---
 
 ## Raw Concept
 
 **Task:**
-Document sidebar session card last interaction timestamp typography update
+Document latest sidebar last-activity UX behavior and terminal activity timestamp sourcing
 
 **Changes:**
 
-- Increased .session-last-interaction-time font size by 2px using the sidebar density scale variable
-- Preserved existing right alignment and session card layout while increasing timestamp prominence
+- Changed timestamp color bands to discrete age buckets
+- Added 1-second UI tick hook so relative time labels advance in place
+- Fixed Storybook sidebar-story-workspace to preserve lastInteractionAt
+- Verified live that color states are distinct and relative labels update over time
+- Native terminal activity sourcing now seeds and refreshes from persisted session state file mtimes when agent status or title changes
 
 **Files:**
 
-- sidebar/styles/session-cards.css
+- extension/native-terminal-workspace/sidebar-message-dispatch.ts
+- extension/native-terminal-workspace/activity.ts
 
 **Flow:**
-sidebar session card render -> apply .session-last-interaction-time styles -> scale font with --sidebar-density-scale -> preserve alignment within card layout
+session activity changes -> lastInteractionAt updates -> 1s UI tick rerenders relative labels -> sidebar cards show discrete age colors -> persisted session state mtimes seed and refresh terminal activity timestamps
 
 **Timestamp:** 2026-04-06
 
@@ -33,17 +37,22 @@ sidebar session card render -> apply .session-last-interaction-time styles -> sc
 
 ### Structure
 
-The change is localized to the sidebar session card stylesheet and specifically targets the .session-last-interaction-time selector used to render last interaction timestamps in the session cards.
+Sidebar session cards now render last-activity timestamps with discrete visual age bands instead of a continuously blended appearance. The UI includes a 1-second tick hook so relative labels such as seconds-ago values advance in place while the sidebar remains mounted. Storybook propagation through sidebar-story-workspace now preserves lastInteractionAt, which keeps component demos aligned with real runtime behavior.
 
 ### Dependencies
 
-Typography continues to depend on the existing --sidebar-density-scale CSS variable, so the updated size still tracks sidebar density settings and does not require layout rule changes.
+The sidebar display depends on lastInteractionAt being preserved through Storybook workspace wiring and on native terminal activity updates receiving refreshed timestamps from persisted session state file mtimes. Terminal cards still fall back to session creation time only when no better activity signal is available.
 
 ### Highlights
 
-The font size moved from calc(10px _ var(--sidebar-density-scale)) to calc(12px _ var(--sidebar-density-scale)), creating a +2px visual bump that improves timestamp visibility without changing right alignment or overall card structure.
+The timestamp bands are bright green for 0-15 minutes, slightly faded green for 15-30 minutes, more muted green for 30-60 minutes, and gray after 1 hour. Live verification with Playwriter confirmed distinct selector colors and that a default relative label advanced from 31s ago to 33s ago after roughly 2.2 seconds. Native terminal activity sourcing now uses real activity and completion updates rather than stale creation-time timestamps whenever persisted state mtimes provide a stronger signal.
 
 ## Facts
 
-- **sidebar_last_interaction_font_size**: The sidebar last interaction timestamp font size was increased from calc(10px _ var(--sidebar-density-scale)) to calc(12px _ var(--sidebar-density-scale)) in sidebar/styles/session-cards.css. [project]
-- **sidebar_timestamp_layout_preservation**: The timestamp typography change preserves the existing right alignment and card layout. [project]
+- **sidebar_timestamp_color_model**: Sidebar timestamp colors now use discrete age buckets instead of continuous blending [project]
+- **sidebar_timestamp_color_bands**: Timestamp color bands are bright green for 0-15 minutes, slightly faded green for 15-30 minutes, more muted green for 30-60 minutes, and gray after 1 hour [project]
+- **sidebar_relative_time_tick**: The sidebar UI now has a 1-second tick hook so rendered relative time labels advance in place [project]
+- **storybook_last_interaction_passthrough**: Storybook sidebar-story-workspace now preserves lastInteractionAt [project]
+- **playwriter_sidebar_activity_verification**: Playwriter verification showed SelectorStates had distinct colors and Default advanced from 31s ago to 33s ago after about 2.2 seconds [project]
+- **terminal_activity_timestamp_source**: Native terminal activity sourcing now seeds and refreshes from persisted session state file mtimes when agent status or title changes [project]
+- **terminal_activity_fallback_rule**: Terminal cards fall back to session creation time only when no better activity signal exists [project]

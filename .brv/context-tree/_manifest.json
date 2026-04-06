@@ -7,39 +7,45 @@
       "type": "summary"
     },
     {
-      "importance": 65,
+      "importance": 75,
       "path": "architecture/terminal_workspace/sidebar_session_card_last_interaction_timestamps.md",
-      "tokens": 465,
+      "tokens": 895,
       "type": "context"
     },
     {
-      "importance": 65,
+      "importance": 75,
       "path": "facts/project/sidebar_session_card_last_interaction_timestamp_facts.md",
-      "tokens": 346,
+      "tokens": 550,
       "type": "context"
     },
     {
       "importance": 60,
       "path": "architecture/terminal_workspace/sidebar_browsers_empty_state.md",
-      "tokens": 759,
+      "tokens": 762,
+      "type": "context"
+    },
+    {
+      "importance": 60,
+      "path": "architecture/terminal_workspace/workspace_debug_console_suppression.md",
+      "tokens": 950,
       "type": "context"
     },
     {
       "importance": 60,
       "path": "facts/project/sidebar_browsers_empty_state_facts.md",
-      "tokens": 444,
+      "tokens": 447,
       "type": "context"
     },
     {
-      "importance": 55,
-      "path": "architecture/terminal_workspace/session_rename_title_auto_summarization.md",
-      "tokens": 1285,
+      "importance": 50,
+      "path": "architecture/chat_history/context.md",
+      "tokens": 143,
       "type": "context"
     },
     {
-      "importance": 55,
-      "path": "facts/project/workspace_session_sleep_wake_support_facts.md",
-      "tokens": 624,
+      "importance": 50,
+      "path": "architecture/context.md",
+      "tokens": 182,
       "type": "context"
     },
     {
@@ -49,13 +55,13 @@
       "type": "context"
     }
   ],
-  "generated_at": "2026-04-06T21:34:34.430Z",
+  "generated_at": "2026-04-06T23:17:43.902Z",
   "lane_tokens": {
-    "contexts": 3978,
+    "contexts": 3984,
     "stubs": 0,
     "summaries": 1639
   },
-  "source_fingerprint": "2571e3810bf2b1804186b91083f290c03dd1645cf6e3517d08a4f0096465c115",
-  "total_tokens": 5617,
+  "source_fingerprint": "13cefcb33108ccde7cd1b8bba14c3b1c3da9514962626e4014f98e2d79a96e0f",
+  "total_tokens": 5623,
   "version": 1
 }

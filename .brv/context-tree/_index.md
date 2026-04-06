@@ -1,505 +1,690 @@
 ---
-children_hash: 7f990eac692cda73fff5117ce90cfc18e1ae81a218abf0f2a2c592aa4c21429a
-compression_ratio: 0.5268978132535129
+children_hash: d8698861e0dba47a6c06716e629e020963cebb10758b338c6310e6e5d2735028
+compression_ratio: 0.5986908750876646
 condensation_order: 3
 covers: [architecture/_index.md, facts/_index.md, terminal-workspace-current-state.md]
-covers_token_total: 12027
+covers_token_total: 12833
 summary_level: d3
-token_count: 6337
+token_count: 7683
 type: summary
 ---
 
-# Knowledge Structure Overview
+# Structural Summary
 
-This knowledge set is organized into three complementary layers:
+## Knowledge map
 
-- `architecture/_index.md` — long-form architectural decisions and cross-topic relationships
-- `facts/_index.md` — compact quick-recall invariants, constants, support matrices, and config defaults
-- `terminal-workspace-current-state.md` — current implementation snapshot for terminal workspace behavior
+This level combines three top-level entries:
 
-Together they describe the VSmux system around terminal workspace runtime management, chat-history/search/resume, git-backed text generation, packaging/integration surfaces, and exact operational constraints.
+- `architecture/_index.md` — long-form architectural map of VSmux
+- `facts/_index.md` — dense quick-recall implementation facts
+- `terminal-workspace-current-state.md` — current-state snapshot focused on terminal workspace runtime behavior
 
-## Top-Level Domains
-
-### `architecture`
-
-Primary narrative architecture domain covering:
-
-- `terminal_workspace`
-- `chat_history`
-- `git_text_generation`
-
-Core recurring patterns across these topics:
-
-- webview/UI layer for presentation, extension/controller layer for authority and runtime ownership
-- stable identifiers with lightweight replay instead of rebuilding state
-- disconnected-friendly UI that preserves enough metadata for useful reload/reconnect behavior
-- low-retention webviews where `retainContextWhenHidden: false` is often preferred to avoid stale/bad state
-
-See:
-
-- `architecture/context.md`
-- `architecture/terminal_workspace/_index.md`
-- `architecture/chat_history/_index.md`
-- `architecture/git_text_generation/_index.md`
-
-### `facts`
-
-Quick-reference facts layer, mainly aggregated under `facts/project/_index.md`, preserving:
-
-- constants and thresholds
-- support/exclusion matrices
-- config keys and defaults
-- exact regexes and command formats
-- packaging and identity details
-- implementation invariants
-
-This mirrors the architecture domain but in compressed factual form.
-
-### `terminal-workspace-current-state.md`
-
-A focused current-state narrative for the workspace terminal subsystem. It overlaps heavily with `architecture/terminal_workspace/*` and `facts/project/*`, but emphasizes implemented behavior and lessons learned.
+Together they describe a system centered on `terminal_workspace`, with supporting subsystems for `chat_history` / VSmux Search and `git_text_generation`.
 
 ---
 
-# Major Knowledge Clusters
+## 1) Core system shape: VSmux is a workspace-centered architecture
 
-## 1. Terminal workspace runtime and pane model
+The dominant architectural center is `architecture/terminal_workspace/_index.md`, reinforced by `terminal-workspace-current-state.md` and many fact entries under `facts/project/_index.md`.
 
-Primary entries:
+### Primary subsystems
+
+- `terminal_workspace`
+  - workspace rendering, pane lifecycle, runtime caching, focus, sidebar, persistence, daemon ownership, browser/T3 integration, Agent Manager X bridge
+- `chat_history`
+  - conversation viewer, native search, resume actions, VSmux Search branding and packaging
+- `git_text_generation`
+  - provider-based shell command generation for commit messages, PR text, and session-title summarization
+
+### Repeating architectural throughlines
+
+Across `architecture/_index.md`, `facts/_index.md`, and `terminal-workspace-current-state.md`, the same choices repeat:
+
+- controller/state authority over UI-local state
+- webview + extension-host split
+- explicit runtime reuse instead of hidden webview persistence
+- per-workspace scoping for persistence, daemons, bridge state, and sidebar preferences
+- validated message contracts rather than ad hoc UI mutation
+- normalized user-visible state while preserving raw runtime state for behavior logic
+
+A recurring platform choice is `retainContextWhenHidden: false` for both workspace and viewer panels.
+
+---
+
+## 2) Terminal workspace: runtime, pane model, and focus ownership
+
+Primary drill-downs:
 
 - `architecture/terminal_workspace/current_state.md`
-- `terminal-workspace-current-state.md`
+- `architecture/terminal_workspace/terminal_pane_runtime_thresholds_and_behaviors.md`
+- `architecture/terminal_workspace/workspace_focus_and_sidebar_drag_semantics.md`
 - `facts/project/terminal_workspace_facts.md`
 - `facts/project/terminal_workspace_runtime_facts.md`
+- `terminal-workspace-current-state.md`
 
-Key structural decisions:
+### Renderer and runtime cache
 
-- Frontend renderer is `restty`/`Restty`, not xterm.
-- Terminal frontend runtimes are cached per `sessionId` in `workspace/terminal-runtime-cache.ts`.
-- Cache invalidation is generation-based via `renderNonce`.
-- Session removal must explicitly destroy runtime so recycled `sessionId` values cannot inherit old transcripts.
-- Sessions from all groups are projected into the workspace so cross-group switching keeps terminals warm.
-- Inactive panes remain mounted behind the active pane in the same layout slot, avoiding reconnect/replay and reducing visual instability.
-- Visible split ordering comes from `activeGroup.snapshot.visibleSessionIds`; `localPaneOrder` is only a temporary override for optimistic reorder UX.
+- Frontend terminal renderer is `restty`, not xterm.
+- Frontend terminal runtimes are cached per `sessionId` in `workspace/terminal-runtime-cache.ts`.
+- Cache invalidation is generation-based through `renderNonce`.
+- When a session is removed, the controller sends `destroyTerminalRuntime` so a recycled `sessionId` cannot inherit stale transcript state.
+- Runtime lifecycle distinguishes:
+  - `releaseCachedTerminalRuntime()` — detach DOM, preserve runtime
+  - `destroyCachedTerminalRuntime()` — full cleanup
 
-Important relationship:
+### Warm-pane projection model
 
-- `terminal-workspace-current-state.md` is effectively the current implementation-focused condensation of the broader `architecture/terminal_workspace/current_state.md` cluster.
+From `terminal-workspace-current-state.md` and `current_state.md`:
 
-## 2. Persistence, detached daemon, and replay/reconnect lifecycle
+- workspace pane projection includes terminal sessions from all groups, not only the active group
+- inactive terminal panes stay mounted behind the active pane in the same `grid-area`
+- non-active panes are hidden mainly through z-index/pointer-event behavior, not teardown
+- this is intentional to keep terminals warm across same-group and cross-group switching
+- hidden-pane reflow is explicitly avoided because size churn caused wrapping changes and visible tail loss
 
-Primary entries:
+### Focus ownership
+
+- `workspace/terminal-pane.tsx` emits activation intent
+- `workspace/workspace-app.tsx` is the authoritative focus owner
+- `TerminalPane` should not own focus policy; `WorkspaceApp` decides whether to send `focusSession`
+
+Preserved focus/focus-guard facts:
+
+- activation sources include `pointer` and `focusin`
+- `AUTO_FOCUS_ACTIVATION_GUARD_MS = 400ms`
+- panel context key is `vsmux.workspacePanelFocus`
+
+### Pane ordering
+
+Across `architecture/_index.md`, `facts/_index.md`, and `terminal-workspace-current-state.md`:
+
+- visible split order comes from `activeGroup.snapshot.visibleSessionIds`
+- not from filtering a global pane-order list
+- `localPaneOrder` is only a temporary visible-session override for optimistic reorder feedback
+- goal: slot stability, so passive surfaced panes do not jump when active focus changes
+
+---
+
+## 3) Grouped workspace state and session lifecycle
+
+Primary drill-downs:
+
+- `architecture/terminal_workspace/simple_grouped_session_workspace_state.md`
+- `facts/project/simple_grouped_session_workspace_state_facts.md`
+- `facts/project/workspace_session_sleep_wake_support_facts.md`
+
+### Canonical state model
+
+Canonical implementation lives in:
+
+- `shared/simple-grouped-session-workspace-state.ts`
+
+Important invariants:
+
+- at least one group always exists
+- normalization starts from `createDefaultGroupedSessionWorkspaceSnapshot()`
+- empty groups are retained
+- browser sessions are removed from this terminal-focused model
+- duplicate display IDs are repaired
+- canonical session IDs derive from display IDs as `session-${formatSessionDisplayId(displayId ?? 0)}`
+- active-group fallback prefers nearest previous populated group
+- `visibleSessionIds` are preserved/restored per group
+- single visible pane normalizes to `[focusedSessionId]`
+- group focus-by-index is 1-based
+- group creation is capped by `MAX_GROUP_COUNT`
+
+### Session creation/movement rules
+
+- new sessions take the first free display ID
+- append to the active group
+- gain focus immediately
+- recompute visibility
+- moved sessions activate/focus destination groups
+- fullscreen preserves `fullscreenRestoreVisibleCount`
+- T3 metadata updates apply only when `kind === t3`
+
+### Sleep/wake model
+
+From `workspace_session_sleep_wake_support.md` and facts:
+
+- session records persist `isSleeping`
+- sleeping sessions are excluded from awake focus and visible split calculations
+- focusing a sleeping session wakes it
+- group sleep/wake can toggle whole groups
+- sleeping terminal sessions dispose live runtime/surface but preserve session card and resume metadata
+
+---
+
+## 4) Persistence, daemon ownership, and restore semantics
+
+Primary drill-downs:
 
 - `architecture/terminal_workspace/terminal_persistence_across_reloads.md`
 - `architecture/terminal_workspace/terminal_persistence_across_vs_code_reloads.md`
 - `facts/project/terminal_persistence_reload_facts.md`
 - `facts/project/terminal_persistence_across_vs_code_reloads_facts.md`
+- `terminal-workspace-current-state.md`
 
-Core architecture:
+### Three-part persistence architecture
 
-- Persistence uses a three-part model:
-  - extension-side layout/session state
-  - detached per-workspace daemon
-  - restored webview/workspace with terminal renderers
-- Layout persistence key: `VSmux.sessionGridSnapshot`
-- Daemon is per-workspace, not global.
-- PTYs survive VS Code reloads.
-- Restore sequence consistently follows:
-  - state restore
-  - daemon reconnect
-  - session reconnect
-  - `terminalReady` handshake
-  - ring-buffer replay
-  - pending-output flush
+Repeated across architecture and facts:
 
-Important constants retained across summaries/facts:
+1. `SessionGridStore`
+2. detached per-workspace daemon for PTYs
+3. restored webview state with cached Restty runtimes
 
-- control connect timeout: `3000ms`
-- daemon ready timeout: `10000ms`
-- owner heartbeat: `5000ms`
-- owner timeout: `20000ms`
-- startup/launch stale threshold or grace: `30000ms`
-- attach ready timeout: `15000ms`
-- ring buffer: `8 MiB`
-- replay chunk size: `128 KiB`
+Persisted snapshot key:
 
-Current-state nuance from `terminal-workspace-current-state.md`:
+- `VSmux.sessionGridSnapshot`
 
-- sidebar-listed terminal sessions should remain alive while VS Code is running, even when sidebar/workarea are closed
-- if a live daemon PTY exists, VSmux must reattach rather than run a resume command
-- persisted state stores `agentName`, `agentStatus`, and `title` so cold-start sidebar presentation remains useful without a live daemon
+Related daemon state artifacts called out in facts:
 
-## 3. Workspace startup, bootstrap, and recovery behavior
+- `daemon-info.json`
+- `daemon-launch.lock`
+- `terminal-daemon-debug.log`
 
-Primary entries:
+### Per-workspace daemon decision
+
+A major architectural decision is:
+
+- VSmux uses a per-workspace daemon, not a single global daemon
+
+Reason preserved in `terminal-workspace-current-state.md`:
+
+- shared daemon ownership across unrelated projects caused conflicts and stale-daemon replacement problems
+
+### Restore / reconnect flow
+
+Restore ordering is preserved in multiple entries:
+
+- restore snapshot
+- reconnect daemon
+- wait for `terminalReady`
+- replay ring buffer
+- flush pending attach queue / pending output
+- switch live / attach active runtime
+
+Important timeouts and limits:
+
+- control connect timeout `3000ms`
+- daemon ready timeout `10000ms`
+- stale launch lock `30000ms`
+- owner heartbeat `5000ms`
+- owner heartbeat timeout `20000ms`
+- startup grace `30000ms`
+- terminal/session attach ready timeout `15000ms`
+- replay cap `8 MiB`
+- replay chunk size `128 KiB`
+- idle shutdown `5 * 60_000ms`
+
+### Reattach vs resume
+
+A key semantic distinction from `terminal-workspace-current-state.md`:
+
+- `createOrAttach` responses include `didCreateSession`
+- if backend PTY is still live, VSmux must reattach
+- resume commands should run only when a backend terminal was actually recreated
+
+### Persisted presentation state
+
+Persisted session state stores:
+
+- `agentName`
+- `agentStatus`
+- `title`
+
+Key files and behavior:
+
+- `extension/session-state-file.ts`
+- `extension/terminal-daemon-session-state.ts`
+
+Purpose:
+
+- preserve last known agent/title for cold-start correctness when daemon is not currently live
+
+---
+
+## 5) Startup/bootstrap and lag recovery
+
+Primary drill-downs:
 
 - `architecture/terminal_workspace/workspace_panel_startup_without_placeholder.md`
 - `architecture/terminal_workspace/workspace_panel_startup_without_loading_placeholder.md`
 - `facts/project/workspace_panel_startup_bootstrap_facts.md`
-- `facts/project/workspace_panel_startup_without_loading_placeholder_facts.md`
-- `facts/project/workspace_panel_startup_without_placeholder_facts.md`
 - `terminal-workspace-current-state.md`
 
-Key decisions:
+### Bootstrap-first restore
 
-- placeholder loading UI was removed
-- startup uses embedded bootstrap state via `window.__VSMUX_WORKSPACE_BOOTSTRAP__`
-- `openWorkspace` reveals sidebar before panel reveal
-- if no sessions exist, create one before showing the panel; otherwise refresh state first
-- panel-side buffering preserves:
-  - `latestMessage`
-  - `latestRenderableMessage`
-- only `hydrate` and `sessionState` are treated as renderable messages
-- replay order prioritizes latest renderable state, then latest transient message if distinct
-- one-shot `autoFocusRequest` is stripped before replay
+Startup is organized around embedding state into HTML before panel reveal.
 
-Recovery and lag handling from `terminal-workspace-current-state.md`:
+Preserved identity/bootstrap details:
 
-- scheduler-lag recovery exists for terminal panes
-- lag detector is currently only active when `debuggingMode` is enabled
-- threshold is average timer overshoot of at least `1000ms` during the first 10 seconds while visible/focused
-- `AUTO_RELOAD_ON_LAG` is enabled
-- auto reload is limited to once per workarea boot
-- focus is restored by preserving the last active `sessionId` through `reloadWorkspacePanel`
-- dormant reload notice UI remains as fallback if auto reload is disabled
+- `openWorkspace` reveals sidebar first
+- latest renderable state is embedded via `window.__VSMUX_WORKSPACE_BOOTSTRAP__`
+- facts also refer to `window.VSMUX_WORKSPACE_BOOTSTRAP`
+- replay prioritizes renderable state (`hydrate` / `sessionState`) before transient state
+- duplicate stable-state messages are ignored by JSON-signature comparison
+- one-shot `autoFocusRequest` is allowed through / stripped from buffering depending on replay stage
 
-## 4. Focus ownership, pane ordering, drag semantics, and hotkeys
+Panel identity:
 
-Primary entries:
+- type: `vsmux.workspace`
+- title: `VSmux`
+- icon: `media/icon.svg`
 
-- `architecture/terminal_workspace/workspace_focus_and_sidebar_drag_semantics.md`
-- `architecture/terminal_workspace/workspace_sidebar_interaction_state.md`
+### Lag detection and recovery
+
+Drill down:
+
 - `architecture/terminal_workspace/workspace_focus_debugging.md`
-- `architecture/terminal_workspace/workspace_panel_focus_hotkeys.md`
-- `facts/project/workspace_focus_and_drag_runtime_facts.md`
-- `facts/project/workspace_sidebar_interaction_facts.md`
 - `facts/project/workspace_focus_debugging_facts.md`
-- `facts/project/workspace_panel_focus_hotkeys_facts.md`
+- `docs/workarea-lag-recovery.md` is referenced indirectly by the curated entries
 
-Core ownership model:
+Preserved behavior:
 
-- `WorkspaceApp` is the authoritative owner of focus decisions.
-- `TerminalPane` only emits activation intent such as:
-  - `onActivate("pointer")`
-  - `onActivate("focusin")`
-- app-level state decides whether to send `focusSession`.
+- lag recovery is enabled by default with `AUTO_RELOAD_ON_LAG = true`
+- current-state note: detector currently runs only when `debuggingMode` is enabled because the effect is gated that way
+- detection windows/constants include:
+  - probe interval `50ms`
+  - probe window `5000ms`
+  - monitor window `10000ms`
+  - warn threshold `250ms`
+  - reload threshold `>= 1000ms` average overshoot
+- auto reload is limited to once per workarea boot
+- reload preserves focus by carrying the last active `sessionId` through `reloadWorkspacePanel`
+- dormant reload-notice UI remains as fallback if auto reload is disabled
 
-Key thresholds and interaction rules:
+---
 
-- auto-focus guard: `400ms`
-- sidebar reorder should not happen on ordinary clicking
-- reorder requires real pointer movement crossing threshold
-- primary reorder threshold: `8px`
-- startup interaction block: `1500ms`
-- non-touch drag activation: `6px`
-- touch drag activation: `250ms` delay with `5px` tolerance
-- hold-to-drag: `130ms` delay with `12px` tolerance
+## 6) Sidebar interaction, sorting, timestamps, and debug suppression
 
-Debug/console behavior:
+Primary drill-downs:
 
-- browser console debug logging is intentionally suppressed via a no-op `logWorkspaceDebug(enabled, _event, _payload)` shim
-- extension-side logging may still capture events
-- panel focus routing includes context key `vsmux.workspacePanelFocus`
+- `architecture/terminal_workspace/sidebar_active_sessions_sort_mode.md`
+- `architecture/terminal_workspace/sidebar_active_sessions_sort_mode_persistence.md`
+- `architecture/terminal_workspace/sidebar_browsers_empty_state.md`
+- `architecture/terminal_workspace/sidebar_session_card_last_interaction_timestamps.md`
+- `architecture/terminal_workspace/workspace_debug_console_suppression.md`
+- corresponding fact files under `facts/project/*`
 
-Current-state reinforcement:
+### Drag/reorder safety
 
-- the explicit lesson is to keep sidebar reorder behind proof of actual pointer movement, not drag-library inference alone
+Repeated thresholds:
 
-## 5. Grouped workspace state and session identity normalization
+- startup interaction block `1500ms`
+- meaningful reorder / drag movement `8px`
+- non-touch drag activation `6px`
+- touch activation delay `250ms` with `5px` tolerance
+- hold-to-drag `130ms` with `12px` tolerance
 
-Primary entries:
+Important decision:
 
-- `architecture/terminal_workspace/simple_grouped_session_workspace_state.md`
-- `facts/project/simple_grouped_session_workspace_state_facts.md`
+- sidebar clicks should focus sessions only
+- reordering requires proof of actual pointer movement, not just drag-library drop inference
 
-Canonical file anchors:
+### Sort modes
 
-- `shared/simple-grouped-session-workspace-state.ts`
-- `shared/simple-grouped-session-workspace-state.test.ts`
+- modes: `manual | lastActivity`
+- persisted under `VSmux.sidebarActiveSessionsSortMode` in workspace state
+- `lastActivity` sorts sessions by descending `lastInteractionAt`
+- groups sort by most recent session activity
+- missing/invalid timestamps fall back to `0`
+- manual order remains tie-breaker / stored source of truth
+- dragging is disabled while `lastActivity` mode is active
+- toggle contract: `toggleActiveSessionsSortMode`
 
-Structural rules preserved:
+### Timestamp display
 
-- at least one group always exists
-- browser sessions are removed from grouped terminal normalization
-- session IDs canonicalize to `session-${formatSessionDisplayId(displayId ?? 0)}`
-- duplicate generated display IDs are repaired
-- active-group fallback prefers nearest previous non-empty group, then next
-- new sessions get the first free display ID
-- group indexing is 1-based
-- visible session IDs are restored on group focus
-- destination group becomes active when moving a session
-- group count is bounded by `MAX_GROUP_COUNT`
-- equality check is strict `JSON.stringify(left) === JSON.stringify(right)`
+- relative timestamps rerender every second
+- activity color buckets:
+  - `0–15 min` bright green
+  - `15–30 min` faded green
+  - `30–60 min` muted green
+  - `>1 hr` gray
+- persisted file mtimes may seed `lastInteractionAt`
 
-This cluster is the canonical source for normalization and identity invariants that the workspace runtime depends on.
+### Empty browser-group behavior and debug suppression
 
-## 6. Sleep/wake, visibility, and runtime preservation
+- empty browser groups hide `.group-sessions`
+- non-browser empty groups still show `No sessions`
+- `sidebar/sidebar-debug.ts` suppresses console logging by making `logSidebarDebug(...)` effectively a no-op
+- message flow remains available, especially in Storybook harnesses
 
-Primary entries:
+---
 
-- `architecture/terminal_workspace/workspace_session_sleep_wake_support.md`
-- `facts/project/workspace_session_sleep_wake_support_facts.md`
+## 7) Titles, activity, sounds, and session actions
 
-Key rules:
-
-- `isSleeping` persists on session records
-- sleeping sessions are excluded from focus and visible split calculations
-- focusing a sleeping session wakes it
-- group sleep/wake ignores browser sessions
-- sleeping terminal sessions dispose live runtime surfaces but preserve resume metadata
-
-This fits the broader “preserve expensive identity/state, release presentation when possible” pattern seen throughout terminal workspace.
-
-## 7. Titles, activity detection, sounds, and rename auto-summarization
-
-Primary entries:
+Primary drill-downs:
 
 - `architecture/terminal_workspace/terminal_title_normalization_and_session_actions.md`
-- `architecture/terminal_workspace/session_rename_title_auto_summarization.md`
 - `architecture/terminal_workspace/terminal_titles_activity_and_completion_sounds.md`
 - `architecture/terminal_workspace/title_activity_and_sidebar_runtime.md`
-- `facts/project/terminal_title_normalization_facts.md`
-- `facts/project/session_rename_title_auto_summarization_facts.md`
+- corresponding fact files:
+  - `terminal_title_normalization_facts.md`
+  - `session_rename_title_auto_summarization_facts.md`
+  - `sidebar_session_fork_support_facts.md`
+  - `sidebar_fork_session_behavior_facts.md`
+  - `default_agent_commands_override_facts.md`
 
-Title normalization and precedence:
+### Title normalization vs raw title tracking
 
-- canonical sanitizer: `normalizeTerminalTitle()`
-- leading glyph stripping regex:
-  `^[\s\u2800-\u28ff·•⋅◦✳*✦◇🤖🔔]+`
-- path-like titles beginning with `~` or `/` are hidden from visible-title selection
-- generated `Session N` titles are not preferred visible titles
-- precedence:
+Core rule:
+
+- normalized visible titles drive user-facing UI
+- raw live/daemon terminal titles remain in controller memory for activity detection
+
+Key APIs/rules:
+
+- central normalization via `normalizeTerminalTitle()`
+- glyph/status stripping regex begins with `^[\s\u2800-\u28ff·•⋅◦✳*✦◇🤖🔔]+`
+- titles starting with `~` or `/` are hidden from primary visible-title usage
+- generated titles like `^Session \d+$` are not preferred visible titles
+- preferred precedence is:
   - visible terminal title
-  - visible user/session title
+  - visible primary session title
   - `undefined`
 
-Auto-summarization contract:
+### Activity markers and sounds
 
-- trigger only when `title.trim().length > 25`
-- threshold: `25`
-- max/clamp length: `24`
-- output should be 2–4 words, plain text, no quotes, no markdown, no commentary, no trailing punctuation
-- result cleanup strips fences, wrapping quotes, extra whitespace, trailing periods, and prefers whole-word truncation
+Agent markers preserved:
 
-Provider split to note:
+- Claude working: `⠐ ⠂ ·`; idle: `✳ *`
+- Codex working: `⠸ ⠴ ⠼ ⠧ ⠦ ⠏ ⠋ ⠇ ⠙ ⠹`
+- Gemini working: `✦`; idle: `◇`
+- Copilot working: `🤖`; idle/attention: `🔔`
 
-- terminal rename auto-summarization uses high-effort settings:
-  - Codex: `gpt-5.4-mini` with high reasoning effort
-  - Claude: `haiku` with high effort
-- this is intentionally distinct from low-effort git text generation defaults in `git_text_generation`
+Attention/sound rules:
 
-Activity/sound model:
+- a session must have been working for at least `3000ms` before attention appears
+- completion sound confirmation delay is `1000ms`
+- audio uses unlocked `AudioContext` paths due to VS Code webview constraints
 
-- activity is title-driven for CLI agents
-- marker families are preserved for Claude, Codex, Gemini, and Copilot
-- Claude/Codex require observed title transitions before spinner implies working
-- stale spinner timeout: `3000ms`
-- attention requires at least `3000ms` of prior work
-- completion sound delay: `1000ms`
-- high-frequency title/activity updates use patch messages instead of full rehydrates
+### Rename summarization
 
-## 8. Session actions, forking, resume, reload, and default command overrides
+This sits at the boundary of `terminal_workspace` and `git_text_generation`.
 
-Primary entries:
+Rules from architecture + facts:
 
-- `architecture/terminal_workspace/sidebar_session_fork_support.md`
-- `architecture/terminal_workspace/sidebar_fork_session_behavior.md`
-- `architecture/terminal_workspace/default_agent_commands_overrides.md`
-- `facts/project/sidebar_session_fork_support_facts.md`
-- `facts/project/sidebar_fork_session_behavior_facts.md`
-- `facts/project/default_agent_commands_override_facts.md`
+- summarize only when `title.trim().length > 25`
+- `SESSION_RENAME_SUMMARY_THRESHOLD = 25`
+- `GENERATED_SESSION_TITLE_MAX_LENGTH = 24`
+- preferred output length is `2–4` words
+- no quotes, markdown, commentary, or ending punctuation
+- cleanup keeps the first non-empty line, strips fences/quotes, collapses whitespace, strips trailing periods, and clamps with whole-word preference
+
+Provider choices here are intentionally different from low-effort git defaults:
+
+- Codex: `gpt-5.4-mini` with high reasoning effort
+- Claude: `haiku` with high effort
+- timeout remains `180000ms`
+
+### Agent command resolution and session action support
+
+Config surface:
+
+- `VSmux.defaultAgentCommands`
+- built-in keys: `t3`, `codex`, `copilot`, `claude`, `opencode`, `gemini`
+
+Rules:
+
+- empty/whitespace overrides normalize to `null`
+- configured overrides are used only when no stored per-session preference exists
+- stored per-session commands remain authoritative
+- legacy built-ins may upgrade to configured aliases during resume/fork only when exact legacy default matches
+- legacy string-only launches normalize to `{ agentId: "codex", command }`
+
+Built-in launch resolution supports:
+
+- `codex`, `claude`, `copilot`, `gemini`, `opencode`
+- not `t3`
 
 Support matrix:
 
-- Copy resume: `codex`, `claude`, `copilot`, `gemini`, `opencode`
-- Fork: `codex`, `claude`
-- Full reload: `codex`, `claude`
-- Browser sessions cannot rename, fork, copy resume, or full reload
+- copy resume: `codex`, `claude`, `copilot`, `gemini`, `opencode`
+- fork: `codex`, `claude`
+- full reload: `codex`, `claude`
+- browser sessions cannot rename, fork, copy-resume, or full-reload
 
-Fork flow:
+### Fork and resume command signatures
 
-1. sidebar posts `{ type: "forkSession", sessionId }`
-2. controller validates source session/group/title/command
-3. creates sibling in same group
-4. reuses agent and launch metadata
-5. inserts new session after source
-6. writes fork command
-7. schedules delayed rename after `4000ms`
+Preserved signatures and behaviors:
 
-Fork commands:
+- Codex fork: `<command> fork '<title>'`
+- Claude fork: `<command> --fork-session -r '<title>'`
+- Codex resume: `<command> resume '<title>'`
+- Claude resume: `<command> -r '<title>'`
 
-- `codex fork '<title>'`
-- `claude --fork-session -r '<title>'`
+Additional fork behavior:
 
-Default command override rules:
+- fork message contract includes `{ type: "forkSession", sessionId: string }`
+- routed via `extension/native-terminal-workspace/sidebar-message-dispatch.ts`
+- new fork is inserted as a sibling immediately after the source in the same group
+- reuses icon and stored launch metadata
+- delayed rename after `FORK_RENAME_DELAY_MS = 4000`
 
-- setting: `VSmux.defaultAgentCommands`
-- built-ins: `t3`, `codex`, `copilot`, `claude`, `opencode`, `gemini`
-- empty string normalizes to `null`
-- stored explicit commands override configured defaults
-- legacy stock commands may upgrade only when stored value exactly matches prior stock default
-- built-in launch resolution excludes `t3`
+---
 
-Relationship:
+## 8) Browser tabs, T3 integration, and managed runtime upgrade
 
-- chat-history resume and workspace reattach semantics intersect here; resume commands should only run when backend recreation truly happened
-
-## 9. Browser/T3/workspace integration and managed runtime upgrade
-
-Primary entries:
+Primary drill-downs:
 
 - `architecture/terminal_workspace/workspace_browser_t3_integration.md`
 - `architecture/terminal_workspace/t3_managed_runtime_upgrade_and_recovery.md`
 - `facts/project/workspace_browser_t3_integration_facts.md`
 - `facts/project/t3_managed_runtime_upgrade_facts.md`
 
-Core workspace/browser/T3 facts:
+### Browser integration
 
-- browser group ID: `browser-tabs`
-- workspace panel identity:
-  - type: `vsmux.workspace`
-  - title: `VSmux`
-  - icon/resource roots include `media/icon.svg`, `out/workspace`, `forks/t3code-embed/dist`
-- default T3 websocket URL: `ws://127.0.0.1:3774/ws`
-- T3 monitor uses `orchestration.getSnapshot` and `subscribeOrchestrationDomainEvents`
-- request timeout: `15000ms`
-- reconnect delay: `1500ms`
-- refresh debounce: `100ms`
-- sidebar browser listings exclude internal VSmux workspace and T3-owned tabs
-- group state trusts authoritative `sessionIdsByGroup` payloads
-- T3 focus acknowledgement is completion-marker-aware through `acknowledgeThread`
+- browser sidebar group id is `browser-tabs`
+- internal VSmux / T3-owned tabs are excluded
+- filters cover `viewType` and localhost URL checks
+- local `/workspace` and `/t3-embed` URLs are filtered
+- browser sessions are intentionally excluded from terminal-only actions and grouped terminal normalization
 
-Managed runtime upgrade invariants:
+### T3 activity/runtime integration
 
-- managed runtime port: `3774`
-- legacy runtime port: `3773`
-- entrypoint:
-  `forks/t3code-embed/upstream/apps/server/src/bin.ts`
-- protocol requires:
-  - websocket route `/ws`
-  - numeric string request IDs
-  - `Ping` / `Pong`
-  - streaming frames `Chunk`, `Ack`, `Exit`
-- mixed-install recovery requires syncing tested `upstream`, `overlay`, and `dist` back from an isolated worktree
+Key components and endpoints:
 
-## 10. Packaging, extension identity, and AI DevTools integration
+- activity source: `T3ActivityMonitor`
+- managed runtime endpoint: `127.0.0.1:3774`
+- legacy runtime endpoint: `127.0.0.1:3773`
+- websocket URL: `ws://127.0.0.1:3774/ws`
+- snapshot RPC: `orchestration.getSnapshot`
+- subscription RPC: `subscribeOrchestrationDomainEvents`
 
-Primary entries:
+Behavioral details:
 
-- `architecture/terminal_workspace/vsix_packaging_and_t3_embed_validation.md`
-- `architecture/terminal_workspace/vsmux_ai_devtools_integration.md`
-- `facts/project/vsmux_packaging_and_embed_validation_facts.md`
-- `facts/project/vsmux_ai_devtools_integration_facts.md`
+- request timeout `15000ms`
+- reconnect delay `1500ms`
+- refresh debounce `100ms`
+- Ping/Pong supported
+- request IDs are numeric strings matching `^\d+$`
+- streaming protocol includes Chunk/Ack/Exit semantics
+- T3 focus acknowledgement is completion-marker-aware
 
-VSmux package/extension identity:
+Source entrypoint:
 
-- display name: `VSmux - T3code & Agent CLIs Manager`
-- publisher: `maddada`
-- main: `./out/extension/extension.js`
-- repository: `https://github.com/maddada/VSmux.git`
-- icon: `media/VSmux-marketplace-icon.png`
-- version: `2.6.0`
-- VS Code engine: `^1.100.0`
-- package manager: `pnpm@10.14.0`
+- `forks/t3code-embed/upstream/apps/server/src/bin.ts`
 
-Activation/container structure:
+Recovery after mixed installs requires synchronization of upstream, overlay, and dist from a tested refresh worktree.
 
-- primary Activity Bar container: `VSmuxSessions`
-- primary view: `VSmux.sessions`
-- secondary container: `VSmuxSessionsSecondary`
-- activation events include `onStartupFinished`, `onView:VSmux.sessions`, `onWebviewPanel:vsmux.workspace`
+---
 
-Packaging/build decisions:
+## 9) Agent Manager X bridge
 
-- packaging script: `scripts/vsix.mjs`
-- modes: `package`, `install`
-- build command: `pnpm run compile`
-- `vsce package` uses `--no-dependencies --skip-license --allow-unused-files-pattern`
-- packaged assets include `forks/t3code-embed/dist/**`, `out/workspace/**`, `out/**`, `media/**`
-- installed embed asset hash should be verified under `~/.vscode/extensions/.../forks/t3code-embed/dist/assets/index-*.js`
+Primary drill-downs:
 
-AI DevTools/chat-history integration:
+- `architecture/terminal_workspace/agent_manager_x_bridge_integration.md`
+- `architecture/terminal_workspace/agent_manager_x_focus_path_without_sidebar_rehydration.md`
+- corresponding facts entries
 
-- VSmux is the single shipped extension host
-- `activateChatHistory(context)` runs before workspace controller setup
-- `aiDevtools.conversations` is registered under `VSmuxSessions`
-- chat-history build output: `chat-history/dist`
-- `ai-devtools.suspend` disposes panel, clears sidebar cache, and marks suspended state for memory release
+### Bridge model
 
-## 11. Chat history viewer, search, resume, and VSmux Search rename
+Key file and endpoint:
 
-Primary entries:
+- `extension/agent-manager-x-bridge.ts`
+- `ws://127.0.0.1:47652/vsmux`
 
+Ownership:
+
+- `NativeTerminalWorkspaceController` owns a single `AgentManagerXBridgeClient`
+
+Snapshot behavior:
+
+- publishes initial and changed workspace snapshots
+- snapshots are memory-only
+- sends only when:
+  - a latest snapshot exists
+  - socket is `WebSocket.OPEN`
+  - serialized payload changed
+
+Reconnect/handshake:
+
+- handshake timeout `3000ms`
+- reconnect backoff starts at `1000ms` and caps at `5000ms`
+- `perMessageDeflate` disabled
+- `ping` messages are ignored
+
+Payload includes workspace metadata plus per-session fields such as:
+
+- `agent`
+- `alias`
+- `displayName`
+- `isFocused`
+- `isRunning`
+- `isVisible`
+- `kind`
+- `status`
+- optional `terminalTitle`
+- optional `threadId`
+
+Focus path rule:
+
+- `focusSession` is honored only when incoming `workspaceId` matches `latestSnapshot.workspaceId`
+- refined focus path now targets session focus directly without forcing sidebar rehydration/reopen
+
+---
+
+## 10) Chat history and VSmux Search
+
+Primary drill-downs:
+
+- `architecture/chat_history/_index.md`
 - `architecture/chat_history/viewer_search_and_resume_actions.md`
 - `architecture/chat_history/vsmux_search_rename.md`
-- `facts/project/viewer_search_and_resume_actions_facts.md`
-- `facts/project/vsmux_search_rename_facts.md`
+- fact entries:
+  - `viewer_search_and_resume_actions_facts.md`
+  - `vsmux_search_rename_facts.md`
+  - `vsmux_ai_devtools_integration_facts.md`
 
-Viewer/search architecture:
+### Viewer architecture
 
-- webview UI:
-  - `chat-history/src/webview/App.tsx`
-  - `chat-history/src/webview/components/custom-ui/conversation/ConversationSearchBar.tsx`
-- extension logic:
-  - `chat-history/src/extension/extension.ts`
-- search uses browser-native `window.find`
-- `Cmd/Ctrl+F` opens custom search bar
-- Enter/Shift+Enter drive next/previous match
-- Escape closes search
-- search wraps around
-- query changes reset selection/scroll state
-- explicit status exists for empty query and failed match
-- invalid JSONL/schema lines normalize to `x-error` records
-- viewer panel uses `retainContextWhenHidden: false`
+Implementation split:
 
-Resume contract:
+- `chat-history/src/webview/App.tsx`
+- `chat-history/src/webview/components/custom-ui/conversation/ConversationSearchBar.tsx`
+- `chat-history/src/extension/extension.ts`
 
-- webview posts `resumeSession`
-- payload includes `source`, `sessionId`, optional `cwd`
-- resume only enabled when source can be inferred and session metadata parsed
-- source inference:
-  - `/.codex/`, `/.codex-profiles/` -> `Codex`
-  - `/.claude/`, `/.claude-profiles/` -> `Claude`
-- commands:
-  - `claude --resume <sessionId>`
-  - `codex resume <sessionId>`
-- session IDs are shell-quoted with `quoteShellLiteral`
-- terminal name for resumed terminal: `AI DevTools Resume (<source>)`
+Flow:
 
-VSmux Search rename/package layer:
+1. load conversation JSONL
+2. parse entries and derive `source`, `sessionId`, optional `cwd`
+3. enable search/resume only when metadata is valid
+4. webview posts messages like `ready`, `refreshConversation`, `resumeSession`
+5. extension validates payload and opens terminal
+6. provider-specific resume command executes
+
+### Search model
+
+Architectural choice:
+
+- viewer uses native `window.find` rather than custom indexed search state
+
+Preserved UI behavior:
+
+- `Cmd/Ctrl+F` opens custom find bar
+- `Enter` next, `Shift+Enter` previous, `Escape` close
+- wraps around
+- resets selection/scroll on query change
+- explicit states for empty input and failed matches
+
+### Resume contract
+
+Message payload:
+
+- `resumeSession` carries `source`, `sessionId`, optional `cwd`
+
+Source inference from file path:
+
+- `/.codex/`, `/.codex-profiles/` -> `Codex`
+- `/.claude/`, `/.claude-profiles/` -> `Claude`
+
+Resume commands:
+
+- `claude --resume <sessionId>`
+- `codex resume <sessionId>`
+
+Other preserved details:
+
+- shell quoting uses `quoteShellLiteral`
+- terminal opens in conversation `cwd` when available
+- terminal label is `AI DevTools Resume (<source>)`
+- invalid JSONL/schema parse results normalize to `x-error` records
+
+### VSmux Search rename / packaging
+
+Renamed identifiers:
 
 - command namespace: `VSmuxSearch.*`
-- view ID: `VSmuxSearch.conversations`
+- view id: `VSmuxSearch.conversations`
 - view label: `VSmux Search`
-- panel type: `vsmuxSearchViewer`
-- standalone package: `vsmux-search-vscode`
+- viewer panel type: `vsmuxSearchViewer`
+
+Pattern references preserved:
+
+- `^VSmuxSearch\..+$`
+- `^onView:VSmuxSearch\.conversations$`
+- `^vsmux-search-export-.+\.md$`
+
+Package/runtime identity:
+
+- package: `vsmux-search-vscode`
 - publisher: `vsmux-search`
 - version: `1.1.0`
 - activity bar container: `vsmux-search`
-- activation event: `onView:VSmuxSearch.conversations`
 
-Export/filter behavior:
+Filtering/export behavior:
 
-- export filename: `vsmux-search-export-${sessionId}.md`
-- preserves metadata and message categories
-- groups Chrome MCP tools into option keys
-- unknown tools are included by default
-- recent-only cutoff is 7 days and only applies when no all-time mode and no filter text are active
-- filter debounce in facts layer: `150ms`
+- recent-only cutoff is 7 days
+- cutoff applies only when `!this._showAllTime && !this._filterText`
+- filter debounce `150ms`
+- live browser tab filtering ignores VSmux Search labels
+- export filename format: `vsmux-search-export-${sessionId}.md`
+- unknown tools export by default when no option-key mapping exists
 
-Relationship to workspace:
+### Relationship to workspace
 
-- resume launches into the same terminal/session runtime architecture described in `terminal_workspace/current_state.md` and `workspace_browser_t3_integration.md`
+`chat_history` depends on terminal launch/resume infrastructure from `terminal_workspace` rather than building its own runtime stack.
 
-## 12. Git text generation provider architecture
+---
 
-Primary entries:
+## 11) Git text generation subsystem
 
+Primary drill-downs:
+
+- `architecture/git_text_generation/_index.md`
 - `architecture/git_text_generation/low_effort_provider_settings.md`
 - `facts/project/git_text_generation_low_effort_provider_facts.md`
 
-Primary files:
+### Purpose and execution flow
+
+Used for:
+
+- commit messages
+- PR content
+- session titles
+
+Key files:
 
 - `extension/git/text-generation-utils.ts`
 - `extension/git/text-generation.ts`
@@ -514,157 +699,235 @@ Execution flow:
 4. run shell command
 5. read output from temp file or stdout
 6. parse and sanitize
-7. return commit message, PR content, or session title
+7. return text
 
-Provider/default configuration:
+Dependencies/helpers:
 
-- setting key: `VSmux.gitTextGenerationProvider`
-- custom command setting: `VSmux.gitTextGenerationCustomCommand`
-- supported providers: `codex`, `claude`, `custom`
-- default provider: `codex`
-- runtime timeout: `180000ms`
+- `runShellCommand` from `./process`
+- `mkdtemp`, `readFile`, `rm`
+- shell quoting from `../agent-shell-integration-utils`
+- `GENERATED_SESSION_TITLE_MAX_LENGTH` from native terminal workspace title generation
 
-Built-in provider defaults are intentionally low-effort as of `2026-04-06`:
+### Config and provider defaults
+
+Config keys:
+
+- `VSmux.gitTextGenerationProvider`
+- `VSmux.gitTextGenerationCustomCommand`
+
+Supported providers:
+
+- `codex | claude | custom`
+
+Default provider:
+
+- `codex`
+
+Built-in low-effort providers:
 
 - Codex:
   - `exec codex -m gpt-5.4-mini -c model_reasoning_effort="low" exec -`
 - Claude:
   - `exec claude --model haiku --effort low -p ...`
 
-Preserved parsing/prompt rules:
+Timeout:
 
-- empty output is fatal
-- non-zero exits are wrapped with provider-specific diagnostics
-- session titles are clamped to `GENERATED_SESSION_TITLE_MAX_LENGTH`
-- tested title behavior remains under 25 chars
-- preserved regexes include:
-  - conventional commit subject:
-    `^[a-z]+\([a-z0-9._/-]+\):\s+.+$`
-  - fenced output stripping:
-    `^```(?:[a-z0-9_-]+)?\n([\s\S]*?)\n```$`
-  - patch file path extraction:
-    `^diff --git a\/(.+?) b\/(.+)$`
-  - safe unquoted shell args:
-    `^[a-z0-9._-]+$`
+- `180000ms`
 
-Artifact-specific prompt constraints:
+Placeholder rules:
 
-- commit messages: conventional type, short lowercase scope, imperative summary `<= 40` chars, `3 to 8` bullets when meaningful
-- PR content: concise title plus markdown `Summary` and `Testing`
-- session titles: `2 to 4` words, specific/scannable, no quotes/markdown/commentary/trailing punctuation
+- custom commands support `{outputFile}` and `{prompt}`
+- if `{prompt}` is absent, quoted prompt is appended automatically
 
-Cross-topic relationship:
+### Parsing and prompt constraints
 
-- `git_text_generation/low_effort_provider_settings.md` covers general git text generation defaults
-- `terminal_workspace/session_rename_title_auto_summarization.md` covers a separate high-effort path for workspace rename auto-summarization
+Recognition/sanitization patterns include:
+
+- conventional commit subject:
+  - `^[a-z]+\([a-z0-9._/-]+\):\s+.+$`
+- fenced output stripping:
+  - `^```(?:[a-z0-9_-]+)?\n([\s\S]*?)\n```$`
+- patch path extraction:
+  - `^diff --git a\/(.+?) b\/(.+)$`
+- safe unquoted shell args:
+  - `^[a-z0-9._-]+$`
+
+Behavior:
+
+- empty outputs are fatal
+- non-zero exits get provider-specific wrapped errors
+- session titles clamp to `GENERATED_SESSION_TITLE_MAX_LENGTH`
+- tests keep title output under 25 chars
+
+### Relationship to terminal workspace
+
+`git_text_generation` is the general subsystem; `terminal_workspace/session_rename_title_auto_summarization.md` applies it with stricter title-specific rules and higher-effort provider settings.
 
 ---
 
-# Cross-Cutting Patterns
+## 12) Packaging, extension identity, and build composition
 
-## Stable identity + minimal replay
+Primary drill-downs:
 
-Repeated across `terminal_workspace`, `chat_history`, and bridge integrations:
-
-- cache by stable identifiers like `sessionId`
-- replay only enough buffered state to restore UX
-- emit updates only when serialized payload changes
-- avoid unnecessary full rehydration
-
-Referenced in:
-
-- `architecture/terminal_workspace/current_state.md`
-- `architecture/chat_history/viewer_search_and_resume_actions.md`
-- `facts/project/agent_manager_x_bridge_integration_facts.md`
-
-## Centralized authority, event-oriented children
-
-Common ownership split:
-
-- child UI components emit intent
-- controllers/app-level owners decide state transitions, focus, runtime lifecycle, and external effects
-
-Examples:
-
-- `WorkspaceApp` vs `TerminalPane`
-- chat-history webview vs `chat-history/src/extension/extension.ts`
-- `NativeTerminalWorkspaceController` owning daemon/T3/bridge integrations
-
-## Low-retention webviews for resilience
-
-A strong design choice across workspace and viewer surfaces:
-
-- `retainContextWhenHidden: false` is used to prefer reconstruction over retaining stale state
-- applies to workspace panels, chat-history viewer, and related surfaces
-
-Referenced in:
-
-- `terminal-workspace-current-state.md`
-- `architecture/chat_history/viewer_search_and_resume_actions.md`
+- `architecture/terminal_workspace/vsix_packaging_and_t3_embed_validation.md`
+- `architecture/terminal_workspace/vsmux_ai_devtools_integration.md`
+- `facts/project/vsmux_packaging_and_embed_validation_facts.md`
 - `facts/project/vsmux_ai_devtools_integration_facts.md`
 
-## Exact thresholds and support matrices as first-class knowledge
+### Main extension identity
 
-The facts layer systematically preserves:
+Preserved facts:
 
-- timeouts and debounce windows
-- drag/focus thresholds
-- support matrices for fork/resume/reload
-- exact command forms, config keys, regexes, and package identities
+- display name: `VSmux - T3code & Agent CLIs Manager`
+- publisher: `maddada`
+- main: `./out/extension/extension.js`
+- repo: `https://github.com/maddada/VSmux.git`
+- icon: `media/VSmux-marketplace-icon.png`
+- version: `2.6.0`
+- VS Code engine: `^1.100.0`
+- package manager: `pnpm@10.14.0`
 
-This makes `facts/project/_index.md` the fastest drill-down target for implementation constants.
+View containers / activation surface:
+
+- `VSmuxSessions`
+- `VSmux.sessions`
+- `VSmuxSessionsSecondary`
+- activation events include:
+  - `onStartupFinished`
+  - `onView:VSmux.sessions`
+  - `onWebviewPanel:vsmux.workspace`
+
+### Build composition
+
+Root build includes:
+
+- sidebar
+- debug-panel
+- workspace
+- `chat-history:webview:build`
+- TypeScript compile
+- vendoring/runtime packaging
+
+Additional build/package facts:
+
+- `chat-history/dist` is dedicated output
+- extension TypeScript compile includes `extension`, `shared`, and `chat-history/src/extension`
+- TypeScript target is `ES2024`
+- chat-history webview targets `es2020` with `iife`
+- `restty@0.1.35` is patched via `patches/restty@0.1.35.patch`
+- pnpm overrides `vite` and `vitest` to `@voidzero-dev` packages
+
+### AI DevTools integration
+
+- VSmux remains the only shipped extension host
+- copied chat-history extension code is activated inside VSmux
+- `aiDevtools.conversations` is registered under `VSmuxSessions`, below `VSmux.sessions`
+- `ai-devtools.suspend` disposes panel, clears cache, and records suspended state to free memory
+
+### VSIX / T3 embed validation
+
+Packaging flow references:
+
+- `pnpm run compile`
+- `scripts/vsix.mjs`
+
+Validation includes checking installed T3 asset hash under:
+
+- `~/.vscode/extensions/.../forks/t3code-embed/dist/assets/index-*.js`
 
 ---
 
-# Drill-Down Guide
+## 13) Current-state emphasis from `terminal-workspace-current-state.md`
 
-## For terminal runtime architecture
+This entry mostly confirms and sharpens the architecture/facts summaries.
+
+### Strongly emphasized current truths
+
+- `restty` is the active renderer
+- warm terminal switching is required both within and across groups
+- terminals from all groups are projected so group switching does not cold-create panes
+- inactive panes stay mounted behind the active pane
+- hidden-pane size churn must be avoided
+- focus should route through `WorkspaceApp`
+- closing then reusing a `sessionId` must never resurrect stale frontend transcript state
+- sidebar-listed sessions should stay alive while VS Code is running, even if sidebar/workarea closes
+- if daemon PTY is live, reopen should reattach, not resume
+- if daemon is not live, sidebar should still show persisted agent/title state
+- sidebar clicking should not mutate order without real drag movement
+
+### Additional implementation nuance
+
+- visible maintenance is shared for startup and observer-driven upkeep
+- runtime cache stores `bootstrapVisualsComplete`
+- startup-black seeding/reveal checks run only until that flag becomes `false`->complete
+- after bootstrap, maintenance continues with scroll-host binding, scroll visibility updates, and optional size updates
+- hidden panes skip redraw work after PTY connect
+
+---
+
+## 14) Cross-entry relationships
+
+### `chat_history` ↔ `terminal_workspace`
+
+- conversation resume uses workspace terminal launch/resume infrastructure
+- both use webview/extension-host message contracts
+- both use `retainContextWhenHidden: false`
+- chat-history code is also packaged into the main VSmux extension (`vsmux_ai_devtools_integration.md`)
+
+### `git_text_generation` ↔ `terminal_workspace`
+
+- session rename auto-summarization depends on git text-generation execution/parsing
+- git uses low-effort provider defaults
+- rename summarization uses stricter title constraints and higher-effort settings
+
+### `architecture` ↔ `facts`
+
+- `architecture/_index.md` explains subsystem structure, rationale, and relationships
+- `facts/_index.md` distills constants, support matrices, persisted keys, regexes, command signatures, and endpoint values
+- `terminal-workspace-current-state.md` acts as a direct operational snapshot of what is currently implemented and why
+
+---
+
+## Best drill-down paths
+
+### For terminal runtime / restore / daemon behavior
 
 - `architecture/terminal_workspace/current_state.md`
-- `terminal-workspace-current-state.md`
-- `facts/project/terminal_workspace_facts.md`
-- `facts/project/terminal_workspace_runtime_facts.md`
-
-## For persistence and reload semantics
-
 - `architecture/terminal_workspace/terminal_persistence_across_reloads.md`
 - `architecture/terminal_workspace/terminal_persistence_across_vs_code_reloads.md`
-- `facts/project/terminal_persistence_reload_facts.md`
+- `facts/project/terminal_workspace_runtime_facts.md`
 - `facts/project/terminal_persistence_across_vs_code_reloads_facts.md`
 
-## For focus, pane ordering, and sidebar interaction
+### For focus / pane order / drag safety
 
 - `architecture/terminal_workspace/workspace_focus_and_sidebar_drag_semantics.md`
-- `architecture/terminal_workspace/workspace_sidebar_interaction_state.md`
+- `architecture/terminal_workspace/workspace_focus_debugging.md`
 - `facts/project/workspace_focus_and_drag_runtime_facts.md`
-- `facts/project/workspace_sidebar_interaction_facts.md`
+- `terminal-workspace-current-state.md`
 
-## For titles, activity, rename, and session actions
+### For titles / rename / session actions
 
 - `architecture/terminal_workspace/terminal_title_normalization_and_session_actions.md`
 - `architecture/terminal_workspace/session_rename_title_auto_summarization.md`
-- `architecture/terminal_workspace/terminal_titles_activity_and_completion_sounds.md`
 - `facts/project/terminal_title_normalization_facts.md`
-- `facts/project/session_rename_title_auto_summarization_facts.md`
 - `facts/project/sidebar_fork_session_behavior_facts.md`
+- `facts/project/default_agent_commands_override_facts.md`
 
-## For browser/T3 and packaging
-
-- `architecture/terminal_workspace/workspace_browser_t3_integration.md`
-- `architecture/terminal_workspace/t3_managed_runtime_upgrade_and_recovery.md`
-- `architecture/terminal_workspace/vsix_packaging_and_t3_embed_validation.md`
-- `facts/project/workspace_browser_t3_integration_facts.md`
-- `facts/project/t3_managed_runtime_upgrade_facts.md`
-- `facts/project/vsmux_packaging_and_embed_validation_facts.md`
-
-## For chat-history search/resume and VSmux Search
+### For chat viewer / search / resume / VSmux Search
 
 - `architecture/chat_history/viewer_search_and_resume_actions.md`
 - `architecture/chat_history/vsmux_search_rename.md`
 - `facts/project/viewer_search_and_resume_actions_facts.md`
 - `facts/project/vsmux_search_rename_facts.md`
 
-## For git provider command generation
+### For T3 / browser / bridge integrations
 
-- `architecture/git_text_generation/low_effort_provider_settings.md`
-- `facts/project/git_text_generation_low_effort_provider_facts.md`
+- `architecture/terminal_workspace/workspace_browser_t3_integration.md`
+- `architecture/terminal_workspace/t3_managed_runtime_upgrade_and_recovery.md`
+- `architecture/terminal_workspace/agent_manager_x_bridge_integration.md`
+- `facts/project/workspace_browser_t3_integration_facts.md`
+- `facts/project/agent_manager_x_bridge_integration_facts.md`
+
+## Overall compressed takeaway
+
+This knowledge set describes VSmux as a per-workspace, state-authoritative terminal orchestration system built around `restty`, detached daemon-backed PTYs, bootstrap-first webview restore, and warm runtime reuse keyed by `sessionId`. `terminal_workspace` is the central subsystem; `chat_history` reuses its resume/launch infrastructure for conversation viewing and VSmux Search; `git_text_generation` supplies shell-command-driven text generation, especially for session rename summarization. The most stable implementation themes are explicit state normalization, strong controller ownership, per-workspace daemon/runtime boundaries, hidden-pane preservation over teardown, and exact message/command contracts.
