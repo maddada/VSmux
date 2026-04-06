@@ -15,6 +15,6 @@
     "rootDir": ".",
     "sourceMap": true
   },
-  "include": ["extension", "shared"],
+  "include": ["extension", "shared", "chat-history/src/extension"],
   "exclude": ["node_modules", ".vscode-test", "src", "**/*.test.ts", "**/*.spec.ts"]
 }

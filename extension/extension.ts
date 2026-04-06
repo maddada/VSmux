@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { activate as activateChatHistory } from "../chat-history/src/extension/extension";
+import { setChatHistoryVSmuxTarget } from "./chat-history-vsmux-bridge";
 import { type VisibleSessionCount } from "../shared/session-grid-contract";
 import { DebuggingStatusIndicator } from "./debugging-status-indicator";
 import { NativeTerminalWorkspaceController, SESSIONS_VIEW_ID } from "./native-terminal-workspace";
@@ -6,10 +8,17 @@ import { initializeVSmuxDebugLog } from "./vsmux-debug-log";
 
 export function activate(context: vscode.ExtensionContext): void {
   initializeVSmuxDebugLog(context);
+  activateChatHistory(context);
   const workspace = new NativeTerminalWorkspaceController(context);
+  setChatHistoryVSmuxTarget(workspace);
   const debuggingStatusIndicator = new DebuggingStatusIndicator(workspace);
 
   context.subscriptions.push(
+    {
+      dispose: () => {
+        setChatHistoryVSmuxTarget(undefined);
+      },
+    },
     workspace,
     debuggingStatusIndicator,
     vscode.window.registerWebviewViewProvider(SESSIONS_VIEW_ID, workspace.sidebarProvider),

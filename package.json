@@ -16,17 +16,20 @@
   "publisher": "maddada",
   "files": [
     "media/**",
+    "chat-history/media/**",
+    "chat-history/dist/**",
     "forks/t3code-embed/dist/**",
     "out/workspace/**",
     "out/**"
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "build:extension": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
+    "build:extension": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && pnpm run chat-history:webview:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "vscode:prepublish": "node ./scripts/vscode-prepublish.mjs",
     "sidebar:build": "vp build --config vite.sidebar.config.ts",
     "debug-panel:build": "vp build --config vite.debug-panel.config.ts",
     "workspace:build": "vp build --config vite.workspace.config.ts",
+    "chat-history:webview:build": "bunx --bun @tailwindcss/cli -i ./chat-history/src/webview/index.css -o ./chat-history/dist/webview.css --minify && bun run ./chat-history/esbuild.webview.ts",
     "storybook": "vp exec storybook dev -p 6006 --no-open",
     "storybook:live": "pnpm exec tsc -p ./tsconfig.extension.json && node ./scripts/storybook-live.mjs",
     "storybook:build": "vp exec storybook build",
@@ -51,13 +54,25 @@
     "@dnd-kit/dom": "0.3.2",
     "@dnd-kit/helpers": "0.3.2",
     "@dnd-kit/react": "0.3.2",
+    "@fontsource-variable/inter": "^5.2.8",
     "@lydell/node-pty": "1.2.0-beta.3",
     "@tabler/icons-react": "^3.40.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "ghostty-web": "^0.4.0",
+    "lucide-react": "^0.561.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.0",
+    "remark-gfm": "^4.0.1",
     "restty": "0.1.35",
+    "shadcn": "^3.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.4.0",
+    "tw-animate-css": "^1.4.0",
     "ws": "^8.20.0",
+    "zod": "^4.1.13",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -70,7 +85,9 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
     "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.24.0",
     "storybook": "^10.3.0",
+    "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest"
@@ -196,6 +213,34 @@
         "command": "VSmux.moveToSecondarySidebar",
         "title": "Move to Secondary Sidebar",
         "category": "VSmux"
+      },
+      {
+        "command": "ai-devtools.openViewer",
+        "title": "AI DevTools: Open Conversation Viewer"
+      },
+      {
+        "command": "ai-devtools.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ai-devtools.openConversation",
+        "title": "Open Conversation"
+      },
+      {
+        "command": "ai-devtools.toggleScope",
+        "title": "AI DevTools: Toggle Scope (Current/All Projects)",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "ai-devtools.toggleTimeFilter",
+        "title": "AI DevTools: Toggle Time Filter (Recent/All)",
+        "icon": "$(history)"
+      },
+      {
+        "command": "ai-devtools.suspend",
+        "title": "AI DevTools: Suspend (Release Memory)",
+        "icon": "$(debug-pause)"
       }
     ],
     "viewsContainers": {
@@ -220,6 +265,38 @@
           "type": "webview",
           "id": "VSmux.sessions",
           "name": "Sessions"
+        },
+        {
+          "type": "webview",
+          "id": "aiDevtools.conversations",
+          "name": "AI DevTools",
+          "icon": "chat-history/media/icon.svg",
+          "contextualTitle": "AI DevTools"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "aiDevtools.conversations",
+        "contents": "No conversations found for this project.\n\nStart a Claude Code or Codex conversation in this workspace to see it here.\n\n[Show All Projects](command:ai-devtools.toggleScope)\n[Refresh](command:ai-devtools.refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ai-devtools.toggleTimeFilter",
+          "when": "view == aiDevtools.conversations",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ai-devtools.toggleScope",
+          "when": "view == aiDevtools.conversations",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ai-devtools.refresh",
+          "when": "view == aiDevtools.conversations",
+          "group": "navigation@3"
         }
       ]
     },
@@ -703,6 +780,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:VSmux.sessions",
+    "onView:aiDevtools.conversations",
     "onWebviewPanel:vsmux.workspace"
   ],
   "icon": "media/VSmux-marketplace-icon.png",

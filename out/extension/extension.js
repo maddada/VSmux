@@ -3,16 +3,25 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = require("vscode");
+const extension_1 = require("../chat-history/src/extension/extension");
+const chat_history_vsmux_bridge_1 = require("./chat-history-vsmux-bridge");
 const debugging_status_indicator_1 = require("./debugging-status-indicator");
 const native_terminal_workspace_1 = require("./native-terminal-workspace");
 const vsmux_debug_log_1 = require("./vsmux-debug-log");
 function activate(context) {
   (0, vsmux_debug_log_1.initializeVSmuxDebugLog)(context);
+  (0, extension_1.activate)(context);
   const workspace = new native_terminal_workspace_1.NativeTerminalWorkspaceController(context);
+  (0, chat_history_vsmux_bridge_1.setChatHistoryVSmuxTarget)(workspace);
   const debuggingStatusIndicator = new debugging_status_indicator_1.DebuggingStatusIndicator(
     workspace,
   );
   context.subscriptions.push(
+    {
+      dispose: () => {
+        (0, chat_history_vsmux_bridge_1.setChatHistoryVSmuxTarget)(undefined);
+      },
+    },
     workspace,
     debuggingStatusIndicator,
     vscode.window.registerWebviewViewProvider(
