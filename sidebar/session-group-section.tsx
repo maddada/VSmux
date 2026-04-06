@@ -148,6 +148,7 @@ export function SessionGroupSection({
     orderedSessionIds,
     sessionDragIndicator,
   );
+  const shouldRenderGroupSessions = !isBrowserGroup || orderedSessionIds.length > 0;
 
   useEffect(() => {
     postGroupDebugLog("group.sectionMounted", {
@@ -522,41 +523,43 @@ export function SessionGroupSection({
             )}
           </div>
         </div>
-        <div
-          className="group-sessions"
-          data-drop-position={groupDropPosition}
-          data-drop-target={String(isGroupDropTarget)}
-        >
-          {orderedSessionIds.length > 0 ? (
-            orderedSessionIds.map((sessionId, sessionIndex) => (
-              <SortableSessionCard
-                dropPosition={
-                  sessionDragIndicator?.kind === "session" &&
-                  sessionDragIndicator.groupId === group.groupId &&
-                  sessionDragIndicator.sessionId === sessionId
-                    ? sessionDragIndicator.position
-                    : undefined
-                }
-                groupId={group.groupId}
-                index={sessionIndex}
-                key={sessionId}
-                onFocusRequested={onFocusRequested}
-                sessionId={sessionId}
-                vscode={vscode}
-              />
-            ))
-          ) : isBrowserGroup ? (
-            <>{/* We may want to restore the empty browser placeholder later. */}</>
-          ) : (
-            <div
-              className="group-empty-drop-target"
-              data-drop-position={groupDropPosition}
-              data-drop-target={String(isGroupDropTarget)}
-            >
-              <div className="group-empty-state">No sessions</div>
-            </div>
-          )}
-        </div>
+        {shouldRenderGroupSessions ? (
+          <div
+            className="group-sessions"
+            data-drop-position={groupDropPosition}
+            data-drop-target={String(isGroupDropTarget)}
+          >
+            {orderedSessionIds.length > 0 ? (
+              orderedSessionIds.map((sessionId, sessionIndex) => (
+                <SortableSessionCard
+                  dropPosition={
+                    sessionDragIndicator?.kind === "session" &&
+                    sessionDragIndicator.groupId === group.groupId &&
+                    sessionDragIndicator.sessionId === sessionId
+                      ? sessionDragIndicator.position
+                      : undefined
+                  }
+                  groupId={group.groupId}
+                  index={sessionIndex}
+                  key={sessionId}
+                  onFocusRequested={onFocusRequested}
+                  sessionId={sessionId}
+                  vscode={vscode}
+                />
+              ))
+            ) : (
+              <div
+                className="group-empty-drop-target"
+                data-drop-position={groupDropPosition}
+                data-drop-target={String(isGroupDropTarget)}
+              >
+                <div className="group-empty-state">No sessions</div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>{/* We may want to restore the empty browser placeholder later. */}</>
+        )}
       </section>
       {!isBrowserGroup && contextMenuPosition
         ? createPortal(

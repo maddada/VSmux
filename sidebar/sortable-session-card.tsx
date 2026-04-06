@@ -477,6 +477,31 @@ export function SortableSessionCard({
                   Rename
                 </button>
               ) : null}
+              {canSleepSession ? (
+                <button
+                  className="session-context-menu-item"
+                  onClick={() => requestSetSleeping(!session.isSleeping)}
+                  role="menuitem"
+                  type="button"
+                >
+                  {session.isSleeping ? (
+                    <IconPlayerPlay
+                      aria-hidden="true"
+                      className="session-context-menu-icon"
+                      size={16}
+                      stroke={1.8}
+                    />
+                  ) : (
+                    <IconMoon
+                      aria-hidden="true"
+                      className="session-context-menu-icon"
+                      size={16}
+                      stroke={1.8}
+                    />
+                  )}
+                  {session.isSleeping ? "Wake" : "Sleep"}
+                </button>
+              ) : null}
               {canSetT3ThreadId ? (
                 <button
                   className="session-context-menu-item"
@@ -539,31 +564,6 @@ export function SortableSessionCard({
                     stroke={1.8}
                   />
                   Full reload
-                </button>
-              ) : null}
-              {canSleepSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={() => requestSetSleeping(!session.isSleeping)}
-                  role="menuitem"
-                  type="button"
-                >
-                  {session.isSleeping ? (
-                    <IconPlayerPlay
-                      aria-hidden="true"
-                      className="session-context-menu-icon"
-                      size={16}
-                      stroke={1.8}
-                    />
-                  ) : (
-                    <IconMoon
-                      aria-hidden="true"
-                      className="session-context-menu-icon"
-                      size={16}
-                      stroke={1.8}
-                    />
-                  )}
-                  {session.isSleeping ? "Wake" : "Sleep"}
                 </button>
               ) : null}
               <button

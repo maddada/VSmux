@@ -314,7 +314,7 @@
 
 .session-last-interaction-time {
   color: color-mix(in srgb, var(--app-muted) 88%, transparent);
-  font-size: calc(10px * var(--sidebar-density-scale));
+  font-size: calc(12px * var(--sidebar-density-scale));
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.25;
