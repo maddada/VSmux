@@ -4,6 +4,7 @@ import type {
   SidebarToExtensionMessage,
 } from "../shared/session-grid-contract";
 import { SidebarApp } from "./sidebar-app";
+import { logSidebarDebug } from "./sidebar-debug";
 import {
   createSidebarStoryMessage,
   createSidebarStoryWorkspace,
@@ -34,7 +35,7 @@ export function SidebarStoryHarness({ message }: SidebarStoryHarnessProps) {
       sidebarStoryMessages.push(nextMessage);
 
       if (nextMessage.type === "sidebarDebugLog") {
-        console.debug(`[storybook sidebarDebug] ${nextMessage.event}`, nextMessage.details);
+        logSidebarDebug(true, `storybook ${nextMessage.event}`, nextMessage.details);
       }
 
       const nextWorkspace = reduceSidebarStoryWorkspace(workspaceRef.current, nextMessage);
