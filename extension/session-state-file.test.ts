@@ -6,6 +6,7 @@ import {
   createDefaultPersistedSessionState,
   deletePersistedSessionStateFile,
   readPersistedSessionStateFromFile,
+  readPersistedSessionStateSnapshotFromFile,
   serializePersistedSessionState,
   writePersistedSessionStateToFile,
 } from "./session-state-file";
@@ -52,5 +53,20 @@ describe("persisted session title normalization", () => {
       agentStatus: "working",
       title: "Copilot fix",
     });
+  });
+
+  test("should expose the persisted state file modification time", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
+    const filePath = path.join(tempDir, "session-02.state");
+
+    await writeFile(filePath, "status=attention\nagent=claude\ntitle=Claude Code\n", "utf8");
+
+    const snapshot = await readPersistedSessionStateSnapshotFromFile(filePath);
+    expect(snapshot.state).toEqual({
+      agentName: "claude",
+      agentStatus: "attention",
+      title: "Claude Code",
+    });
+    expect(snapshot.updatedAtMs).toEqual(expect.any(Number));
   });
 });

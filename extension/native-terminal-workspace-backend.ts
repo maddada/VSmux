@@ -48,7 +48,7 @@ import {
 } from "./native-terminal-workspace-backend/workbench";
 import { createWorkspaceTrace } from "./runtime-trace";
 import {
-  readPersistedSessionStateFromFile,
+  readPersistedSessionStateSnapshotFromFile,
   updatePersistedSessionStateFile,
 } from "./session-state-file";
 import { logVSmuxDebug } from "./vsmux-debug-log";
@@ -1462,6 +1462,21 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.sessions.set(sessionId, nextSnapshot);
 
     const nextTitle = normalizeTitle(persistedState.title);
+    const didPersistedStateChange =
+      previousSnapshot?.agentName !== nextSnapshot.agentName ||
+      previousSnapshot?.agentStatus !== nextSnapshot.agentStatus ||
+      previousTitle !== nextTitle;
+    if (
+      persistedState.updatedAtMs !== undefined &&
+      (this.lastTerminalActivityAtBySessionId.get(sessionId) === undefined ||
+        previousSnapshot === undefined ||
+        didPersistedStateChange)
+    ) {
+      if (this.updateLastTerminalActivityAt(sessionId, persistedState.updatedAtMs)) {
+        this.changeSessionActivityEmitter.fire({ sessionId });
+      }
+    }
+
     if (!nextTitle) {
       this.sessionTitleBySessionId.delete(sessionId);
       return {
@@ -1554,8 +1569,33 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     agentName?: string;
     agentStatus: TerminalAgentStatus;
     title?: string;
+    updatedAtMs?: number;
   }> {
-    return readPersistedSessionStateFromFile(this.getSessionAgentStateFilePath(sessionId));
+    const persistedStateSnapshot = await readPersistedSessionStateSnapshotFromFile(
+      this.getSessionAgentStateFilePath(sessionId),
+    );
+    return {
+      ...persistedStateSnapshot.state,
+      updatedAtMs: persistedStateSnapshot.updatedAtMs,
+    };
+  }
+
+  private updateLastTerminalActivityAt(sessionId: string, nextActivityAt: number): boolean {
+    if (!Number.isFinite(nextActivityAt)) {
+      return false;
+    }
+
+    const previousActivityAt = this.lastTerminalActivityAtBySessionId.get(sessionId);
+    if (
+      previousActivityAt !== undefined &&
+      Number.isFinite(previousActivityAt) &&
+      previousActivityAt >= nextActivityAt
+    ) {
+      return false;
+    }
+
+    this.lastTerminalActivityAtBySessionId.set(sessionId, nextActivityAt);
+    return true;
   }
 
   private createTerminalEnvironment(sessionId: string): Record<string, string> {

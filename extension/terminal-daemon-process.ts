@@ -84,6 +84,7 @@ type ControlClient = {
 
 type PendingSessionAttachment = {
   activated: boolean;
+  id: number;
   initialCols?: number;
   initialRows?: number;
   pendingAttachQueue?: PendingAttachQueue;
@@ -112,6 +113,7 @@ let idleShutdownTimeoutMs: number | null = DEFAULT_IDLE_SHUTDOWN_TIMEOUT_MS;
 let lifecycleTimer: NodeJS.Timeout | undefined;
 let ownerAdoptionTimer: NodeJS.Timeout | undefined;
 let daemonInfo: DaemonInfo | undefined;
+let nextPendingSessionAttachmentId = 0;
 
 const server = createServer();
 const wss = new WebSocketServer({ noServer: true });
@@ -212,6 +214,11 @@ function attachSessionSocket(
 ): void {
   const workspaceId = searchParams.get("workspaceId");
   if (!sessionId || !workspaceId) {
+    void logDaemonDebug("daemon.sessionSocketRejected", {
+      reason: "missing-session-or-workspace",
+      sessionId,
+      workspaceId,
+    });
     socket.close();
     return;
   }
@@ -219,6 +226,12 @@ function attachSessionSocket(
   const sessionKey = createTerminalDaemonSessionKey(workspaceId, sessionId);
   const session = sessions.get(sessionKey);
   if (!session) {
+    void logDaemonDebug("daemon.sessionSocketRejected", {
+      reason: "missing-session",
+      sessionId,
+      sessionKey,
+      workspaceId,
+    });
     socket.close();
     return;
   }
@@ -226,6 +239,14 @@ function attachSessionSocket(
   clearLifecycleTimer();
   const initialCols = parsePositiveNumber(searchParams.get("cols"));
   const initialRows = parsePositiveNumber(searchParams.get("rows"));
+  void logDaemonDebug("daemon.sessionSocketAccepted", {
+    initialCols,
+    initialRows,
+    sessionId,
+    sessionKey,
+    sessionStatus: session.snapshot.status,
+    workspaceId,
+  });
   void attachSessionSocketWithReplay(session, sessionKey, socket, initialCols, initialRows);
 }
 
@@ -587,6 +608,15 @@ async function handleSessionSocketMessage(
   if (message.type === "terminalResize") {
     attachment.initialCols = message.cols;
     attachment.initialRows = message.rows;
+    void logDaemonDebug("daemon.sessionAttachmentResizeReceived", {
+      activated: attachment.activated,
+      attachmentId: attachment.id,
+      cols: message.cols,
+      rows: message.rows,
+      sessionId: session.sessionId,
+      sessionKey,
+      workspaceId: session.workspaceId,
+    });
     resizeSession(session, message.cols, message.rows);
     if (attachment.activated) {
       const snapshot = await buildSnapshot(session, false);
@@ -597,6 +627,14 @@ async function handleSessionSocketMessage(
 
   attachment.initialCols = message.cols;
   attachment.initialRows = message.rows;
+  void logDaemonDebug("daemon.sessionAttachmentReadyReceived", {
+    attachmentId: attachment.id,
+    cols: message.cols,
+    rows: message.rows,
+    sessionId: session.sessionId,
+    sessionKey,
+    workspaceId: session.workspaceId,
+  });
   await activatePendingSessionAttachment(session, sessionKey, socket, attachment);
 }
 
@@ -1087,13 +1125,31 @@ async function attachSessionSocketWithReplay(
 ): Promise<void> {
   const attachment: PendingSessionAttachment = {
     activated: false,
+    id: ++nextPendingSessionAttachmentId,
     initialCols,
     initialRows,
   };
   pendingSessionAttachmentSockets.add(socket);
+  void logDaemonDebug("daemon.sessionAttachmentStarted", {
+    attachmentId: attachment.id,
+    initialCols,
+    initialRows,
+    sessionId: session.sessionId,
+    sessionKey,
+    sessionStatus: session.snapshot.status,
+    workspaceId: session.workspaceId,
+  });
 
   attachment.readyTimeout = setTimeout(() => {
     if (!attachment.activated && socket.readyState === WebSocket.OPEN) {
+      void logDaemonDebug("daemon.sessionAttachmentReadyTimeout", {
+        attachmentId: attachment.id,
+        initialCols: attachment.initialCols,
+        initialRows: attachment.initialRows,
+        sessionId: session.sessionId,
+        sessionKey,
+        workspaceId: session.workspaceId,
+      });
       socket.close();
     }
   }, SESSION_ATTACH_READY_TIMEOUT_MS);
@@ -1135,11 +1191,27 @@ function bindSessionSocket(
   socket.on("message", (buffer: Buffer) => {
     void handleSessionSocketMessage(session, sessionKey, socket, attachment, buffer.toString());
   });
-  socket.on("close", () => {
-    handleSessionSocketEnd(session, sessionKey, socket, attachment);
+  socket.on("close", (code: number, reasonBuffer: Buffer) => {
+    const reason = reasonBuffer.toString("utf8");
+    handleSessionSocketEnd(session, sessionKey, socket, attachment, {
+      code,
+      event: "close",
+      reason,
+    });
   });
-  socket.on("error", () => {
-    handleSessionSocketEnd(session, sessionKey, socket, attachment);
+  socket.on("error", (error) => {
+    handleSessionSocketEnd(session, sessionKey, socket, attachment, {
+      error:
+        error instanceof Error
+          ? {
+              message: error.message,
+              name: error.name,
+            }
+          : {
+              message: String(error),
+            },
+      event: "error",
+    });
   });
 }
 
@@ -1155,6 +1227,14 @@ async function activatePendingSessionAttachment(
 
   attachment.activated = true;
   clearPendingSessionAttachmentTimeout(attachment);
+  void logDaemonDebug("daemon.sessionAttachmentActivated", {
+    attachmentId: attachment.id,
+    initialCols: attachment.initialCols,
+    initialRows: attachment.initialRows,
+    sessionId: session.sessionId,
+    sessionKey,
+    workspaceId: session.workspaceId,
+  });
 
   if (attachment.initialCols && attachment.initialRows) {
     resizeSession(session, attachment.initialCols, attachment.initialRows);
@@ -1166,6 +1246,12 @@ async function activatePendingSessionAttachment(
 
   const previousSocket = sessionSocketsBySessionKey.get(sessionKey);
   if (previousSocket && previousSocket !== socket) {
+    void logDaemonDebug("daemon.sessionAttachmentPreemptedPreviousSocket", {
+      attachmentId: attachment.id,
+      sessionId: session.sessionId,
+      sessionKey,
+      workspaceId: session.workspaceId,
+    });
     sessionSocketsBySessionKey.delete(sessionKey);
     previousSocket.close();
   }
@@ -1191,6 +1277,13 @@ async function activatePendingSessionAttachment(
   removePendingAttachQueue(session, pendingAttachQueue);
   attachment.pendingAttachQueue = undefined;
   sessionSocketsBySessionKey.set(sessionKey, socket);
+  void logDaemonDebug("daemon.sessionAttachmentCompleted", {
+    attachmentId: attachment.id,
+    replayChunkCount: replayChunks.length,
+    sessionId: session.sessionId,
+    sessionKey,
+    workspaceId: session.workspaceId,
+  });
 
   const snapshot = await buildSnapshot(session, false);
   broadcastControlSessionState(snapshot);
@@ -1201,6 +1294,16 @@ function handleSessionSocketEnd(
   sessionKey: string,
   socket: WebSocket,
   attachment: PendingSessionAttachment,
+  details:
+    | {
+        code: number;
+        event: "close";
+        reason: string;
+      }
+    | {
+        error: { message: string; name?: string };
+        event: "error";
+      },
 ): void {
   clearPendingSessionAttachmentTimeout(attachment);
   pendingSessionAttachmentSockets.delete(socket);
@@ -1216,6 +1319,16 @@ function handleSessionSocketEnd(
       broadcastControlSessionState(snapshot);
     });
   }
+  void logDaemonDebug("daemon.sessionSocketEnded", {
+    activated: attachment.activated,
+    attachmentId: attachment.id,
+    hadPendingAttachQueue: attachment.pendingAttachQueue !== undefined,
+    sessionId: session.sessionId,
+    sessionKey,
+    socketWasRegistered: sessionSocketsBySessionKey.get(sessionKey) === socket,
+    workspaceId: session.workspaceId,
+    ...details,
+  });
   scheduleDaemonLifecycleCheckIfNeeded();
 }
 

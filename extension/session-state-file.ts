@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { normalizeTerminalTitle } from "../shared/session-grid-contract";
 import type { TerminalAgentStatus } from "../shared/terminal-host-protocol";
@@ -7,6 +7,11 @@ export type PersistedSessionState = {
   agentName?: string;
   agentStatus: TerminalAgentStatus;
   title?: string;
+};
+
+export type PersistedSessionStateSnapshot = {
+  state: PersistedSessionState;
+  updatedAtMs?: number;
 };
 
 const DEFAULT_PERSISTED_SESSION_STATE: PersistedSessionState = {
@@ -70,11 +75,23 @@ export function haveSamePersistedSessionState(
 export async function readPersistedSessionStateFromFile(
   filePath: string,
 ): Promise<PersistedSessionState> {
+  return (await readPersistedSessionStateSnapshotFromFile(filePath)).state;
+}
+
+export async function readPersistedSessionStateSnapshotFromFile(
+  filePath: string,
+): Promise<PersistedSessionStateSnapshot> {
   try {
-    const rawState = await readFile(filePath, "utf8");
-    return parsePersistedSessionState(rawState);
+    const [rawState, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
+    return {
+      state: parsePersistedSessionState(rawState),
+      updatedAtMs: Number.isFinite(fileStat.mtimeMs) ? fileStat.mtimeMs : undefined,
+    };
   } catch {
-    return createDefaultPersistedSessionState();
+    return {
+      state: createDefaultPersistedSessionState(),
+      updatedAtMs: undefined,
+    };
   }
 }
 
