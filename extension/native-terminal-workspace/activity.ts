@@ -5,7 +5,7 @@ import type {
 } from "../../shared/terminal-host-protocol";
 import { createDisconnectedSessionSnapshot } from "../terminal-workspace-helpers";
 
-export const MIN_WORKING_DURATION_BEFORE_ATTENTION_MS = 3_000;
+export const MIN_WORKING_DURATION_BEFORE_ATTENTION_MS = 5_000;
 
 type SessionActivityContext = {
   cancelPendingCompletionSound: (sessionId: string) => void;
