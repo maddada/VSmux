@@ -164,12 +164,37 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           return;
         }
 
-        this.lastTerminalActivityAtBySessionId.set(sessionId, Date.now());
-        this.changeSessionActivityEmitter.fire({ sessionId });
+        this.recordSessionActivity(sessionId);
         void this.captureProcessAssociation(sessionId, terminal);
         void this.logState("EVENT", "terminal-state-changed", {
           sessionId,
           terminalName: terminal.name,
+        });
+      }),
+      vscode.window.onDidStartTerminalShellExecution((event) => {
+        const sessionId = this.terminalToSessionId.get(event.terminal);
+        if (!sessionId) {
+          return;
+        }
+
+        this.recordSessionActivity(sessionId);
+        this.logBackendDebug("backend.terminalShellExecution.started", {
+          commandLine: event.execution.commandLine.value,
+          sessionId,
+          terminalName: event.terminal.name,
+        });
+      }),
+      vscode.window.onDidEndTerminalShellExecution((event) => {
+        const sessionId = this.terminalToSessionId.get(event.terminal);
+        if (!sessionId) {
+          return;
+        }
+
+        this.recordSessionActivity(sessionId);
+        this.logBackendDebug("backend.terminalShellExecution.ended", {
+          commandLine: event.execution.commandLine.value,
+          sessionId,
+          terminalName: event.terminal.name,
         });
       }),
     );
@@ -651,8 +676,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     projection.terminal.sendText(data, shouldExecute);
-    this.lastTerminalActivityAtBySessionId.set(sessionId, Date.now());
-    this.changeSessionActivityEmitter.fire({ sessionId });
+    this.recordSessionActivity(sessionId);
   }
 
   public syncSessions(sessionRecords: readonly SessionRecord[]): void {
@@ -1596,6 +1620,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
     this.lastTerminalActivityAtBySessionId.set(sessionId, nextActivityAt);
     return true;
+  }
+
+  private recordSessionActivity(sessionId: string, activityAt = Date.now()): void {
+    if (this.updateLastTerminalActivityAt(sessionId, activityAt)) {
+      this.changeSessionActivityEmitter.fire({ sessionId });
+    }
   }
 
   private createTerminalEnvironment(sessionId: string): Record<string, string> {
