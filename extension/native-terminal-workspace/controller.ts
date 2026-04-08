@@ -240,6 +240,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     "idle" | "working" | "attention"
   >();
   private readonly activitySuppressedUntilBySessionId = new Map<string, number>();
+  private readonly frozenLastActivityAtBySessionId = new Map<string, number | null>();
   private readonly lastActivityOverrideAtBySessionId = new Map<string, number>();
   private readonly workingStartedAtBySessionId = new Map<string, number>();
   private readonly pendingCompletionSoundTimeoutBySessionId = new Map<string, NodeJS.Timeout>();
@@ -2557,6 +2558,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private clearSessionPresentationState(sessionId: string): void {
     this.activitySuppressedUntilBySessionId.delete(sessionId);
+    this.frozenLastActivityAtBySessionId.delete(sessionId);
     this.pendingT3SessionIds.delete(sessionId);
     this.sidebarAgentIconBySessionId.delete(sessionId);
     this.sessionAgentLaunchBySessionId.delete(sessionId);
@@ -2715,6 +2717,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
+    this.frozenLastActivityAtBySessionId.set(
+      sessionRecord.sessionId,
+      this.getLastTerminalActivityAtForSidebar(sessionRecord.sessionId) ?? null,
+    );
     this.activitySuppressedUntilBySessionId.set(
       sessionRecord.sessionId,
       Date.now() + INITIAL_ACTIVITY_SUPPRESSION_MS,
@@ -2838,6 +2844,30 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private getLastTerminalActivityAtForSidebar(sessionId: string): number | undefined {
+    const sessionRecord = this.store.getSession(sessionId);
+    const rawActivityAt = this.getResolvedLastTerminalActivityAtForSidebar(sessionId);
+    if (!sessionRecord || sessionRecord.kind !== "terminal") {
+      return rawActivityAt;
+    }
+
+    const activitySuppressedUntil = this.getActivitySuppressedUntil(sessionRecord);
+    if (
+      activitySuppressedUntil !== undefined &&
+      Number.isFinite(activitySuppressedUntil) &&
+      Date.now() < activitySuppressedUntil
+    ) {
+      if (!this.frozenLastActivityAtBySessionId.has(sessionId)) {
+        this.frozenLastActivityAtBySessionId.set(sessionId, null);
+      }
+
+      return this.frozenLastActivityAtBySessionId.get(sessionId) ?? undefined;
+    }
+
+    this.frozenLastActivityAtBySessionId.delete(sessionId);
+    return rawActivityAt;
+  }
+
+  private getResolvedLastTerminalActivityAtForSidebar(sessionId: string): number | undefined {
     const overrideActivityAt = this.lastActivityOverrideAtBySessionId.get(sessionId);
     const backendActivityAt = this.backend.getLastTerminalActivityAt(sessionId);
     if (overrideActivityAt === undefined) {
