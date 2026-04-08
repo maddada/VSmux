@@ -75,6 +75,7 @@ export type SortableSessionCardProps = {
   index: number;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   sessionId: string;
+  showDropPositionIndicator?: boolean;
   vscode: WebviewApi;
 };
 
@@ -101,6 +102,7 @@ export function SortableSessionCard({
   index,
   onFocusRequested,
   sessionId,
+  showDropPositionIndicator = true,
   vscode,
 }: SortableSessionCardProps) {
   const session = useSidebarStore((state) => state.sessionsById[sessionId]);
@@ -199,6 +201,8 @@ export function SortableSessionCard({
       : afterDropTarget.isDropTarget
         ? "after"
         : undefined;
+  const visibleDropPosition = showDropPositionIndicator ? dropPosition : undefined;
+  const isVisibleDropTarget = showDropPositionIndicator && Boolean(sortable.isDropTarget);
 
   if (!session) {
     return null;
@@ -401,8 +405,8 @@ export function SortableSessionCard({
         className="session-frame"
         data-activity={session.activity}
         data-dragging={String(Boolean(sortable.isDragging))}
-        data-drop-position={dropPosition}
-        data-drop-target={String(Boolean(sortable.isDropTarget))}
+        data-drop-position={visibleDropPosition}
+        data-drop-target={String(isVisibleDropTarget)}
         data-focused={String(session.isFocused)}
         data-running={String(session.isRunning)}
         data-sleeping={String(Boolean(session.isSleeping))}
@@ -428,8 +432,8 @@ export function SortableSessionCard({
           data-activity={session.activity}
           data-has-agent-icon={String(Boolean(session.agentIcon))}
           data-dragging={String(Boolean(sortable.isDragging))}
-          data-drop-position={dropPosition}
-          data-drop-target={String(Boolean(sortable.isDropTarget))}
+          data-drop-position={visibleDropPosition}
+          data-drop-target={String(isVisibleDropTarget)}
           data-focused={String(session.isFocused)}
           data-running={String(session.isRunning)}
           data-sleeping={String(Boolean(session.isSleeping))}

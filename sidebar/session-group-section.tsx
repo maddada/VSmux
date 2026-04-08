@@ -53,6 +53,8 @@ export type SessionGroupSectionProps = {
   onAutoEditHandled: () => void;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   orderedSessionIds?: readonly string[];
+  sessionDropIndicatorGroupId?: string;
+  showSessionDropPositionIndicators?: boolean;
   vscode: WebviewApi;
 };
 
@@ -104,6 +106,8 @@ export function SessionGroupSection({
   onAutoEditHandled,
   onFocusRequested,
   orderedSessionIds: orderedSessionIdsProp,
+  sessionDropIndicatorGroupId,
+  showSessionDropPositionIndicators = true,
   vscode,
 }: SessionGroupSectionProps) {
   const group = useSidebarStore((state) => state.groupsById[groupId]);
@@ -172,7 +176,10 @@ export function SessionGroupSection({
     groupSessions.length > 0 && groupSessions.every((session) => session.isSleeping);
   const canFullReloadGroup = groupSessions.length > 0;
 
-  const isGroupDropTarget = sortable.isDropTarget || emptyGroupDropTarget.isDropTarget;
+  const isGroupDropTarget =
+    sortable.isDropTarget ||
+    emptyGroupDropTarget.isDropTarget ||
+    sessionDropIndicatorGroupId === groupId;
   const shouldRenderGroupSessions = !isBrowserGroup || orderedSessionIds.length > 0;
 
   useEffect(() => {
@@ -570,6 +577,7 @@ export function SessionGroupSection({
                   key={sessionId}
                   onFocusRequested={onFocusRequested}
                   sessionId={sessionId}
+                  showDropPositionIndicator={showSessionDropPositionIndicators}
                   vscode={vscode}
                 />
               ))

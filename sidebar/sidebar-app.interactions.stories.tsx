@@ -210,19 +210,29 @@ export const ActiveSortModeStillAllowsDragging: Story = {
 
     await step("still move a session into another group", async () => {
       resetSidebarStoryMessages();
-      await dragAndDrop(
-        await findRequiredElement(
-          storyRoot,
-          '[data-sidebar-session-id="session-2"]',
-          "session-2 card",
-        ),
-        await findRequiredElement(
-          storyRoot,
-          '[data-sidebar-session-id="session-5"]',
-          "session-5 card",
-        ),
-        "before",
+      const sourceSession = await findRequiredElement(
+        storyRoot,
+        '[data-sidebar-session-id="session-2"]',
+        "session-2 card",
       );
+      const targetSession = await findRequiredElement(
+        storyRoot,
+        '[data-sidebar-session-id="session-5"]',
+        "session-5 card",
+      );
+      const dragState = await dragToHover(sourceSession, targetSession, "before");
+      const targetFrame = targetSession.closest(".session-frame");
+      const sourceGroup = storyRoot.querySelector('[data-sidebar-group-id="group-1"]');
+      const targetGroup = storyRoot.querySelector('[data-sidebar-group-id="group-2"]');
+
+      await waitFor(() => {
+        expect(targetFrame).not.toHaveAttribute("data-drop-position", "before");
+        expect(targetFrame).not.toHaveAttribute("data-drop-position", "after");
+        expect(sourceGroup).toHaveAttribute("data-drop-target", "false");
+        return expect(targetGroup).toHaveAttribute("data-drop-target", "true");
+      });
+
+      await releaseDrag(targetSession, dragState);
 
       await expectMessage({
         groupId: "group-2",

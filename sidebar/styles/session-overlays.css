@@ -100,7 +100,7 @@
 }
 
 .tooltip-positioner {
-  z-index: 200;
+  z-index: 1400;
 }
 
 .session-hover-tooltip {
