@@ -6,6 +6,7 @@ import type { TerminalAgentStatus } from "../shared/terminal-host-protocol";
 export type PersistedSessionState = {
   agentName?: string;
   agentStatus: TerminalAgentStatus;
+  lastActivityAt?: string;
   title?: string;
 };
 
@@ -17,6 +18,7 @@ export type PersistedSessionStateSnapshot = {
 const DEFAULT_PERSISTED_SESSION_STATE: PersistedSessionState = {
   agentName: undefined,
   agentStatus: "idle",
+  lastActivityAt: undefined,
   title: undefined,
 };
 
@@ -29,6 +31,7 @@ export function createDefaultPersistedSessionState(): PersistedSessionState {
 export function parsePersistedSessionState(rawState: string): PersistedSessionState {
   let agentName: string | undefined;
   let agentStatus: TerminalAgentStatus = "idle";
+  let lastActivityAt: string | undefined;
   let title: string | undefined;
 
   for (const line of rawState.split(/\r?\n/)) {
@@ -40,6 +43,9 @@ export function parsePersistedSessionState(rawState: string): PersistedSessionSt
     if (key === "title") {
       title = normalizeTerminalTitle(value);
     }
+    if (key === "lastActivityAt") {
+      lastActivityAt = normalizePersistedTimestamp(value);
+    }
     if (key === "status" && (value === "idle" || value === "working" || value === "attention")) {
       agentStatus = value;
     }
@@ -48,6 +54,7 @@ export function parsePersistedSessionState(rawState: string): PersistedSessionSt
   return {
     agentName,
     agentStatus,
+    lastActivityAt,
     title,
   };
 }
@@ -56,6 +63,7 @@ export function serializePersistedSessionState(state: PersistedSessionState): st
   return [
     `status=${state.agentStatus}`,
     `agent=${normalizePersistedSessionValue(state.agentName) ?? ""}`,
+    `lastActivityAt=${normalizePersistedTimestamp(state.lastActivityAt) ?? ""}`,
     `title=${normalizePersistedSessionValue(normalizeTerminalTitle(state.title)) ?? ""}`,
     "",
   ].join("\n");
@@ -68,6 +76,7 @@ export function haveSamePersistedSessionState(
   return (
     left.agentName === right.agentName &&
     left.agentStatus === right.agentStatus &&
+    left.lastActivityAt === right.lastActivityAt &&
     left.title === right.title
   );
 }
@@ -127,4 +136,14 @@ export async function deletePersistedSessionStateFile(filePath: string): Promise
 function normalizePersistedSessionValue(value: string | undefined): string | undefined {
   const normalizedValue = value?.replace(/\s+/g, " ").trim();
   return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
+}
+
+function normalizePersistedTimestamp(value: string | undefined): string | undefined {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  const timestampMs = Date.parse(normalizedValue);
+  return Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : undefined;
 }

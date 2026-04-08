@@ -41,10 +41,16 @@ type AgentManagerXIncomingMessage =
       workspaceId: string;
     }
   | {
+      sessionId: string;
+      type: "closeSession";
+      workspaceId: string;
+    }
+  | {
       type: "ping";
     };
 
 type AgentManagerXBridgeClientOptions = {
+  onCloseSession: (sessionId: string) => Promise<void> | void;
   onFocusSession: (sessionId: string) => Promise<void> | void;
   onLog?: (event: string, details?: Record<string, unknown>) => void;
 };
@@ -197,12 +203,17 @@ export class AgentManagerXBridgeClient implements vscode.Disposable {
     }
 
     if (
-      parsed.type === "focusSession" &&
+      (parsed.type === "focusSession" || parsed.type === "closeSession") &&
       typeof parsed.workspaceId === "string" &&
       typeof parsed.sessionId === "string" &&
       parsed.workspaceId === this.latestSnapshot?.workspaceId
     ) {
-      void Promise.resolve(this.options.onFocusSession(parsed.sessionId));
+      if (parsed.type === "focusSession") {
+        void Promise.resolve(this.options.onFocusSession(parsed.sessionId));
+        return;
+      }
+
+      void Promise.resolve(this.options.onCloseSession(parsed.sessionId));
     }
   }
 }

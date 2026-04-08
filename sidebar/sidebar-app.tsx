@@ -483,10 +483,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   }, [recordPointerDownSessionTarget, unlockCompletionSoundPlayback]);
 
   const handleDragStart = ((event) => {
-    if (!isManualActiveSessionsSort) {
-      return;
-    }
-
     const nativeEvent = getDragNativeEvent(event);
     const sourceData = getSidebarDropData(event.operation.source);
     const pointerDownSessionTarget = pointerDownSessionTargetRef.current;
@@ -504,27 +500,14 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   }) satisfies DragDropEventHandlers["onDragStart"];
 
   const handleDragMove = ((event) => {
-    if (!isManualActiveSessionsSort) {
-      return;
-    }
-
     updateSessionPointerDragState(sessionPointerDragStateRef.current, getDragNativeEvent(event));
   }) satisfies DragDropEventHandlers["onDragMove"];
 
   const handleDragOver = ((event) => {
-    if (!isManualActiveSessionsSort) {
-      return;
-    }
-
     updateSessionPointerDragState(sessionPointerDragStateRef.current, getDragNativeEvent(event));
   }) satisfies DragDropEventHandlers["onDragOver"];
 
   const handleDragEnd = ((event) => {
-    if (!isManualActiveSessionsSort) {
-      sessionPointerDragStateRef.current = undefined;
-      return;
-    }
-
     const currentGroupIds = groupIdsRef.current;
     const currentSessionIdsByGroup = sessionIdsByGroupRef.current;
     const authoritativeGroupIds = workspaceGroupIds;
@@ -637,6 +620,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         targetIndex,
         type: "moveSessionToGroup",
       });
+      return;
+    }
+
+    if (!isManualActiveSessionsSort) {
       return;
     }
 

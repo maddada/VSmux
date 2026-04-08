@@ -267,6 +267,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       getWebSocketUrl: () => this.t3Runtime?.getWebSocketUrl() ?? DEFAULT_T3_ACTIVITY_WEBSOCKET_URL,
     });
     this.agentManagerXBridge = new AgentManagerXBridgeClient({
+      onCloseSession: async (sessionId) => this.closeSessionFromAgentManagerX(sessionId),
       onFocusSession: async (sessionId) => this.focusSessionFromAgentManagerX(sessionId),
       onLog: (event, details) => {
         logVSmuxDebug(event, details);
@@ -1866,6 +1867,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async focusSessionFromAgentManagerX(sessionId: string): Promise<void> {
     await this.focusSession(sessionId, "sidebar");
+  }
+
+  private async closeSessionFromAgentManagerX(sessionId: string): Promise<void> {
+    await this.closeSession(sessionId);
   }
 
   private async refreshDaemonSessions(): Promise<void> {

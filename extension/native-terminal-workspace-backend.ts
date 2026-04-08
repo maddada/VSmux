@@ -177,7 +177,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           return;
         }
 
-        this.recordSessionActivity(sessionId);
+        this.recordSessionActivity(sessionId, Date.now(), true);
         this.logBackendDebug("backend.terminalShellExecution.started", {
           commandLine: event.execution.commandLine.value,
           sessionId,
@@ -190,7 +190,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           return;
         }
 
-        this.recordSessionActivity(sessionId);
+        this.recordSessionActivity(sessionId, Date.now(), true);
         this.logBackendDebug("backend.terminalShellExecution.ended", {
           commandLine: event.execution.commandLine.value,
           sessionId,
@@ -676,7 +676,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     projection.terminal.sendText(data, shouldExecute);
-    this.recordSessionActivity(sessionId);
+    this.recordSessionActivity(sessionId, Date.now(), true);
   }
 
   public syncSessions(sessionRecords: readonly SessionRecord[]): void {
@@ -1486,17 +1486,9 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.sessions.set(sessionId, nextSnapshot);
 
     const nextTitle = normalizeTitle(persistedState.title);
-    const didPersistedStateChange =
-      previousSnapshot?.agentName !== nextSnapshot.agentName ||
-      previousSnapshot?.agentStatus !== nextSnapshot.agentStatus ||
-      previousTitle !== nextTitle;
-    if (
-      persistedState.updatedAtMs !== undefined &&
-      (this.lastTerminalActivityAtBySessionId.get(sessionId) === undefined ||
-        previousSnapshot === undefined ||
-        didPersistedStateChange)
-    ) {
-      if (this.updateLastTerminalActivityAt(sessionId, persistedState.updatedAtMs)) {
+    const persistedActivityAtMs = getPersistedSessionActivityAtMs(persistedState);
+    if (persistedActivityAtMs !== undefined) {
+      if (this.updateLastTerminalActivityAt(sessionId, persistedActivityAtMs)) {
         this.changeSessionActivityEmitter.fire({ sessionId });
       }
     }
@@ -1592,6 +1584,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private async readPersistedSessionState(sessionId: string): Promise<{
     agentName?: string;
     agentStatus: TerminalAgentStatus;
+    lastActivityAt?: string;
     title?: string;
     updatedAtMs?: number;
   }> {
@@ -1622,10 +1615,28 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     return true;
   }
 
-  private recordSessionActivity(sessionId: string, activityAt = Date.now()): void {
+  private recordSessionActivity(sessionId: string, activityAt = Date.now(), persist = false): void {
     if (this.updateLastTerminalActivityAt(sessionId, activityAt)) {
       this.changeSessionActivityEmitter.fire({ sessionId });
     }
+
+    if (persist) {
+      void this.persistSessionActivity(sessionId, activityAt);
+    }
+  }
+
+  private async persistSessionActivity(sessionId: string, activityAt: number): Promise<void> {
+    const nextActivityAt = new Date(activityAt).toISOString();
+    await updatePersistedSessionStateFile(this.getSessionAgentStateFilePath(sessionId), (state) => {
+      if (state.lastActivityAt && state.lastActivityAt >= nextActivityAt) {
+        return state;
+      }
+
+      return {
+        ...state,
+        lastActivityAt: nextActivityAt,
+      };
+    }).catch(() => undefined);
   }
 
   private createTerminalEnvironment(sessionId: string): Record<string, string> {
@@ -1795,4 +1806,20 @@ function haveSameTerminalSessionPresentation(
 
 function normalizeTitle(title: string | undefined): string | undefined {
   return normalizeTerminalTitle(title);
+}
+
+function getPersistedSessionActivityAtMs(state: {
+  lastActivityAt?: string;
+  updatedAtMs?: number;
+}): number | undefined {
+  if (state.lastActivityAt) {
+    const timestampMs = Date.parse(state.lastActivityAt);
+    if (Number.isFinite(timestampMs)) {
+      return timestampMs;
+    }
+  }
+
+  return typeof state.updatedAtMs === "number" && Number.isFinite(state.updatedAtMs)
+    ? state.updatedAtMs
+    : undefined;
 }

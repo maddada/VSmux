@@ -15,6 +15,7 @@ import { DEFAULT_BROWSER_LAUNCH_URL } from "../../shared/sidebar-commands";
 
 export const SETTINGS_SECTION = "VSmux";
 export const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
+export const AUTO_OPEN_SIDEBAR_VIEWS_ON_STARTUP_SETTING = "autoOpenSidebarViewsOnStartup";
 export const SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING = "sendRenameCommandOnSidebarRename";
 export const CREATE_SESSION_ON_SIDEBAR_DOUBLE_CLICK_SETTING = "createSessionOnSidebarDoubleClick";
 export const SIDEBAR_THEME_SETTING = "sidebarTheme";
@@ -73,6 +74,10 @@ const DEFAULT_AGENT_COMMANDS: DefaultAgentCommandsSetting = {
 
 export function getBackgroundSessionTimeoutConfigurationKey(): string {
   return `${SETTINGS_SECTION}.${BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING}`;
+}
+
+export function getAutoOpenSidebarViewsOnStartupConfigurationKey(): string {
+  return `${SETTINGS_SECTION}.${AUTO_OPEN_SIDEBAR_VIEWS_ON_STARTUP_SETTING}`;
 }
 
 export function getSidebarThemeConfigurationKey(): string {
@@ -204,6 +209,14 @@ export function getSendRenameCommandOnSidebarRename(): boolean {
     vscode.workspace
       .getConfiguration(SETTINGS_SECTION)
       .get<boolean>(SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING, false) ?? false
+  );
+}
+
+export function getAutoOpenSidebarViewsOnStartup(): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<boolean>(AUTO_OPEN_SIDEBAR_VIEWS_ON_STARTUP_SETTING, false) ?? false
   );
 }
 

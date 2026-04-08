@@ -180,6 +180,92 @@ export const ActiveSortToggle: Story = {
   },
 };
 
+export const ActiveSortModeStillAllowsDragging: Story = {
+  args: {
+    fixture: "sort-toggle-demo",
+    highlightedVisibleCount: 2,
+    showCloseButtonOnSessionCards: true,
+    showHotkeysOnSessionCards: true,
+    showLastInteractionTimeOnSessionCards: true,
+    visibleCount: 2,
+  },
+  play: async ({ canvasElement, step, userEvent }) => {
+    const storyRoot = canvasElement.ownerDocument.body;
+
+    await waitForReadyMessage();
+
+    await step("enable last-activity sorting", async () => {
+      resetSidebarStoryMessages();
+      await userEvent.click(
+        await findRequiredElement(
+          storyRoot,
+          'button[aria-label^="Switch active sessions sort mode."]',
+          "active sessions sort toggle",
+        ),
+      );
+      await expectMessage({ type: "toggleActiveSessionsSortMode" });
+      await expectSessionMembership(storyRoot, "group-1", ["session-2", "session-3", "session-1"]);
+      await expectSessionMembership(storyRoot, "group-2", ["session-5", "session-4"]);
+    });
+
+    await step("still move a session into another group", async () => {
+      resetSidebarStoryMessages();
+      await dragAndDrop(
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-session-id="session-2"]',
+          "session-2 card",
+        ),
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-session-id="session-5"]',
+          "session-5 card",
+        ),
+        "before",
+      );
+
+      await expectMessage({
+        groupId: "group-2",
+        sessionId: "session-2",
+        targetIndex: 0,
+        type: "moveSessionToGroup",
+      });
+      await expectSessionMembership(storyRoot, "group-1", ["session-3", "session-1"]);
+      await expectSessionMembership(storyRoot, "group-2", ["session-2", "session-5", "session-4"]);
+    });
+
+    await step("still reorder groups while last-activity sorting is enabled", async () => {
+      resetSidebarStoryMessages();
+      await dragAndDrop(
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-group-id="group-2"] .group-title-handle',
+          "group-2 handle",
+        ),
+        await findRequiredElement(
+          storyRoot,
+          '[data-sidebar-group-id="group-1"]',
+          "group-1 section",
+        ),
+        "before",
+      );
+
+      await expectMessage({
+        groupIds: ["group-2", "group-1"],
+        type: "syncGroupOrder",
+      });
+
+      await waitFor(() => {
+        const orderedGroupIds = Array.from(
+          storyRoot.querySelectorAll("[data-sidebar-group-id]"),
+        ).map((element) => element.getAttribute("data-sidebar-group-id"));
+
+        return expect(orderedGroupIds).toEqual(["group-2", "group-1"]);
+      });
+    });
+  },
+};
+
 export const EmptySidebarDoubleClick: Story = {
   play: async ({ canvasElement, step }) => {
     await waitForReadyMessage();

@@ -69,6 +69,7 @@ async function writeSessionState(eventType: "start" | "stop", agentName: string)
   await writePersistedSessionStateToFile(stateFilePath, {
     agentName: agentName || currentState.agentName,
     agentStatus: eventType === "start" ? "working" : "attention",
+    lastActivityAt: new Date().toISOString(),
     title: currentState.title,
   });
 }

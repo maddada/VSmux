@@ -199,6 +199,7 @@ if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
     local title="$1"
     local session_status="idle"
     local session_agent="\${VSMUX_AGENT:-}"
+    local session_last_activity=""
 
     [ -n "$state_file" ] || return 0
 
@@ -212,6 +213,7 @@ if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
         case "$key" in
           status) session_status="$value" ;;
           agent) session_agent="$value" ;;
+          lastActivityAt) session_last_activity="$value" ;;
         esac
       done < "$state_file"
     fi
@@ -221,6 +223,7 @@ if [ -z "$__VSMUX_ZSH_HOOKS_INSTALLED" ]; then
     {
       printf 'status=%s\\n' "$session_status"
       printf 'agent=%s\\n' "$session_agent"
+      printf 'lastActivityAt=%s\\n' "$session_last_activity"
       printf 'title=%s\\n' "$title"
     } >| "$tmp_file" && mv -f -- "$tmp_file" "$state_file"
   }

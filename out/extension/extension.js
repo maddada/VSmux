@@ -5,6 +5,7 @@ exports.deactivate = deactivate;
 const vscode = require("vscode");
 const extension_1 = require("../chat-history/src/extension/extension");
 const chat_history_vsmux_bridge_1 = require("./chat-history-vsmux-bridge");
+const auto_open_sidebar_views_1 = require("./auto-open-sidebar-views");
 const debugging_status_indicator_1 = require("./debugging-status-indicator");
 const native_terminal_workspace_1 = require("./native-terminal-workspace");
 const vsmux_debug_log_1 = require("./vsmux-debug-log");
@@ -58,9 +59,14 @@ function activate(context) {
     }),
     registerCommand("VSmux.resetWorkspace", () => workspace.resetWorkspace()),
   );
-  void workspace.initialize().catch((error) => {
-    void vscode.window.showErrorMessage(getErrorMessage(error));
-  });
+  void (async () => {
+    try {
+      await workspace.initialize();
+      await (0, auto_open_sidebar_views_1.maybeAutoOpenSidebarViewsOnStartup)(workspace);
+    } catch (error) {
+      void vscode.window.showErrorMessage(getErrorMessage(error));
+    }
+  })();
 }
 function deactivate() {}
 function registerCommand(command, callback) {

@@ -120,8 +120,6 @@ export function SessionGroupSection({
   const visibleCountButtonRef = useRef<HTMLButtonElement>(null);
   const debugInstanceIdRef = useRef(createSessionGroupDebugInstanceId());
   const isBrowserGroup = group?.kind === "browser";
-  const isManualActiveSessionsSort =
-    useSidebarStore((state) => state.hud.activeSessionsSortMode) === "manual";
   const debuggingMode = useSidebarStore((state) => state.hud.debuggingMode);
   const postGroupDebugLog = useEffectEvent((event: string, details: Record<string, unknown>) => {
     if (!debuggingMode) {
@@ -142,7 +140,7 @@ export function SessionGroupSection({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
     data: createGroupDropData(groupId),
-    disabled: isBrowserGroup || !isManualActiveSessionsSort,
+    disabled: isBrowserGroup,
     id: groupId,
     index,
     plugins: [SortableKeyboardPlugin],
@@ -155,7 +153,7 @@ export function SessionGroupSection({
       kind: "group",
       position: "start",
     }),
-    disabled: isBrowserGroup || !isManualActiveSessionsSort,
+    disabled: isBrowserGroup,
     id: createSessionDropTargetId({
       groupId,
       kind: "group",
@@ -490,10 +488,8 @@ export function SessionGroupSection({
               <div className="group-title-row">
                 <div
                   className="group-title-handle"
-                  data-draggable={String(!isBrowserGroup && isManualActiveSessionsSort)}
-                  ref={
-                    isBrowserGroup || !isManualActiveSessionsSort ? undefined : sortable.handleRef
-                  }
+                  data-draggable={String(!isBrowserGroup)}
+                  ref={isBrowserGroup ? undefined : sortable.handleRef}
                 >
                   <div className="group-title">{group.title}</div>
                 </div>

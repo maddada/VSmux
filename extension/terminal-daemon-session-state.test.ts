@@ -8,6 +8,7 @@ describe("resolvePersistedSessionPresentationState", () => {
         {
           agentName: "codex",
           agentStatus: "idle",
+          lastActivityAt: "2026-04-08T10:00:00.000Z",
           title: "Auto fix corruption",
         },
         {
@@ -19,6 +20,7 @@ describe("resolvePersistedSessionPresentationState", () => {
     ).toEqual({
       agentName: "codex",
       agentStatus: "idle",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Auto fix corruption",
     });
   });
@@ -29,6 +31,7 @@ describe("resolvePersistedSessionPresentationState", () => {
         {
           agentName: "codex",
           agentStatus: "idle",
+          lastActivityAt: "2026-04-08T10:00:00.000Z",
           title: "Auto fix corruption",
         },
         {
@@ -42,6 +45,7 @@ describe("resolvePersistedSessionPresentationState", () => {
     ).toEqual({
       agentName: "claude",
       agentStatus: "working",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Auto fix corruption",
     });
   });
@@ -52,6 +56,7 @@ describe("resolvePersistedSessionPresentationState", () => {
         {
           agentName: "codex",
           agentStatus: "attention",
+          lastActivityAt: "2026-04-08T10:00:00.000Z",
           title: "Auto fix corruption",
         },
         {
@@ -61,6 +66,7 @@ describe("resolvePersistedSessionPresentationState", () => {
     ).toEqual({
       agentName: "codex",
       agentStatus: "idle",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Auto fix corruption",
     });
   });

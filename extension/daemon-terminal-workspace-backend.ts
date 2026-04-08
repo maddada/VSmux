@@ -23,7 +23,7 @@ import type {
 } from "./terminal-workspace-backend";
 import {
   deletePersistedSessionStateFile,
-  readPersistedSessionStateFromFile,
+  readPersistedSessionStateSnapshotFromFile,
   type PersistedSessionState,
 } from "./session-state-file";
 import {
@@ -55,6 +55,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     new vscode.EventEmitter<TerminalWorkspaceBackendTitleChange>();
   private readonly runtime: DaemonTerminalRuntime;
   private leaseRenewalTimer: NodeJS.Timeout | undefined;
+  private readonly lastTerminalActivityAtBySessionId = new Map<string, number>();
   private pollTimer: NodeJS.Timeout | undefined;
   private readonly sessionRecordBySessionId = new Map<string, TerminalSessionRecord>();
   private readonly sessionTitleBySessionId = new Map<string, string>();
@@ -82,6 +83,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       const previousSnapshot = this.sessions.get(snapshot.sessionId);
       const previousTitle = this.sessionTitleBySessionId.get(snapshot.sessionId);
       this.sessions.set(snapshot.sessionId, snapshot);
+      void this.refreshPersistedSessionActivity(snapshot.sessionId);
       const nextTitle = this.syncSessionTitle(snapshot.sessionId, snapshot.title);
       logVSmuxDebug("backend.daemon.sessionState", {
         agentName: snapshot.agentName,
@@ -147,7 +149,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public getLastTerminalActivityAt(_sessionId: string): number | undefined {
-    return undefined;
+    return this.lastTerminalActivityAtBySessionId.get(_sessionId);
   }
 
   public hasLiveTerminal(sessionId: string): boolean {
@@ -348,6 +350,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         didChange = true;
       }
       this.sessions.set(sessionId, nextSnapshot);
+      await this.refreshPersistedSessionActivity(sessionId);
       const nextTitle = this.syncSessionTitle(sessionId, nextSnapshot.title);
       const presentationDiff = describeTerminalSessionPresentationDiff(
         previousSnapshot,
@@ -458,10 +461,30 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     workspaceId: string,
   ): Promise<TerminalSessionSnapshot> {
     const snapshot = createDisconnectedSessionSnapshot(sessionId, workspaceId);
-    const persistedState = await readPersistedSessionStateFromFile(
+    const persistedState = (
+      await readPersistedSessionStateSnapshotFromFile(this.getSessionAgentStateFilePath(sessionId))
+    ).state;
+    return applyPersistedSessionStateToDisconnectedSnapshot(snapshot, persistedState);
+  }
+
+  private async refreshPersistedSessionActivity(sessionId: string): Promise<void> {
+    const persistedState = await readPersistedSessionStateSnapshotFromFile(
       this.getSessionAgentStateFilePath(sessionId),
     );
-    return applyPersistedSessionStateToDisconnectedSnapshot(snapshot, persistedState);
+    const nextActivityAtMs = getPersistedSessionActivityAtMs(persistedState.state);
+    const previousActivityAtMs = this.lastTerminalActivityAtBySessionId.get(sessionId);
+
+    if (nextActivityAtMs === undefined) {
+      this.lastTerminalActivityAtBySessionId.delete(sessionId);
+      return;
+    }
+
+    if (previousActivityAtMs === nextActivityAtMs) {
+      return;
+    }
+
+    this.lastTerminalActivityAtBySessionId.set(sessionId, nextActivityAtMs);
+    this.changeSessionActivityEmitter.fire({ sessionId });
   }
 }
 
@@ -536,4 +559,13 @@ function haveSameTerminalSessionSnapshot(
 
 function normalizeTitle(title: string | undefined): string | undefined {
   return normalizeTerminalTitle(title);
+}
+
+function getPersistedSessionActivityAtMs(state: PersistedSessionState): number | undefined {
+  if (!state.lastActivityAt) {
+    return undefined;
+  }
+
+  const timestampMs = Date.parse(state.lastActivityAt);
+  return Number.isFinite(timestampMs) ? timestampMs : undefined;
 }

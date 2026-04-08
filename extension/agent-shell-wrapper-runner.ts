@@ -189,6 +189,7 @@ async function writeInitialSessionState(agent: AgentName, title: string): Promis
   await writePersistedSessionStateToFile(stateFilePath, {
     agentName: agent,
     agentStatus: "idle",
+    lastActivityAt: new Date().toISOString(),
     title,
   }).catch(() => undefined);
 }

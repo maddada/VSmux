@@ -381,6 +381,10 @@ async function handleWriteRequest(
     createTerminalDaemonSessionKey(request.workspaceId, request.sessionId),
   );
   if (session) {
+    await updatePersistedSessionStateFile(session.sessionStateFilePath, (currentState) => ({
+      ...currentState,
+      lastActivityAt: new Date().toISOString(),
+    })).catch(() => undefined);
     session.pty.write(request.data);
   }
   socket.send(JSON.stringify(okResponse(undefined, undefined, request)));

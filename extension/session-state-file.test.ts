@@ -19,6 +19,7 @@ describe("deletePersistedSessionStateFile", () => {
     await writePersistedSessionStateToFile(filePath, {
       agentName: "claude",
       agentStatus: "attention",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Claude Code",
     });
     await readFile(filePath, "utf8");
@@ -37,6 +38,7 @@ describe("persisted session title normalization", () => {
       serializePersistedSessionState({
         agentName: "claude",
         agentStatus: "working",
+        lastActivityAt: "2026-04-08T10:00:00.000Z",
         title: "  ✦ release audit  ",
       }),
     ).toContain("title=release audit");
@@ -46,11 +48,16 @@ describe("persisted session title normalization", () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
     const filePath = path.join(tempDir, "session-01.state");
 
-    await writeFile(filePath, "status=working\nagent=codex\ntitle=  🤖 Copilot fix  \n", "utf8");
+    await writeFile(
+      filePath,
+      "status=working\nagent=codex\nlastActivityAt=2026-04-08T10:00:00.000Z\ntitle=  🤖 Copilot fix  \n",
+      "utf8",
+    );
 
     await expect(readPersistedSessionStateFromFile(filePath)).resolves.toEqual({
       agentName: "codex",
       agentStatus: "working",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Copilot fix",
     });
   });
@@ -59,12 +66,17 @@ describe("persisted session title normalization", () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
     const filePath = path.join(tempDir, "session-02.state");
 
-    await writeFile(filePath, "status=attention\nagent=claude\ntitle=Claude Code\n", "utf8");
+    await writeFile(
+      filePath,
+      "status=attention\nagent=claude\nlastActivityAt=2026-04-08T10:00:00.000Z\ntitle=Claude Code\n",
+      "utf8",
+    );
 
     const snapshot = await readPersistedSessionStateSnapshotFromFile(filePath);
     expect(snapshot.state).toEqual({
       agentName: "claude",
       agentStatus: "attention",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
       title: "Claude Code",
     });
     expect(snapshot.updatedAtMs).toEqual(expect.any(Number));

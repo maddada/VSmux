@@ -264,7 +264,7 @@
         {
           "type": "webview",
           "id": "VSmux.sessions",
-          "name": "Sessions"
+          "name": "VSmux Sessions"
         },
         {
           "type": "webview",
@@ -309,6 +309,12 @@
           "minimum": 0,
           "default": 5,
           "description": "How long detached background sessions stay alive after the last VSmux window disconnects. Set to 0 to keep sessions alive until they exit or are explicitly closed."
+        },
+        "VSmux.autoOpenSidebarViewsOnStartup": {
+          "title": "Auto Open Sidebar Views On Startup",
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, VS Code startup automatically reveals the VSmux sidebar and reopens the VSmux Sessions view if it is not already open."
         },
         "VSmux.sidebarTheme": {
           "title": "Sidebar Theme",

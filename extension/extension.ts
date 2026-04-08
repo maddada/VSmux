@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { activate as activateChatHistory } from "../chat-history/src/extension/extension";
 import { setChatHistoryVSmuxTarget } from "./chat-history-vsmux-bridge";
 import { type VisibleSessionCount } from "../shared/session-grid-contract";
+import { maybeAutoOpenSidebarViewsOnStartup } from "./auto-open-sidebar-views";
 import { DebuggingStatusIndicator } from "./debugging-status-indicator";
 import { NativeTerminalWorkspaceController, SESSIONS_VIEW_ID } from "./native-terminal-workspace";
 import { initializeVSmuxDebugLog } from "./vsmux-debug-log";
@@ -53,9 +54,14 @@ export function activate(context: vscode.ExtensionContext): void {
     registerCommand("VSmux.resetWorkspace", () => workspace.resetWorkspace()),
   );
 
-  void workspace.initialize().catch((error) => {
-    void vscode.window.showErrorMessage(getErrorMessage(error));
-  });
+  void (async () => {
+    try {
+      await workspace.initialize();
+      await maybeAutoOpenSidebarViewsOnStartup(workspace);
+    } catch (error) {
+      void vscode.window.showErrorMessage(getErrorMessage(error));
+    }
+  })();
 }
 
 export function deactivate(): void {}

@@ -18,6 +18,7 @@ export function resolvePersistedSessionPresentationState(
   return {
     agentName: input.titleActivityAgentName ?? input.snapshotAgentName ?? currentState.agentName,
     agentStatus: input.titleActivityStatus ?? input.snapshotAgentStatus ?? currentState.agentStatus,
+    lastActivityAt: currentState.lastActivityAt,
     title: normalizeTerminalTitle(
       input.liveTitle ?? input.lastKnownPersistedTitle ?? currentState.title,
     ),
