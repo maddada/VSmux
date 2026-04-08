@@ -9,7 +9,10 @@ import {
   getVisibleTerminalTitle,
   isGeneratedSessionAlias,
 } from "../shared/session-grid-contract";
-import type { SidebarAgentIcon } from "../shared/sidebar-agents";
+import {
+  shouldPreferTerminalTitleForAgentIcon,
+  type SidebarAgentIcon,
+} from "../shared/sidebar-agents";
 
 const PREVIOUS_SESSION_HISTORY_KEY = "VSmux.previousSessionHistory";
 const PREVIOUS_SESSION_HISTORY_LIMIT = 200;
@@ -104,8 +107,22 @@ function getNormalizedHistorySidebarItem(entry: PreviousSessionHistoryEntry): Si
   const sessionPrimaryTitle = getVisiblePrimaryTitle(entry.sessionRecord.title);
   const storedPrimaryTitle = getVisibleTerminalTitle(entry.sidebarItem.primaryTitle);
   const storedTerminalTitle = getVisibleTerminalTitle(entry.sidebarItem.terminalTitle);
+  const preferredTerminalTitle = shouldPreferTerminalTitleForAgentIcon(entry.sidebarItem.agentIcon)
+    ? (storedTerminalTitle ??
+      (storedPrimaryTitle && storedPrimaryTitle !== sessionPrimaryTitle
+        ? storedPrimaryTitle
+        : undefined))
+    : undefined;
 
   if (sessionPrimaryTitle) {
+    if (preferredTerminalTitle) {
+      return {
+        ...entry.sidebarItem,
+        primaryTitle: preferredTerminalTitle,
+        terminalTitle: undefined,
+      };
+    }
+
     const fallbackTerminalTitle =
       storedTerminalTitle ??
       (storedPrimaryTitle && storedPrimaryTitle !== sessionPrimaryTitle

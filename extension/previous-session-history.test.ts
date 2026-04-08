@@ -112,6 +112,60 @@ describe("PreviousSessionHistory", () => {
     ]);
   });
 
+  test("should prefer the terminal title for Claude and Codex history entries", () => {
+    const renamedSession = {
+      ...createSessionRecord(1, 0),
+      title: "Bug Fix",
+    };
+    const history = new PreviousSessionHistory({
+      workspaceState: {
+        get: vi.fn(() => [
+          createHistoryEntry(renamedSession, "history-1", {
+            agentIcon: "claude",
+            primaryTitle: "Bug Fix",
+            terminalTitle: "Claude / recent sessions polish",
+          }),
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+    } as never);
+
+    expect(history.getItems()).toMatchObject([
+      {
+        historyId: "history-1",
+        primaryTitle: "Claude / recent sessions polish",
+        terminalTitle: undefined,
+      },
+    ]);
+  });
+
+  test("should keep the terminal title primary for newly archived Claude and Codex history entries", () => {
+    const renamedSession = {
+      ...createSessionRecord(1, 0),
+      title: "Bug Fix",
+    };
+    const history = new PreviousSessionHistory({
+      workspaceState: {
+        get: vi.fn(() => [
+          createHistoryEntry(renamedSession, "history-1", {
+            agentIcon: "codex",
+            primaryTitle: "Codex / recent sessions polish",
+            terminalTitle: undefined,
+          }),
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+    } as never);
+
+    expect(history.getItems()).toMatchObject([
+      {
+        historyId: "history-1",
+        primaryTitle: "Codex / recent sessions polish",
+        terminalTitle: undefined,
+      },
+    ]);
+  });
+
   test("should hide terminal history entries that have neither a user title nor a terminal title", () => {
     const history = new PreviousSessionHistory({
       workspaceState: {

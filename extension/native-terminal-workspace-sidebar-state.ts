@@ -19,7 +19,10 @@ import {
   type SidebarSessionStateMessage,
   type SidebarSessionItem,
 } from "../shared/session-grid-contract";
-import type { SidebarAgentIcon } from "../shared/sidebar-agents";
+import {
+  shouldPreferTerminalTitleForAgentIcon,
+  type SidebarAgentIcon,
+} from "../shared/sidebar-agents";
 import type {
   TerminalAgentStatus,
   TerminalSessionSnapshot,
@@ -345,17 +348,20 @@ function buildSidebarItem(
     options.getSessionSnapshot(sessionRecord.sessionId) ??
     createDisconnectedSessionSnapshot(sessionRecord.sessionId, options.workspaceId);
   const effectiveActivity = options.getEffectiveSessionActivity(sessionRecord, sessionSnapshot);
+  const agentIcon = options.getSidebarAgentIcon(
+    sessionRecord.sessionId,
+    sessionSnapshot.agentName,
+    effectiveActivity.agentName,
+  );
+  const shouldPreferTerminalTitle =
+    visibleTerminalTitle && shouldPreferTerminalTitleForAgentIcon(agentIcon);
 
   return {
     activity: isSleeping ? "idle" : effectiveActivity.activity,
     activityLabel: isSleeping
       ? undefined
       : getSessionActivityLabel(effectiveActivity.activity, effectiveActivity.agentName),
-    agentIcon: options.getSidebarAgentIcon(
-      sessionRecord.sessionId,
-      sessionSnapshot.agentName,
-      effectiveActivity.agentName,
-    ),
+    agentIcon,
     alias: sessionRecord.alias,
     column: sessionRecord.column,
     detail: isSleeping ? "Sleeping" : sessionSnapshot.errorMessage,
@@ -371,13 +377,19 @@ function buildSidebarItem(
     lastInteractionAt:
       getIsoTimestampFromMs(options.getLastTerminalActivityAt(sessionRecord.sessionId)) ??
       sessionRecord.createdAt,
-    primaryTitle: visiblePrimaryTitle ?? visibleTerminalTitle,
+    primaryTitle: shouldPreferTerminalTitle
+      ? visibleTerminalTitle
+      : (visiblePrimaryTitle ?? visibleTerminalTitle),
     row: sessionRecord.row,
     sessionId: sessionRecord.sessionId,
     sessionKind: "terminal",
     sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
     shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
-    terminalTitle: visiblePrimaryTitle ? visibleTerminalTitle : undefined,
+    terminalTitle: shouldPreferTerminalTitle
+      ? undefined
+      : visiblePrimaryTitle
+        ? visibleTerminalTitle
+        : undefined,
   };
 }
 

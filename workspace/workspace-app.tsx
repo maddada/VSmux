@@ -17,6 +17,10 @@ import type {
 } from "../shared/workspace-panel-contract";
 import { stripWorkspacePanelTransientFields } from "../shared/workspace-panel-contract";
 import { getVisiblePrimaryTitle, getVisibleTerminalTitle } from "../shared/session-grid-contract";
+import {
+  getSidebarAgentIconById,
+  shouldPreferTerminalTitleForAgentIcon,
+} from "../shared/sidebar-agents";
 import { logWorkspaceDebug } from "./workspace-debug";
 import { WorkspacePaneCloseButton } from "./workspace-pane-close-button";
 import { WorkspacePaneRefreshButton } from "./workspace-pane-refresh-button";
@@ -1058,6 +1062,14 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
 };
 
 function getWorkspacePanePrimaryTitle(pane: WorkspacePanelPane): string {
+  if (pane.kind === "terminal") {
+    const terminalTitle = getVisibleTerminalTitle(pane.terminalTitle);
+    const agentIcon = getSidebarAgentIconById(pane.snapshot?.agentName);
+    if (terminalTitle && shouldPreferTerminalTitleForAgentIcon(agentIcon)) {
+      return terminalTitle;
+    }
+  }
+
   const userTitle = getVisiblePrimaryTitle(pane.sessionRecord.title);
   if (userTitle) {
     return userTitle;
