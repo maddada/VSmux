@@ -996,7 +996,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     this.suppressSessionActivityIndicators(sessionRecord);
-    this.bumpTerminalPaneRenderNonce(sessionId);
+    this.retireTerminalPaneRuntimeGeneration(sessionId);
+    await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
     await this.backend.restartSession(sessionRecord);
     await this.backend.writeText(sessionId, resumeCommand, true);
     await this.afterStateChange();

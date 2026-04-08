@@ -762,6 +762,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       } else {
         targets.delete(sessionId);
       }
+      postWorkspaceDebugLog(debuggingModeRef.current, "workspace.terminalPortalTargetChanged", {
+        hadPreviousTarget: previousElement !== null,
+        hasNextTarget: element !== null,
+        sessionId,
+      });
       terminalPortalTargetVersionRef.current += 1;
       setTerminalPortalVersion(terminalPortalTargetVersionRef.current);
     };

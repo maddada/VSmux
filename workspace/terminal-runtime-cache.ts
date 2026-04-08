@@ -34,6 +34,7 @@ export type CachedTerminalRuntime = {
   host: HTMLDivElement;
   latestTermSize: { cols: number; rows: number } | null;
   maintenanceProbeId: number;
+  postSettleAppearanceApplied: boolean;
   refCount: number;
   rendererMode: string | null;
   renderNonce: number;
@@ -152,6 +153,7 @@ export const acquireCachedTerminalRuntime = (
   runtime.host = host;
   runtime.latestTermSize = null;
   runtime.maintenanceProbeId = 0;
+  runtime.postSettleAppearanceApplied = false;
   runtime.refCount = 1;
   runtime.rendererMode = null;
   runtime.renderNonce = options.renderNonce;
