@@ -132,6 +132,42 @@ describe("focusSessionInSimpleWorkspace", () => {
       sessionIdForDisplay(1),
     ]);
   });
+
+  test("should preserve visible slot order when focusing an already visible session", () => {
+    const result = focusSessionInSimpleWorkspace(
+      createWorkspaceSnapshot({
+        activeGroupId: DEFAULT_MAIN_GROUP_ID,
+        groups: [
+          {
+            groupId: DEFAULT_MAIN_GROUP_ID,
+            snapshot: {
+              focusedSessionId: sessionIdForDisplay(0),
+              fullscreenRestoreVisibleCount: undefined,
+              sessions: [
+                createSessionRecord(1, 0),
+                createSessionRecord(2, 1),
+                createSessionRecord(3, 2),
+              ],
+              viewMode: "grid",
+              visibleCount: 2,
+              visibleSessionIds: [sessionIdForDisplay(1), sessionIdForDisplay(0)],
+            },
+            title: "Main",
+          },
+        ],
+        nextGroupNumber: 2,
+        nextSessionDisplayId: 3,
+        nextSessionNumber: 4,
+      }),
+      sessionIdForDisplay(1),
+    );
+
+    expect(result.snapshot.groups[0]?.snapshot.focusedSessionId).toBe(sessionIdForDisplay(1));
+    expect(result.snapshot.groups[0]?.snapshot.visibleSessionIds).toEqual([
+      sessionIdForDisplay(1),
+      sessionIdForDisplay(0),
+    ]);
+  });
 });
 
 describe("focusGroupInSimpleWorkspace", () => {
@@ -753,7 +789,7 @@ describe("setSessionSleepingInSimpleWorkspace", () => {
     expect(result.snapshot.groups[0]?.snapshot.visibleSessionIds).toEqual([sessionIdForDisplay(0)]);
   });
 
-  test("should wake a sleeping session when it is focused again", () => {
+  test("should fill an empty visible slot before replacing an existing pane", () => {
     const sleepingSession = {
       ...createSessionRecord(2, 1),
       isSleeping: true,
@@ -786,8 +822,8 @@ describe("setSessionSleepingInSimpleWorkspace", () => {
     expect(result.snapshot.groups[0]?.snapshot.sessions[1]?.isSleeping).toBe(false);
     expect(result.snapshot.groups[0]?.snapshot.focusedSessionId).toBe(sleepingSessionId);
     expect(result.snapshot.groups[0]?.snapshot.visibleSessionIds).toEqual([
-      sleepingSessionId,
       sessionIdForDisplay(0),
+      sleepingSessionId,
     ]);
   });
 

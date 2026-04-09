@@ -926,35 +926,76 @@ function getNextVisibleIdsForFocusedSession(
     return [nextFocusedSessionId];
   }
 
-  if (currentVisibleSessionIds.includes(nextFocusedSessionId)) {
-    return getNormalizedVisibleIds(
-      sessions,
-      visibleCount,
-      nextFocusedSessionId,
-      currentVisibleSessionIds,
-    );
-  }
-
-  if (currentFocusedSessionId && currentVisibleSessionIds.includes(currentFocusedSessionId)) {
-    return getNormalizedVisibleIds(
-      sessions,
-      visibleCount,
-      nextFocusedSessionId,
-      currentVisibleSessionIds.map((sessionId) =>
-        sessionId === currentFocusedSessionId ? nextFocusedSessionId : sessionId,
-      ),
-    );
-  }
-
-  const passiveVisibleIds = currentVisibleSessionIds.filter(
-    (sessionId) => sessionId !== nextFocusedSessionId && sessionId !== currentFocusedSessionId,
-  );
-  return getNormalizedVisibleIds(
+  const stableVisibleSessionIds = getStableVisibleIds(
     sessions,
     visibleCount,
-    nextFocusedSessionId,
-    passiveVisibleIds.slice(0, Math.max(0, visibleCount - 1)).concat(nextFocusedSessionId),
+    currentVisibleSessionIds,
   );
+
+  if (stableVisibleSessionIds.includes(nextFocusedSessionId)) {
+    return stableVisibleSessionIds;
+  }
+
+  if (stableVisibleSessionIds.length < Math.min(visibleCount, sessions.length)) {
+    return getStableVisibleIds(sessions, visibleCount, [
+      ...stableVisibleSessionIds,
+      nextFocusedSessionId,
+    ]);
+  }
+
+  if (currentFocusedSessionId) {
+    const focusedVisibleIndex = stableVisibleSessionIds.indexOf(currentFocusedSessionId);
+    if (focusedVisibleIndex >= 0) {
+      const nextVisibleSessionIds = [...stableVisibleSessionIds];
+      nextVisibleSessionIds[focusedVisibleIndex] = nextFocusedSessionId;
+      return getStableVisibleIds(sessions, visibleCount, nextVisibleSessionIds);
+    }
+  }
+
+  if (stableVisibleSessionIds.length === 0) {
+    return [nextFocusedSessionId];
+  }
+
+  return getStableVisibleIds(
+    sessions,
+    visibleCount,
+    stableVisibleSessionIds.map((sessionId, index, visibleSessionIds) =>
+      index === visibleSessionIds.length - 1 ? nextFocusedSessionId : sessionId,
+    ),
+  );
+}
+
+function getStableVisibleIds(
+  sessions: readonly SessionRecord[],
+  visibleCount: VisibleSessionCount,
+  desiredVisibleSessionIds: readonly string[],
+): string[] {
+  const sessionIdSet = new Set(sessions.map((session) => session.sessionId));
+  const visibleSessionIds: string[] = [];
+
+  for (const sessionId of desiredVisibleSessionIds) {
+    if (!sessionIdSet.has(sessionId) || visibleSessionIds.includes(sessionId)) {
+      continue;
+    }
+
+    visibleSessionIds.push(sessionId);
+    if (visibleSessionIds.length >= visibleCount) {
+      return visibleSessionIds;
+    }
+  }
+
+  for (const session of sessions) {
+    if (visibleSessionIds.includes(session.sessionId)) {
+      continue;
+    }
+
+    visibleSessionIds.push(session.sessionId);
+    if (visibleSessionIds.length >= visibleCount) {
+      break;
+    }
+  }
+
+  return visibleSessionIds;
 }
 
 function withCanonicalSessionId(session: SessionRecord): SessionRecord {
