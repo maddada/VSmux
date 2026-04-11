@@ -2,6 +2,11 @@
 
 All notable user-facing changes are documented in this file.
 
+## 3.1.1 - 2026-04-11
+
+- Opencode session status is more reliable now, with the running and done indicator working more consistently in the UI.
+- Completion sounds for Opencode sessions now fire correctly when work finishes, so it is easier to notice done states without watching the sidebar constantly.
+
 ## 3.1.0 - 2026-04-11
 
 - Session and history search is much more capable now, with inline session search in the sidebar plus clearer previous-session search prompts when you need to find older work quickly.

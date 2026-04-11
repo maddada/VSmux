@@ -6,11 +6,10 @@ For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
 
 For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
 
-## Latest Release: 3.1.0
+## Latest Release: 3.1.1
 
-- Session search is more capable now, with inline sidebar search and better previous-session search prompts.
-- The terminal/runtime stack is stronger, with improved daemon shell integration, xterm support, scrollback behavior, and session helpers.
-- T3 embedding, session restore, pane controls, and sidebar interactions all feel more polished and reliable.
+- Opencode running and done indicators work more reliably in the UI.
+- Completion sounds for Opencode sessions now trigger properly when work finishes.
 
 Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
 
