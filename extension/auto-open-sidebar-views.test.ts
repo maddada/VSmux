@@ -5,11 +5,22 @@ const { configurationValues, executeCommandMock } = vi.hoisted(() => ({
   executeCommandMock: vi.fn(async () => undefined),
 }));
 
+const workspaceState = {
+  workspaceFile: undefined as { fsPath: string } | undefined,
+  workspaceFolders: undefined as Array<{ name: string; uri: { fsPath: string } }> | undefined,
+};
+
 vi.mock("vscode", () => ({
   commands: {
     executeCommand: executeCommandMock,
   },
   workspace: {
+    get workspaceFile() {
+      return workspaceState.workspaceFile;
+    },
+    get workspaceFolders() {
+      return workspaceState.workspaceFolders;
+    },
     getConfiguration: vi.fn(() => ({
       get: vi.fn((key: string, defaultValue?: unknown) =>
         configurationValues.has(key) ? configurationValues.get(key) : defaultValue,
@@ -25,6 +36,8 @@ describe("maybeAutoOpenSidebarViewsOnStartup", () => {
     configurationValues.clear();
     executeCommandMock.mockReset();
     executeCommandMock.mockResolvedValue(undefined);
+    workspaceState.workspaceFile = undefined;
+    workspaceState.workspaceFolders = [{ name: "agent-tiler", uri: { fsPath: "/workspace" } }];
   });
 
   test("should stay idle when startup auto-open is disabled", async () => {
@@ -38,6 +51,29 @@ describe("maybeAutoOpenSidebarViewsOnStartup", () => {
 
   test("should reveal the VSmux sidebar and focus the sessions view when enabled", async () => {
     configurationValues.set("autoOpenSidebarViewsOnStartup", true);
+    const revealSidebar = vi.fn(async () => undefined);
+
+    await maybeAutoOpenSidebarViewsOnStartup({ revealSidebar });
+
+    expect(revealSidebar).toHaveBeenCalledTimes(1);
+    expect(executeCommandMock.mock.calls).toEqual([["VSmux.sessions.focus"]]);
+  });
+
+  test("should stay idle for an empty VS Code window", async () => {
+    configurationValues.set("autoOpenSidebarViewsOnStartup", true);
+    workspaceState.workspaceFolders = undefined;
+    const revealSidebar = vi.fn(async () => undefined);
+
+    await maybeAutoOpenSidebarViewsOnStartup({ revealSidebar });
+
+    expect(revealSidebar).not.toHaveBeenCalled();
+    expect(executeCommandMock).not.toHaveBeenCalled();
+  });
+
+  test("should auto-open for a saved multi-root workspace", async () => {
+    configurationValues.set("autoOpenSidebarViewsOnStartup", true);
+    workspaceState.workspaceFolders = undefined;
+    workspaceState.workspaceFile = { fsPath: "/Users/madda/dev/client.code-workspace" };
     const revealSidebar = vi.fn(async () => undefined);
 
     await maybeAutoOpenSidebarViewsOnStartup({ revealSidebar });

@@ -322,7 +322,7 @@
         "VSmux.autoOpenSidebarViewsOnStartup": {
           "title": "Auto Open Sidebar Views On Startup",
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "When enabled, VS Code startup automatically reveals the VSmux sidebar and reopens the VSmux Sessions view if it is not already open."
         },
         "VSmux.sidebarTheme": {
