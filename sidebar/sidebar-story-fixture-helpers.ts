@@ -1,5 +1,9 @@
 import type { SidebarAgentIcon } from "../shared/sidebar-agents";
-import type { SidebarSessionGroup, SidebarSessionItem } from "../shared/session-grid-contract";
+import type {
+  SidebarPreviousSessionItem,
+  SidebarSessionGroup,
+  SidebarSessionItem,
+} from "../shared/session-grid-contract";
 
 export type SidebarStoryGroup = Omit<
   SidebarSessionGroup,
@@ -59,6 +63,49 @@ export function cloneGroups(groups: readonly SidebarStoryGroup[]): SidebarStoryG
     ...group,
     sessions: group.sessions.map((session) => ({ ...session })),
   }));
+}
+
+export function createStoryPreviousSession({
+  activity = "idle",
+  alias,
+  closedAt = new Date().toISOString(),
+  detail,
+  historyId,
+  isRestorable = true,
+  primaryTitle,
+  sessionId,
+  shortcutLabel,
+  terminalTitle,
+}: {
+  activity?: SidebarSessionItem["activity"];
+  alias: string;
+  closedAt?: string;
+  detail?: string;
+  historyId: string;
+  isRestorable?: boolean;
+  primaryTitle?: string;
+  sessionId: string;
+  shortcutLabel: string;
+  terminalTitle?: string;
+}): SidebarPreviousSessionItem {
+  return {
+    activity,
+    alias,
+    closedAt,
+    column: 0,
+    detail,
+    historyId,
+    isFocused: false,
+    isGeneratedName: false,
+    isRestorable,
+    isRunning: false,
+    isVisible: false,
+    primaryTitle,
+    row: 0,
+    sessionId,
+    shortcutLabel,
+    terminalTitle,
+  };
 }
 
 export function getFocusedSessionTitle(groups: readonly SidebarSessionGroup[]): string | undefined {

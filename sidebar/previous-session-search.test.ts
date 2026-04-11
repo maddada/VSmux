@@ -24,6 +24,26 @@ describe("filterPreviousSessions", () => {
       { historyId: "history-2" },
     ]);
   });
+
+  test("should optionally restrict results to favorite sessions before searching", () => {
+    const previousSessions = [
+      createPreviousSession({
+        alias: "Favorite release prep",
+        historyId: "history-1",
+        isFavorite: true,
+      }),
+      createPreviousSession({
+        alias: "Normal release prep",
+        historyId: "history-2",
+        isFavorite: false,
+      }),
+    ];
+
+    expect(filterPreviousSessions(previousSessions, "", { favoritesOnly: true })).toMatchObject([
+      { historyId: "history-1" },
+    ]);
+    expect(filterPreviousSessions(previousSessions, "normal", { favoritesOnly: true })).toEqual([]);
+  });
 });
 
 function createPreviousSession(

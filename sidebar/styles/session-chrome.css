@@ -135,6 +135,7 @@
   color: var(--app-muted);
   flex: none;
   line-height: 1;
+  transform: translateY(-4px);
   opacity: 0;
   pointer-events: none;
   transition:

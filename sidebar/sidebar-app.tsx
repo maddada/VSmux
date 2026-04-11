@@ -6,12 +6,15 @@ import {
   IconBell,
   IconBellOff,
   IconArrowsSort,
+  IconHelpCircle,
   IconHistory,
   IconLayoutSidebar,
   IconMinus,
   IconPencil,
   IconPlus,
+  IconSearch,
   IconSettings,
+  IconWorld,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -33,6 +36,10 @@ import { GitCommitModal } from "./git-commit-modal";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
 import { SectionHeader } from "./section-header";
+import {
+  SidebarPreviousSessionsSearchGroup,
+  SidebarSessionSearchField,
+} from "./sidebar-session-search-overlay";
 import { logSidebarDebug } from "./sidebar-debug";
 import { resetSidebarStore, useSidebarStore } from "./sidebar-store";
 import {
@@ -48,6 +55,7 @@ import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import type { WebviewApi } from "./webview-api";
 import { createDisplaySessionLayout } from "./active-sessions-sort";
+import { matchesSidebarSessionSearchQuery } from "./previous-session-search";
 
 export type SidebarAppProps = {
   messageSource?: Pick<Window, "addEventListener" | "removeEventListener">;
@@ -104,6 +112,7 @@ const sensors = [
 
 const SIDEBAR_STARTUP_INTERACTION_BLOCK_MS = 1500;
 const SIDEBAR_POINTER_DRAG_REORDER_THRESHOLD_PX = 8;
+const MIN_SESSION_SEARCH_QUERY_LENGTH = 2;
 
 export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) {
   const [isStartupInteractionBlocked, setIsStartupInteractionBlocked] = useState(true);
@@ -114,6 +123,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isDaemonSessionsOpen, setIsDaemonSessionsOpen] = useState(false);
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
+  const [isSessionSearchOpen, setIsSessionSearchOpen] = useState(false);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [isSessionsCollapsed, setIsSessionsCollapsed] = useState(false);
   const [sessionDropIndicatorGroupId, setSessionDropIndicatorGroupId] = useState<string>();
   const [overflowMenuAnchor, setOverflowMenuAnchor] = useState<HTMLElement>();
@@ -150,7 +161,9 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     createSessionOnSidebarDoubleClick,
     debuggingMode,
     groupOrder,
+    previousSessions,
     sectionVisibility,
+    showHotkeysOnSessionCards,
     sessionsById,
     theme,
     workspaceGroupIds,
@@ -165,7 +178,9 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       createSessionOnSidebarDoubleClick: state.hud.createSessionOnSidebarDoubleClick,
       debuggingMode: state.hud.debuggingMode,
       groupOrder: state.groupOrder,
+      previousSessions: state.previousSessions,
       sectionVisibility: state.hud.sectionVisibility,
+      showHotkeysOnSessionCards: state.hud.showHotkeysOnSessionCards,
       sessionsById: state.sessionsById,
       theme: state.hud.theme,
       workspaceGroupIds: state.workspaceGroupIds,
@@ -406,18 +421,87 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       }),
     [activeSessionsSortMode, authoritativeSessionIdsByGroup, sessionsById, workspaceGroupIds],
   );
+  const normalizedSessionSearchQuery = sessionSearchQuery.trim();
+  const isSessionSearchFiltering =
+    isSessionSearchOpen && normalizedSessionSearchQuery.length >= MIN_SESSION_SEARCH_QUERY_LENGTH;
+  const displayedBrowserSessionIdsByGroup = useMemo(
+    () =>
+      createDisplayedSessionIdsByGroup({
+        groupIds: visibleBrowserGroupIds,
+        query: normalizedSessionSearchQuery,
+        sessionIdsByGroup: authoritativeSessionIdsByGroup,
+        sessionsById,
+        shouldFilter: isSessionSearchFiltering,
+      }),
+    [
+      authoritativeSessionIdsByGroup,
+      isSessionSearchFiltering,
+      normalizedSessionSearchQuery,
+      sessionsById,
+      visibleBrowserGroupIds,
+    ],
+  );
+  const displayedWorkspaceSessionIdsByGroup = useMemo(
+    () =>
+      createDisplayedSessionIdsByGroup({
+        groupIds: effectiveGroupIds,
+        query: normalizedSessionSearchQuery,
+        sessionIdsByGroup: effectiveSessionIdsByGroup,
+        sessionsById,
+        shouldFilter: isSessionSearchFiltering,
+      }),
+    [
+      effectiveGroupIds,
+      effectiveSessionIdsByGroup,
+      isSessionSearchFiltering,
+      normalizedSessionSearchQuery,
+      sessionsById,
+    ],
+  );
+  const displayedBrowserGroupIds = useMemo(
+    () =>
+      createDisplayedGroupIds(
+        visibleBrowserGroupIds,
+        displayedBrowserSessionIdsByGroup,
+        isSessionSearchFiltering,
+      ),
+    [displayedBrowserSessionIdsByGroup, isSessionSearchFiltering, visibleBrowserGroupIds],
+  );
+  const displayedWorkspaceGroupIds = useMemo(
+    () =>
+      createDisplayedGroupIds(
+        effectiveGroupIds,
+        displayedWorkspaceSessionIdsByGroup,
+        isSessionSearchFiltering,
+      ),
+    [displayedWorkspaceSessionIdsByGroup, effectiveGroupIds, isSessionSearchFiltering],
+  );
+  const filteredPreviousSessions = useMemo(
+    () =>
+      !isSessionSearchFiltering
+        ? []
+        : previousSessions.filter((session) =>
+            matchesSidebarSessionSearchQuery(session, normalizedSessionSearchQuery),
+          ),
+    [isSessionSearchFiltering, normalizedSessionSearchQuery, previousSessions],
+  );
+  const shouldShowSessionSearchEmptyState =
+    isSessionSearchFiltering &&
+    displayedBrowserGroupIds.length === 0 &&
+    displayedWorkspaceGroupIds.length === 0 &&
+    filteredPreviousSessions.length === 0;
   const dragStructureKey = useMemo(
-    () => createDragStructureKey(effectiveGroupIds, effectiveSessionIdsByGroup),
-    [effectiveGroupIds, effectiveSessionIdsByGroup],
+    () => createDragStructureKey(displayedWorkspaceGroupIds, displayedWorkspaceSessionIdsByGroup),
+    [displayedWorkspaceGroupIds, displayedWorkspaceSessionIdsByGroup],
   );
 
   useEffect(() => {
-    groupIdsRef.current = effectiveGroupIds;
-  }, [effectiveGroupIds]);
+    groupIdsRef.current = displayedWorkspaceGroupIds;
+  }, [displayedWorkspaceGroupIds]);
 
   useEffect(() => {
-    sessionIdsByGroupRef.current = effectiveSessionIdsByGroup;
-  }, [effectiveSessionIdsByGroup]);
+    sessionIdsByGroupRef.current = displayedWorkspaceSessionIdsByGroup;
+  }, [displayedWorkspaceSessionIdsByGroup]);
 
   const postSidebarDebugLog = useEffectEvent((event: string, details: unknown) => {
     if (!debuggingMode) {
@@ -678,6 +762,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const openScratchPad = () => {
     setIsDaemonSessionsOpen(false);
     setIsPreviousSessionsOpen(false);
+    setIsSessionSearchOpen(false);
+    setSessionSearchQuery("");
     setIsScratchPadOpen((previous) => !previous);
   };
 
@@ -685,6 +771,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     setIsOverflowMenuOpen(false);
     setIsPreviousSessionsOpen(false);
     setIsScratchPadOpen(false);
+    setIsSessionSearchOpen(false);
+    setSessionSearchQuery("");
     setIsDaemonSessionsOpen(true);
     vscode.postMessage({ type: "refreshDaemonSessions" });
   };
@@ -692,6 +780,39 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const openSidebarSettings = () => {
     setIsOverflowMenuOpen(false);
     vscode.postMessage({ type: "openSettings" });
+  };
+
+  const closeSessionSearch = () => {
+    setIsSessionSearchOpen(false);
+    setSessionSearchQuery("");
+  };
+
+  const toggleSessionSearch = () => {
+    setIsDaemonSessionsOpen(false);
+    setIsPreviousSessionsOpen(false);
+    setIsScratchPadOpen(false);
+    setIsSessionSearchOpen((previous) => {
+      if (previous) {
+        setSessionSearchQuery("");
+      }
+
+      return !previous;
+    });
+  };
+
+  const restoreSearchedPreviousSession = (historyId: string) => {
+    vscode.postMessage({
+      historyId,
+      type: "restorePreviousSession",
+    });
+    closeSessionSearch();
+  };
+
+  const deleteSearchedPreviousSession = (historyId: string) => {
+    vscode.postMessage({
+      historyId,
+      type: "deletePreviousSession",
+    });
   };
 
   const adjustTerminalFontSize = (delta: -1 | 1) => {
@@ -718,6 +839,16 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     setCommandCreateRequestId((previous) => previous + 1);
   };
 
+  const openBrowserPage = () => {
+    setIsOverflowMenuOpen(false);
+    vscode.postMessage({ type: "openBrowser" });
+  };
+
+  const openWorkspaceWelcome = () => {
+    setIsOverflowMenuOpen(false);
+    vscode.postMessage({ type: "openWorkspaceWelcome" });
+  };
+
   const topControlOptions = {
     completionBellEnabled,
     isOverflowMenuOpen,
@@ -725,7 +856,9 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     onAddAction: openAddActionModal,
     onAddAgent: openAddAgentModal,
     onAdjustTerminalFontSize: adjustTerminalFontSize,
+    onAddBrowser: openBrowserPage,
     onMoveSidebar: moveSidebar,
+    onOpenHelp: openWorkspaceWelcome,
     onOpenSettings: openSidebarSettings,
     onShowRunning: openRunningSessions,
     onToggleBell: toggleCompletionBell,
@@ -743,52 +876,54 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         data-sidebar-theme={theme}
         onDoubleClick={handleSidebarDoubleClick}
       >
-        <CommandsPanel
-          createRequestId={commandCreateRequestId}
-          titlebarActions={
-            shouldShowActionsPanel
-              ? renderSidebarTopControls({
-                  ...topControlOptions,
-                  showScratchPad: !shouldShowAgentsPanel,
-                })
-              : undefined
-          }
-          isCollapsed={collapsedSections.actions}
-          isVisible={shouldShowActionsPanel}
-          onToggleCollapsed={(collapsed) => {
-            setSectionCollapsed("actions", collapsed);
-            vscode.postMessage({
-              collapsed,
-              section: "actions",
-              type: "setSidebarSectionCollapsed",
-            });
-          }}
-          showGitButton={sectionVisibility.git}
-          vscode={vscode}
-        />
-        <AgentsPanel
-          createRequestId={agentCreateRequestId}
-          titlebarActions={
-            shouldShowAgentsPanel
-              ? renderSidebarTopControls({
-                  ...topControlOptions,
-                  showMenu: !shouldShowActionsPanel,
-                  showScratchPad: true,
-                })
-              : undefined
-          }
-          isCollapsed={collapsedSections.agents}
-          isVisible={shouldShowAgentsPanel}
-          onToggleCollapsed={(collapsed) => {
-            setSectionCollapsed("agents", collapsed);
-            vscode.postMessage({
-              collapsed,
-              section: "agents",
-              type: "setSidebarSectionCollapsed",
-            });
-          }}
-          vscode={vscode}
-        />
+        <div className="sidebar-top-panels">
+          <CommandsPanel
+            createRequestId={commandCreateRequestId}
+            titlebarActions={
+              shouldShowActionsPanel
+                ? renderSidebarTopControls({
+                    ...topControlOptions,
+                    showScratchPad: !shouldShowAgentsPanel,
+                  })
+                : undefined
+            }
+            isCollapsed={collapsedSections.actions}
+            isVisible={shouldShowActionsPanel}
+            onToggleCollapsed={(collapsed) => {
+              setSectionCollapsed("actions", collapsed);
+              vscode.postMessage({
+                collapsed,
+                section: "actions",
+                type: "setSidebarSectionCollapsed",
+              });
+            }}
+            showGitButton={sectionVisibility.git}
+            vscode={vscode}
+          />
+          <AgentsPanel
+            createRequestId={agentCreateRequestId}
+            titlebarActions={
+              shouldShowAgentsPanel
+                ? renderSidebarTopControls({
+                    ...topControlOptions,
+                    showMenu: !shouldShowActionsPanel,
+                    showScratchPad: true,
+                  })
+                : undefined
+            }
+            isCollapsed={collapsedSections.agents}
+            isVisible={shouldShowAgentsPanel}
+            onToggleCollapsed={(collapsed) => {
+              setSectionCollapsed("agents", collapsed);
+              vscode.postMessage({
+                collapsed,
+                section: "agents",
+                type: "setSidebarSectionCollapsed",
+              });
+            }}
+            vscode={vscode}
+          />
+        </div>
         <section className="session-groups-panel" ref={sessionGroupsPanelRef}>
           <SectionHeader
             actions={
@@ -805,6 +940,18 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   <IconArrowsSort aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
                 </ToolbarIconButton>
                 <ToolbarIconButton
+                  ariaExpanded={isSessionSearchOpen}
+                  ariaLabel="Search sessions"
+                  className="floating-toolbar-button section-titlebar-action-button"
+                  isSelected={isSessionSearchOpen}
+                  onClick={() => {
+                    toggleSessionSearch();
+                  }}
+                  tooltip="Search"
+                >
+                  <IconSearch aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+                </ToolbarIconButton>
+                <ToolbarIconButton
                   ariaExpanded={isPreviousSessionsOpen}
                   ariaHasPopup="dialog"
                   ariaLabel="Show previous sessions"
@@ -813,6 +960,8 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   onClick={() => {
                     setIsDaemonSessionsOpen(false);
                     setIsScratchPadOpen(false);
+                    setIsSessionSearchOpen(false);
+                    setSessionSearchQuery("");
                     setIsPreviousSessionsOpen((previous) => !previous);
                   }}
                   tooltip="Previous Sessions"
@@ -833,17 +982,26 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             title="Active"
           />
           {!isSessionsCollapsed ? (
-            <>
-              {visibleBrowserGroupIds.length > 0 ? (
+            <div className="session-groups-content">
+              {isSessionSearchOpen ? (
+                <SidebarSessionSearchField
+                  onClose={closeSessionSearch}
+                  query={sessionSearchQuery}
+                  setQuery={setSessionSearchQuery}
+                />
+              ) : null}
+              {displayedBrowserGroupIds.length > 0 ? (
                 <div className="group-list">
-                  {visibleBrowserGroupIds.map((groupId) => (
+                  {displayedBrowserGroupIds.map((groupId) => (
                     <SessionGroupSection
                       autoEdit={false}
                       canClose={false}
+                      draggingDisabled={isSessionSearchOpen}
                       groupId={groupId}
                       index={-1}
                       key={groupId}
                       onAutoEditHandled={() => undefined}
+                      orderedSessionIds={displayedBrowserSessionIdsByGroup[groupId] ?? []}
                       vscode={vscode}
                     />
                   ))}
@@ -858,46 +1016,65 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 sensors={sensors}
               >
                 <div className="group-list">
-                  {effectiveGroupIds.map((groupId, groupIndex) => (
+                  {displayedWorkspaceGroupIds.map((groupId, groupIndex) => (
                     <SessionGroupSection
                       autoEdit={autoEditingGroupId === groupId}
                       canClose={effectiveGroupIds.length > 1}
+                      draggingDisabled={isSessionSearchOpen}
                       groupId={groupId}
                       index={groupIndex}
                       key={groupId}
                       onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
                       onFocusRequested={applyLocalFocus}
-                      orderedSessionIds={effectiveSessionIdsByGroup[groupId] ?? []}
+                      orderedSessionIds={displayedWorkspaceSessionIdsByGroup[groupId] ?? []}
                       sessionDropIndicatorGroupId={sessionDropIndicatorGroupId}
-                      showSessionDropPositionIndicators={isManualActiveSessionsSort}
+                      showSessionDropPositionIndicators={
+                        !isSessionSearchOpen && isManualActiveSessionsSort
+                      }
                       vscode={vscode}
                     />
                   ))}
                 </div>
               </DragDropProvider>
-              <button
-                aria-label="Create a new group"
-                className="group-create-button"
-                data-empty-space-blocking="true"
-                disabled={effectiveGroupIds.length >= MAX_GROUP_COUNT}
-                onClick={() => {
-                  pendingCreateGroupRef.current = true;
-                  vscode.postMessage({ type: "createGroup" });
-                }}
-                type="button"
-              >
-                <IconPlus aria-hidden="true" className="group-create-button-icon" size={14} />
-                New Group
-              </button>
-              {visibleBrowserGroupIds.length === 0 &&
-              effectiveGroupIds.every(
-                (groupId) => (effectiveSessionIdsByGroup[groupId] ?? []).length === 0,
-              ) ? (
+              {isSessionSearchFiltering ? (
+                <SidebarPreviousSessionsSearchGroup
+                  onDeletePreviousSession={deleteSearchedPreviousSession}
+                  onRestorePreviousSession={restoreSearchedPreviousSession}
+                  previousSessions={filteredPreviousSessions}
+                  showDebugSessionNumbers={debuggingMode}
+                  showHotkeys={showHotkeysOnSessionCards}
+                />
+              ) : null}
+              {!isSessionSearchOpen ? (
+                <button
+                  aria-label="Create a new group"
+                  className="group-create-button"
+                  data-empty-space-blocking="true"
+                  disabled={effectiveGroupIds.length >= MAX_GROUP_COUNT}
+                  onClick={() => {
+                    pendingCreateGroupRef.current = true;
+                    vscode.postMessage({ type: "createGroup" });
+                  }}
+                  type="button"
+                >
+                  <IconPlus aria-hidden="true" className="group-create-button-icon" size={14} />
+                  New Group
+                </button>
+              ) : null}
+              {shouldShowSessionSearchEmptyState ? (
+                <div className="empty session-search-empty-state" data-empty-space-blocking="true">
+                  No current or previous sessions match that search.
+                </div>
+              ) : displayedBrowserGroupIds.length === 0 &&
+                displayedWorkspaceGroupIds.every(
+                  (groupId) => (displayedWorkspaceSessionIdsByGroup[groupId] ?? []).length === 0,
+                ) &&
+                !isSessionSearchOpen ? (
                 <div className="empty" data-empty-space-blocking="true">
                   Create the first session to start the workspace.
                 </div>
               ) : null}
-            </>
+            </div>
           ) : null}
         </section>
         <PreviousSessionsModal
@@ -1104,8 +1281,10 @@ type RenderSidebarTopControlsOptions = {
   isScratchPadOpen: boolean;
   onAddAction: () => void;
   onAddAgent: () => void;
+  onAddBrowser: () => void;
   onAdjustTerminalFontSize: (delta: -1 | 1) => void;
   onMoveSidebar: () => void;
+  onOpenHelp: () => void;
   onOpenSettings: () => void;
   onShowRunning: () => void;
   onToggleBell: () => void;
@@ -1123,8 +1302,10 @@ function renderSidebarTopControls({
   isScratchPadOpen,
   onAddAction,
   onAddAgent,
+  onAddBrowser,
   onAdjustTerminalFontSize,
   onMoveSidebar,
+  onOpenHelp,
   onOpenSettings,
   onShowRunning,
   onToggleBell,
@@ -1279,6 +1460,15 @@ function renderSidebarTopControls({
                   </button>
                   <button
                     className="session-context-menu-item"
+                    onClick={onAddBrowser}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <IconWorld aria-hidden="true" className="session-context-menu-icon" size={14} />
+                    Add Webpage
+                  </button>
+                  <button
+                    className="session-context-menu-item"
                     onClick={onShowRunning}
                     role="menuitem"
                     type="button"
@@ -1292,17 +1482,17 @@ function renderSidebarTopControls({
                   </button>
                   <button
                     className="session-context-menu-item"
-                    onClick={onMoveSidebar}
+                    onClick={onOpenHelp}
                     role="menuitem"
                     type="button"
                   >
-                    <IconLayoutSidebar
+                    <IconHelpCircle
                       aria-hidden="true"
                       className="session-context-menu-icon"
                       size={14}
                       stroke={1.8}
                     />
-                    Change Sidebar
+                    Help
                   </button>
                   <button
                     className="session-context-menu-item"
@@ -1490,4 +1680,44 @@ function hasPointerDragMovedPastThreshold(
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function createDisplayedSessionIdsByGroup({
+  groupIds,
+  query,
+  sessionIdsByGroup,
+  sessionsById,
+  shouldFilter,
+}: {
+  groupIds: readonly string[];
+  query: string;
+  sessionIdsByGroup: SessionIdsByGroup;
+  sessionsById: ReturnType<typeof useSidebarStore.getState>["sessionsById"];
+  shouldFilter: boolean;
+}): SessionIdsByGroup {
+  const displayedSessionIdsByGroup: SessionIdsByGroup = {};
+
+  for (const groupId of groupIds) {
+    const sessionIds = sessionIdsByGroup[groupId] ?? [];
+    displayedSessionIdsByGroup[groupId] = !shouldFilter
+      ? [...sessionIds]
+      : sessionIds.filter((sessionId) => {
+          const session = sessionsById[sessionId];
+          return session ? matchesSidebarSessionSearchQuery(session, query) : false;
+        });
+  }
+
+  return displayedSessionIdsByGroup;
+}
+
+function createDisplayedGroupIds(
+  groupIds: readonly string[],
+  sessionIdsByGroup: SessionIdsByGroup,
+  shouldFilter: boolean,
+): string[] {
+  if (!shouldFilter) {
+    return [...groupIds];
+  }
+
+  return groupIds.filter((groupId) => (sessionIdsByGroup[groupId] ?? []).length > 0);
 }

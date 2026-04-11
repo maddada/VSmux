@@ -276,6 +276,72 @@ export const ActiveSortModeStillAllowsDragging: Story = {
   },
 };
 
+export const InlineSearchFiltersGroupsInPlace: Story = {
+  args: {
+    fixture: "sort-toggle-demo",
+    highlightedVisibleCount: 2,
+    showCloseButtonOnSessionCards: true,
+    showHotkeysOnSessionCards: true,
+    showLastInteractionTimeOnSessionCards: true,
+    visibleCount: 2,
+  },
+  play: async ({ canvas, canvasElement, step, userEvent }) => {
+    const storyRoot = canvasElement.ownerDocument.body;
+
+    await waitForReadyMessage();
+
+    await step("open inline search without replacing the current list", async () => {
+      await userEvent.click(canvas.getByRole("button", { name: "Search sessions" }));
+      await expect(
+        canvas.getByRole("textbox", { name: "Search current and previous sessions" }),
+      ).toBeVisible();
+      await expect(canvas.queryByRole("button", { name: "Create a new group" })).toBeNull();
+      await expectSessionMembership(storyRoot, "group-1", ["session-1", "session-2", "session-3"]);
+      await expectSessionMembership(storyRoot, "group-2", ["session-4", "session-5"]);
+    });
+
+    await step(
+      "wait for two characters before filtering and showing previous sessions",
+      async () => {
+        const searchInput = canvas.getByRole("textbox", {
+          name: "Search current and previous sessions",
+        });
+
+        await userEvent.type(searchInput, "r");
+        await expectSessionMembership(storyRoot, "group-1", [
+          "session-1",
+          "session-2",
+          "session-3",
+        ]);
+        await expectSessionMembership(storyRoot, "group-2", ["session-4", "session-5"]);
+        await expect(
+          canvas.queryByRole("button", { name: "Restore recent retrospective" }),
+        ).toBeNull();
+
+        await userEvent.type(searchInput, "ecent");
+
+        await expectSessionMembership(storyRoot, "group-1", ["session-2"]);
+        await expectSessionMembership(storyRoot, "group-2", ["session-5"]);
+        await expect(
+          canvas.getByRole("button", { name: "Restore recent retrospective" }),
+        ).toBeVisible();
+      },
+    );
+
+    await step("close search with escape and restore the full list", async () => {
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => {
+        expect(
+          canvas.queryByRole("textbox", { name: "Search current and previous sessions" }),
+        ).toBeNull();
+      });
+      await expect(canvas.getByRole("button", { name: "Create a new group" })).toBeVisible();
+      await expectSessionMembership(storyRoot, "group-1", ["session-1", "session-2", "session-3"]);
+      await expectSessionMembership(storyRoot, "group-2", ["session-4", "session-5"]);
+    });
+  },
+};
+
 export const EmptySidebarDoubleClick: Story = {
   play: async ({ canvasElement, step }) => {
     await waitForReadyMessage();

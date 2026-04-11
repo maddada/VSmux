@@ -1,15 +1,19 @@
 .session-groups-panel {
   display: grid;
   gap: calc(10px * var(--sidebar-density-scale));
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
 
-.session-groups-panel[data-dimmed='true'] {
+.session-groups-panel[data-dimmed="true"] {
   filter: saturate(0.7);
   opacity: 0.4;
   pointer-events: none;
 }
 
-.session-groups-panel[data-dimmed='true'] .section-titlebar-label {
+.session-groups-panel[data-dimmed="true"] .section-titlebar-label {
   color: color-mix(in srgb, var(--app-foreground) 44%, transparent);
 }
 
@@ -72,4 +76,51 @@
 
 .section-titlebar-action-button {
   flex: none;
+}
+
+.session-groups-content {
+  align-content: start;
+  align-items: start;
+  display: grid;
+  gap: calc(10px * var(--sidebar-density-scale));
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  position: relative;
+}
+
+.session-search-toolbar {
+  display: grid;
+}
+
+.session-search-input {
+  min-width: 0;
+}
+
+.session-search-empty-state {
+  min-height: calc(48px * var(--sidebar-density-scale));
+}
+
+.session-search-previous-group {
+  margin-top: calc(2px * var(--sidebar-density-scale));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-card) 96%, transparent),
+    color-mix(in srgb, var(--app-muted) 10%, var(--app-card) 90%)
+  );
+  border-color: color-mix(in srgb, var(--app-border) 76%, var(--app-muted) 24%);
+}
+
+.session-search-previous-group .group-title {
+  color: color-mix(in srgb, var(--app-foreground) 60%, var(--app-muted) 40%);
+}
+
+.session-search-previous-group .session-history-card {
+  opacity: 0.52;
+}
+
+.session-search-previous-group .session-history-frame .session-floating-agent-icon,
+.session-search-previous-group .session-history-frame .session-floating-agent-tabler-icon {
+  opacity: 0.52;
 }

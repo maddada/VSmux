@@ -1,5 +1,5 @@
 import { Tooltip } from "@base-ui/react/tooltip";
-import { IconX } from "@tabler/icons-react";
+import { IconStar, IconX } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { filterPreviousSessions, groupPreviousSessionsByDay } from "./previous-session-search";
@@ -23,12 +23,13 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
   const previousSessions = useSidebarStore((state) => state.previousSessions);
   const showDebugSessionNumbers = useSidebarStore((state) => state.hud.debuggingMode);
   const showHotkeys = useSidebarStore((state) => state.hud.showHotkeysOnSessionCards);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingSelectionRef = useRef<{ end: number; start: number } | undefined>(undefined);
   const filteredSessions = useMemo(
-    () => filterPreviousSessions(previousSessions, searchQuery),
-    [previousSessions, searchQuery],
+    () => filterPreviousSessions(previousSessions, searchQuery, { favoritesOnly }),
+    [favoritesOnly, previousSessions, searchQuery],
   );
   const groupedSessions = useMemo(
     () => groupPreviousSessionsByDay(filteredSessions),
@@ -85,6 +86,7 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
 
   useEffect(() => {
     if (!isOpen) {
+      setFavoritesOnly(false);
       setSearchQuery("");
       pendingSelectionRef.current = undefined;
     }
@@ -141,7 +143,6 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
       <div className="confirm-modal-root" role="presentation">
         <button className="confirm-modal-backdrop" onClick={onClose} type="button" />
         <div
-          aria-describedby="previous-sessions-modal-description"
           aria-labelledby="previous-sessions-modal-title"
           aria-modal="true"
           className="confirm-modal previous-sessions-modal"
@@ -159,9 +160,6 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
             <div className="confirm-modal-title" id="previous-sessions-modal-title">
               Previous Sessions
             </div>
-            <div className="confirm-modal-description" id="previous-sessions-modal-description">
-              Sessions you previously ran in this workspace.
-            </div>
           </div>
           <div className="previous-sessions-toolbar">
             <input
@@ -175,6 +173,38 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
               type="text"
               value={searchQuery}
             />
+            <button
+              className="previous-sessions-find-button"
+              onClick={() => {
+                vscode.postMessage({
+                  type: "promptFindPreviousSession",
+                });
+                onClose();
+              }}
+              type="button"
+            >
+              Find a session
+            </button>
+            <button
+              aria-label={
+                favoritesOnly
+                  ? "Show all previous sessions"
+                  : "Show favorite previous sessions only"
+              }
+              className="previous-sessions-favorites-toggle"
+              data-selected={String(favoritesOnly)}
+              onClick={() => {
+                setFavoritesOnly((previous) => !previous);
+              }}
+              type="button"
+            >
+              <IconStar
+                aria-hidden="true"
+                className="toolbar-tabler-icon"
+                fill={favoritesOnly ? "currentColor" : "none"}
+                stroke={1.8}
+              />
+            </button>
           </div>
           <div className="previous-sessions-modal-body">
             {groupedSessions.length > 0 ? (
@@ -209,8 +239,12 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
             ) : (
               <div className="group-empty-state previous-sessions-empty-state">
                 {searchQuery.trim()
-                  ? "No previous sessions match that search."
-                  : "No previous sessions yet."}
+                  ? favoritesOnly
+                    ? "No favorite previous sessions match that search."
+                    : "No previous sessions match that search."
+                  : favoritesOnly
+                    ? "No favorite previous sessions yet."
+                    : "No previous sessions yet."}
               </div>
             )}
           </div>

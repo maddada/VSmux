@@ -1,34 +1,32 @@
-import type { SidebarPreviousSessionItem } from "../shared/session-grid-contract";
+import type {
+  SidebarPreviousSessionItem,
+  SidebarSessionItem,
+} from "../shared/session-grid-contract";
 
 export type PreviousSessionsModalDayGroup = {
   dayLabel: string;
   sessions: SidebarPreviousSessionItem[];
 };
 
+export type FilterPreviousSessionsOptions = {
+  favoritesOnly?: boolean;
+};
+
 export function filterPreviousSessions(
   previousSessions: readonly SidebarPreviousSessionItem[],
   query: string,
+  options: FilterPreviousSessionsOptions = {},
 ): SidebarPreviousSessionItem[] {
   const normalizedQuery = query.trim().toLowerCase();
+  const filteredSessions = options.favoritesOnly
+    ? previousSessions.filter((session) => session.isFavorite)
+    : [...previousSessions];
+
   if (!normalizedQuery) {
-    return [...previousSessions];
+    return filteredSessions;
   }
 
-  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  return previousSessions.filter((session) => {
-    const haystack = [
-      session.alias,
-      session.primaryTitle,
-      session.terminalTitle,
-      session.detail,
-      session.sessionNumber,
-    ]
-      .filter((part) => typeof part === "string" && part.trim().length > 0)
-      .join(" ")
-      .toLowerCase();
-
-    return queryTokens.every((token) => fuzzyIncludes(haystack, token));
-  });
+  return filteredSessions.filter((session) => matchesSidebarSessionSearchQuery(session, query));
 }
 
 export function groupPreviousSessionsByDay(
@@ -75,4 +73,31 @@ function fuzzyIncludes(text: string, query: string): boolean {
   }
 
   return query.length === 0;
+}
+
+export function matchesSidebarSessionSearchQuery(
+  session: Pick<
+    SidebarSessionItem,
+    "alias" | "detail" | "primaryTitle" | "sessionNumber" | "terminalTitle"
+  >,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const haystack = [
+    session.alias,
+    session.primaryTitle,
+    session.terminalTitle,
+    session.detail,
+    session.sessionNumber,
+  ]
+    .filter((part) => typeof part === "string" && part.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  return queryTokens.every((token) => fuzzyIncludes(haystack, token));
 }

@@ -15,10 +15,12 @@ import { useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { createPortal } from "react-dom";
 import {
+  Fragment,
   useEffect,
   useEffectEvent,
   useRef,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -36,6 +38,7 @@ import type { WebviewApi } from "./webview-api";
 const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_WIDTH_PX = 156;
 const CONTEXT_MENU_ITEM_HEIGHT_PX = 34;
+const CONTEXT_MENU_DIVIDER_HEIGHT_PX = 13;
 const CONTEXT_MENU_VERTICAL_PADDING_PX = 12;
 const SESSION_CARD_DRAG_HOLD_DELAY_MS = 130;
 const SESSION_CARD_DRAG_HOLD_TOLERANCE_PX = 12;
@@ -70,7 +73,16 @@ type ContextMenuPosition = {
   y: number;
 };
 
+type SessionContextMenuAction = {
+  danger?: boolean;
+  icon: ReactNode;
+  key: string;
+  label: string;
+  onClick: () => void;
+};
+
 export type SortableSessionCardProps = {
+  dragDisabled?: boolean;
   groupId: string;
   index: number;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
@@ -83,8 +95,12 @@ function clampContextMenuPosition(
   clientX: number,
   clientY: number,
   itemCount: number,
+  dividerCount: number,
 ): ContextMenuPosition {
-  const menuHeight = CONTEXT_MENU_VERTICAL_PADDING_PX + itemCount * CONTEXT_MENU_ITEM_HEIGHT_PX;
+  const menuHeight =
+    CONTEXT_MENU_VERTICAL_PADDING_PX +
+    itemCount * CONTEXT_MENU_ITEM_HEIGHT_PX +
+    dividerCount * CONTEXT_MENU_DIVIDER_HEIGHT_PX;
   return {
     x: Math.max(
       CONTEXT_MENU_MARGIN_PX,
@@ -98,6 +114,7 @@ function clampContextMenuPosition(
 }
 
 export function SortableSessionCard({
+  dragDisabled = false,
   groupId,
   index,
   onFocusRequested,
@@ -151,7 +168,7 @@ export function SortableSessionCard({
   const sortable = useSortable({
     accept: "session",
     data: createSessionDragData(groupId, session.sessionId),
-    disabled: isBrowserSession || contextMenuPosition !== undefined,
+    disabled: dragDisabled || isBrowserSession || contextMenuPosition !== undefined,
     feedback: "clone",
     group: groupId,
     id: sessionId,
@@ -161,7 +178,7 @@ export function SortableSessionCard({
     type: "session",
   });
   const isSessionReorderDisabled =
-    !session || isBrowserSession || contextMenuPosition !== undefined;
+    !session || dragDisabled || isBrowserSession || contextMenuPosition !== undefined;
   const beforeDropTarget = useDroppable({
     accept: "session",
     data: createSessionDropTargetData({
@@ -284,18 +301,7 @@ export function SortableSessionCard({
 
   const openContextMenu = (clientX: number, clientY: number) => {
     setContextMenuPosition(
-      clampContextMenuPosition(
-        clientX,
-        clientY,
-        Number(!isBrowserSession) +
-          Number(canFavoriteSession) +
-          Number(canSetT3ThreadId) +
-          Number(canForkSession) +
-          Number(canCopyResumeCommand) +
-          Number(canFullReloadSession) +
-          Number(canSleepSession) +
-          1,
-      ),
+      clampContextMenuPosition(clientX, clientY, contextMenuItemCount, contextMenuDividerCount),
     );
   };
 
@@ -369,12 +375,141 @@ export function SortableSessionCard({
     });
   };
 
+  const primaryActions: SessionContextMenuAction[] = [];
+  if (!isBrowserSession) {
+    primaryActions.push({
+      icon: (
+        <IconPencil
+          aria-hidden="true"
+          className="session-context-menu-icon"
+          size={16}
+          stroke={1.8}
+        />
+      ),
+      key: "rename",
+      label: "Rename",
+      onClick: requestRename,
+    });
+  }
+  if (canFavoriteSession) {
+    primaryActions.push({
+      icon: (
+        <IconStar aria-hidden="true" className="session-context-menu-icon" size={16} stroke={1.8} />
+      ),
+      key: "favorite",
+      label: session.isFavorite ? "Unfavorite" : "Favorite",
+      onClick: () => requestSetFavorite(!session.isFavorite),
+    });
+  }
+  if (canSleepSession) {
+    primaryActions.push({
+      icon: session.isSleeping ? (
+        <IconPlayerPlay
+          aria-hidden="true"
+          className="session-context-menu-icon"
+          size={16}
+          stroke={1.8}
+        />
+      ) : (
+        <IconMoon aria-hidden="true" className="session-context-menu-icon" size={16} stroke={1.8} />
+      ),
+      key: "sleep",
+      label: session.isSleeping ? "Wake" : "Sleep",
+      onClick: () => requestSetSleeping(!session.isSleeping),
+    });
+  }
+
+  const sessionActions: SessionContextMenuAction[] = [];
+  if (canSetT3ThreadId) {
+    sessionActions.push({
+      icon: (
+        <IconHash aria-hidden="true" className="session-context-menu-icon" size={16} stroke={1.8} />
+      ),
+      key: "set-thread-id",
+      label: "Set Thread ID",
+      onClick: requestSetT3ThreadId,
+    });
+  }
+  if (canCopyResumeCommand) {
+    sessionActions.push({
+      icon: (
+        <IconCopy aria-hidden="true" className="session-context-menu-icon" size={16} stroke={1.8} />
+      ),
+      key: "copy-resume",
+      label: "Copy resume",
+      onClick: requestCopyResumeCommand,
+    });
+  }
+  if (canForkSession) {
+    sessionActions.push({
+      icon: (
+        <IconGitFork
+          aria-hidden="true"
+          className="session-context-menu-icon"
+          size={16}
+          stroke={1.8}
+        />
+      ),
+      key: "fork",
+      label: "Fork",
+      onClick: requestForkSession,
+    });
+  }
+  if (canFullReloadSession) {
+    sessionActions.push({
+      icon: (
+        <IconRefresh
+          aria-hidden="true"
+          className="session-context-menu-icon"
+          size={16}
+          stroke={1.8}
+        />
+      ),
+      key: "full-reload",
+      label: "Full reload",
+      onClick: requestFullReloadSession,
+    });
+  }
+
+  const destructiveActions: SessionContextMenuAction[] = [
+    {
+      danger: true,
+      icon: (
+        <IconX aria-hidden="true" className="session-context-menu-icon" size={16} stroke={1.8} />
+      ),
+      key: "terminate",
+      label: isBrowserSession ? "Close" : "Terminate",
+      onClick: requestClose,
+    },
+  ];
+  const contextMenuSections = [primaryActions, sessionActions, destructiveActions].filter(
+    (section) => section.length > 0,
+  );
+  const contextMenuItemCount = contextMenuSections.reduce(
+    (count, section) => count + section.length,
+    0,
+  );
+  const contextMenuDividerCount = Math.max(0, contextMenuSections.length - 1);
+
   const requestFocusSession = () => {
     const shouldAcknowledgeAttention = session.activity === "attention";
     if (session.isFocused && !session.isSleeping && !shouldAcknowledgeAttention) {
       return;
     }
 
+    vscode.postMessage({
+      details: {
+        activity: session.activity,
+        groupId,
+        isFocused: session.isFocused,
+        isSleeping: session.isSleeping,
+        isVisible: session.isVisible,
+        requestedAt: Date.now(),
+        sessionId: session.sessionId,
+      },
+      event: "repro.sidebarSessionFocusRequested",
+      type: "sidebarDebugLog",
+    });
     if (!session.isFocused) {
       onFocusRequested?.(groupId, session.sessionId);
     }
@@ -531,141 +666,27 @@ export function SortableSessionCard({
                 top: `${contextMenuPosition.y}px`,
               }}
             >
-              {!isBrowserSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={requestRename}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconPencil
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  Rename
-                </button>
-              ) : null}
-              {canFavoriteSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={() => requestSetFavorite(!session.isFavorite)}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconStar
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  {session.isFavorite ? "Unfavorite" : "Favorite"}
-                </button>
-              ) : null}
-              {canSleepSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={() => requestSetSleeping(!session.isSleeping)}
-                  role="menuitem"
-                  type="button"
-                >
-                  {session.isSleeping ? (
-                    <IconPlayerPlay
-                      aria-hidden="true"
-                      className="session-context-menu-icon"
-                      size={16}
-                      stroke={1.8}
-                    />
-                  ) : (
-                    <IconMoon
-                      aria-hidden="true"
-                      className="session-context-menu-icon"
-                      size={16}
-                      stroke={1.8}
-                    />
-                  )}
-                  {session.isSleeping ? "Wake" : "Sleep"}
-                </button>
-              ) : null}
-              {canSetT3ThreadId ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={requestSetT3ThreadId}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconHash
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  Set Thread ID
-                </button>
-              ) : null}
-              {canCopyResumeCommand ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={requestCopyResumeCommand}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconCopy
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  Copy resume
-                </button>
-              ) : null}
-              {canForkSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={requestForkSession}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconGitFork
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  Fork
-                </button>
-              ) : null}
-              {canFullReloadSession ? (
-                <button
-                  className="session-context-menu-item"
-                  onClick={requestFullReloadSession}
-                  role="menuitem"
-                  type="button"
-                >
-                  <IconRefresh
-                    aria-hidden="true"
-                    className="session-context-menu-icon"
-                    size={16}
-                    stroke={1.8}
-                  />
-                  Full reload
-                </button>
-              ) : null}
-              <button
-                className="session-context-menu-item session-context-menu-item-danger"
-                onClick={requestClose}
-                role="menuitem"
-                type="button"
-              >
-                <IconX
-                  aria-hidden="true"
-                  className="session-context-menu-icon"
-                  size={16}
-                  stroke={1.8}
-                />
-                {isBrowserSession ? "Close" : "Terminate"}
-              </button>
+              {contextMenuSections.map((section, sectionIndex) => (
+                <Fragment key={`section-${sectionIndex}`}>
+                  {sectionIndex > 0 ? (
+                    <div className="session-context-menu-divider" role="separator" />
+                  ) : null}
+                  <div className="session-context-menu-section">
+                    {section.map((action) => (
+                      <button
+                        key={action.key}
+                        className={`session-context-menu-item${action.danger ? " session-context-menu-item-danger" : ""}`}
+                        onClick={action.onClick}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {action.icon}
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </Fragment>
+              ))}
             </div>,
             document.body,
           )

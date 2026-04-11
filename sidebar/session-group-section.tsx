@@ -48,6 +48,7 @@ type GroupControlMenu = "visible-count";
 export type SessionGroupSectionProps = {
   autoEdit: boolean;
   canClose: boolean;
+  draggingDisabled?: boolean;
   groupId: string;
   index: number;
   onAutoEditHandled: () => void;
@@ -101,6 +102,7 @@ function getVisibleCountMenuLabel(visibleCount: VisibleSessionCount): string {
 export function SessionGroupSection({
   autoEdit,
   canClose,
+  draggingDisabled = false,
   groupId,
   index,
   onAutoEditHandled,
@@ -144,7 +146,7 @@ export function SessionGroupSection({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
     data: createGroupDropData(groupId),
-    disabled: isBrowserGroup,
+    disabled: isBrowserGroup || draggingDisabled,
     id: groupId,
     index,
     plugins: [SortableKeyboardPlugin],
@@ -157,7 +159,7 @@ export function SessionGroupSection({
       kind: "group",
       position: "start",
     }),
-    disabled: isBrowserGroup,
+    disabled: isBrowserGroup || draggingDisabled,
     id: createSessionDropTargetId({
       groupId,
       kind: "group",
@@ -572,6 +574,7 @@ export function SessionGroupSection({
             {orderedSessionIds.length > 0 ? (
               orderedSessionIds.map((sessionId, sessionIndex) => (
                 <SortableSessionCard
+                  dragDisabled={draggingDisabled}
                   groupId={group.groupId}
                   index={sessionIndex}
                   key={sessionId}

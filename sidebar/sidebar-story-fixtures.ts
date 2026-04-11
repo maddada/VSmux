@@ -17,6 +17,7 @@ import {
 import { GROUPS_BY_FIXTURE } from "./sidebar-story-fixture-data";
 import {
   cloneGroups,
+  createStoryPreviousSession,
   getFocusedSessionTitle,
   getVisibleSlotLabels,
 } from "./sidebar-story-fixture-helpers";
@@ -41,6 +42,27 @@ export type SidebarStoryArgs = {
   theme: SidebarTheme;
   viewMode: TerminalViewMode;
   visibleCount: VisibleSessionCount;
+};
+
+const PREVIOUS_SESSIONS_BY_FIXTURE: Partial<
+  Record<SidebarStoryFixture, SidebarHydrateMessage["previousSessions"]>
+> = {
+  "sort-toggle-demo": [
+    createStoryPreviousSession({
+      alias: "recent retrospective",
+      detail: "OpenAI Codex",
+      historyId: "history-1",
+      sessionId: "history-session-1",
+      shortcutLabel: "⌘⌥7",
+    }),
+    createStoryPreviousSession({
+      alias: "archived follow-up",
+      detail: "Claude Code",
+      historyId: "history-2",
+      sessionId: "history-session-2",
+      shortcutLabel: "⌘⌥8",
+    }),
+  ],
 };
 
 export function createSidebarStoryMessage(args: SidebarStoryArgs): SidebarHydrateMessage {
@@ -86,7 +108,9 @@ export function createSidebarStoryMessage(args: SidebarStoryArgs): SidebarHydrat
   return {
     groups,
     hud,
-    previousSessions: [],
+    previousSessions: (PREVIOUS_SESSIONS_BY_FIXTURE[args.fixture] ?? []).map((session) => ({
+      ...session,
+    })),
     revision: 1,
     scratchPadContent: "",
     type: "hydrate",

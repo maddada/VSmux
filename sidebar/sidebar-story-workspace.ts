@@ -49,6 +49,7 @@ type SidebarSessionDecoration = Pick<
 
 export type SidebarStoryWorkspace = {
   options: SidebarStoryWorkspaceOptions;
+  previousSessions: SidebarHydrateMessage["previousSessions"];
   sessionDecorationsById: Readonly<Record<string, SidebarSessionDecoration>>;
   snapshot: GroupedSessionWorkspaceSnapshot;
 };
@@ -69,6 +70,7 @@ export function createSidebarStoryWorkspace(message: SidebarHydrateMessage): Sid
       showLastInteractionTimeOnSessionCards: message.hud.showLastInteractionTimeOnSessionCards,
       theme: message.hud.theme,
     },
+    previousSessions: message.previousSessions.map((session) => ({ ...session })),
     sessionDecorationsById: Object.fromEntries(
       message.groups.flatMap((group) =>
         group.sessions.map((session) => [
@@ -147,7 +149,7 @@ export function createSidebarStoryMessage(
       undefined,
       workspace.options.activeSessionsSortMode,
     ),
-    previousSessions: [],
+    previousSessions: workspace.previousSessions.map((session) => ({ ...session })),
     revision: 1,
     scratchPadContent: workspace.options.scratchPadContent,
     type,
@@ -231,6 +233,22 @@ export function reduceSidebarStoryWorkspace(
           ...workspace.options,
           scratchPadContent: message.content,
         },
+      };
+
+    case "deletePreviousSession":
+      return {
+        ...workspace,
+        previousSessions: workspace.previousSessions.filter(
+          (session) => session.historyId !== message.historyId,
+        ),
+      };
+
+    case "restorePreviousSession":
+      return {
+        ...workspace,
+        previousSessions: workspace.previousSessions.filter(
+          (session) => session.historyId !== message.historyId,
+        ),
       };
 
     case "saveSidebarCommand": {

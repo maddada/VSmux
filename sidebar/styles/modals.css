@@ -97,8 +97,10 @@
 
 .previous-sessions-modal {
   gap: 14px;
+  grid-template-rows: auto auto minmax(0, 1fr);
   max-height: 80vh;
   max-width: min(280px, 100%);
+  overflow: hidden;
   width: min(280px, 100%);
 }
 
@@ -343,6 +345,7 @@
 .previous-sessions-toolbar {
   display: grid;
   gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   min-width: 0;
 }
 
@@ -352,6 +355,73 @@
   letter-spacing: 0.01em;
   min-width: 0;
   text-transform: none;
+}
+
+.previous-sessions-favorites-toggle {
+  align-items: center;
+  align-self: stretch;
+  background: color-mix(in srgb, var(--app-card-active) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border) 92%, transparent);
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--app-muted) 54%, var(--app-foreground) 46%);
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  min-width: 32px;
+  padding: 0;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+  width: 32px;
+}
+
+.previous-sessions-find-button {
+  align-items: center;
+  align-self: stretch;
+  background: color-mix(in srgb, var(--app-button-background) 16%, var(--app-card-active) 84%);
+  border: 1px solid color-mix(in srgb, var(--app-button-background) 56%, var(--app-border));
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--app-button-background) 88%, var(--app-foreground) 12%);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  min-height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  text-align: center;
+  text-transform: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.previous-sessions-find-button:hover,
+.previous-sessions-find-button:focus-visible {
+  background: color-mix(in srgb, var(--app-button-background) 24%, var(--app-card-active) 76%);
+  border-color: color-mix(in srgb, var(--app-button-background) 78%, var(--app-border));
+  color: var(--app-foreground);
+  outline: none;
+}
+
+.previous-sessions-favorites-toggle:hover,
+.previous-sessions-favorites-toggle:focus-visible {
+  background: color-mix(in srgb, var(--app-button-background) 12%, var(--app-card-active) 88%);
+  border-color: color-mix(in srgb, var(--app-button-background) 54%, var(--app-border));
+  color: color-mix(in srgb, var(--app-button-background) 80%, var(--app-foreground) 20%);
+  outline: none;
+}
+
+.previous-sessions-favorites-toggle[data-selected="true"] {
+  background: color-mix(in srgb, var(--app-button-background) 16%, var(--app-card-active) 84%);
+  border-color: color-mix(in srgb, var(--app-button-background) 68%, var(--app-border));
+  color: color-mix(in srgb, var(--app-button-background) 86%, var(--app-foreground) 14%);
 }
 
 .previous-sessions-clear-button {
@@ -393,9 +463,10 @@
 .previous-sessions-modal-body {
   display: grid;
   gap: 14px;
-  max-height: calc(100vh - 120px);
+  min-height: 0;
   min-width: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -548,6 +619,12 @@
 
   .previous-sessions-search-input {
     font-size: 11px;
+  }
+
+  .previous-sessions-find-button {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    padding: 0 10px;
   }
 }
 

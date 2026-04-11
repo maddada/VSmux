@@ -241,6 +241,7 @@ body,
 }
 
 body {
+  overflow: hidden;
   padding: calc(12px * var(--sidebar-density-scale));
   zoom: var(--vsmux-agent-manager-zoom, 100%);
   font-family: var(
@@ -284,10 +285,17 @@ button:disabled {
 .stack {
   display: grid;
   gap: calc(10px * var(--sidebar-density-scale));
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 100%;
   align-content: start;
+  overflow: hidden;
   position: relative;
+}
+
+.sidebar-top-panels {
+  display: grid;
+  gap: calc(10px * var(--sidebar-density-scale));
 }
 
 .stack[data-dimmed="true"] {
