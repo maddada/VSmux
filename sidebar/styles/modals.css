@@ -345,7 +345,7 @@
 .previous-sessions-toolbar {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
 }
 
@@ -400,6 +400,7 @@
     background-color 120ms ease,
     border-color 120ms ease,
     color 120ms ease;
+  width: 100%;
 }
 
 .previous-sessions-find-button:hover,
@@ -445,6 +446,10 @@
     border-color 120ms ease,
     color 120ms ease,
     opacity 120ms ease;
+}
+
+.previous-sessions-footer {
+  display: flex;
 }
 
 .previous-sessions-clear-button:hover,

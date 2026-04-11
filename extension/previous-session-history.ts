@@ -108,6 +108,15 @@ function getNormalizedHistorySidebarItem(entry: PreviousSessionHistoryEntry): Si
   const sessionPrimaryTitle = getVisiblePrimaryTitle(entry.sessionRecord.title);
   const storedPrimaryTitle = getVisibleTerminalTitle(entry.sidebarItem.primaryTitle);
   const storedTerminalTitle = getVisibleTerminalTitle(entry.sidebarItem.terminalTitle);
+
+  if (entry.sessionRecord.kind === "t3") {
+    return {
+      ...entry.sidebarItem,
+      primaryTitle: storedPrimaryTitle ?? storedTerminalTitle ?? sessionPrimaryTitle ?? "T3 Code",
+      terminalTitle: undefined,
+    };
+  }
+
   const preferredTerminalTitle = shouldPreferTerminalTitleForAgentIcon(entry.sidebarItem.agentIcon)
     ? (storedTerminalTitle ??
       (storedPrimaryTitle && storedPrimaryTitle !== sessionPrimaryTitle

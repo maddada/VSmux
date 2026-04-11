@@ -166,6 +166,39 @@ describe("PreviousSessionHistory", () => {
     ]);
   });
 
+  test("should prefer the stored T3 thread title over the generic session title in history", () => {
+    const t3Session = createSessionRecord(1, 0, {
+      kind: "t3",
+      t3: {
+        projectId: "project-1",
+        serverOrigin: "http://127.0.0.1:3774",
+        threadId: "thread-1",
+        workspaceRoot: "/tmp/project",
+      },
+      title: "T3 Code",
+    });
+    const history = new PreviousSessionHistory({
+      workspaceState: {
+        get: vi.fn(() => [
+          createHistoryEntry(t3Session, "history-1", {
+            agentIcon: "t3",
+            primaryTitle: "Project Overview",
+            terminalTitle: undefined,
+          }),
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+    } as never);
+
+    expect(history.getItems()).toMatchObject([
+      {
+        historyId: "history-1",
+        primaryTitle: "Project Overview",
+        terminalTitle: undefined,
+      },
+    ]);
+  });
+
   test("should hide terminal history entries that have neither a user title nor a terminal title", () => {
     const history = new PreviousSessionHistory({
       workspaceState: {

@@ -168,23 +168,11 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
               onChange={(event) => {
                 setSearchQuery(event.target.value);
               }}
-              placeholder="Search sessions"
+              placeholder="Search sessions..."
               ref={searchInputRef}
               type="text"
               value={searchQuery}
             />
-            <button
-              className="previous-sessions-find-button"
-              onClick={() => {
-                vscode.postMessage({
-                  type: "promptFindPreviousSession",
-                });
-                onClose();
-              }}
-              type="button"
-            >
-              Find a session
-            </button>
             <button
               aria-label={
                 favoritesOnly
@@ -247,6 +235,20 @@ export function PreviousSessionsModal({ isOpen, onClose, vscode }: PreviousSessi
                     : "No previous sessions yet."}
               </div>
             )}
+          </div>
+          <div className="previous-sessions-footer">
+            <button
+              className="previous-sessions-find-button"
+              onClick={() => {
+                vscode.postMessage({
+                  type: "promptFindPreviousSession",
+                });
+                onClose();
+              }}
+              type="button"
+            >
+              Prompt to Find Session
+            </button>
           </div>
         </div>
       </div>
