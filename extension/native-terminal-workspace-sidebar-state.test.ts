@@ -201,6 +201,7 @@ describe("buildSidebarMessage", () => {
 
     expect(message.groups[1]?.sessions[0]).toEqual(
       expect.objectContaining({
+        isPrimaryTitleTerminalTitle: true,
         lastInteractionAt: sessionRecord.createdAt,
         primaryTitle: "Claude Code",
         terminalTitle: undefined,
@@ -282,6 +283,7 @@ describe("buildSidebarMessage", () => {
     expect(message.groups[1]?.sessions[0]).toEqual(
       expect.objectContaining({
         isFavorite: false,
+        isPrimaryTitleTerminalTitle: false,
         primaryTitle: "Bug Fix",
         terminalTitle: "Claude Code",
       }),
@@ -324,6 +326,7 @@ describe("buildSidebarMessage", () => {
     expect(message.groups[1]?.sessions[0]).toEqual(
       expect.objectContaining({
         agentIcon: "claude",
+        isPrimaryTitleTerminalTitle: true,
         primaryTitle: "Claude Code",
         terminalTitle: undefined,
       }),
@@ -366,6 +369,7 @@ describe("buildSidebarMessage", () => {
     expect(message.groups[1]?.sessions[0]).toEqual(
       expect.objectContaining({
         agentIcon: "opencode",
+        isPrimaryTitleTerminalTitle: true,
         primaryTitle: "Project overview question",
         terminalTitle: undefined,
       }),
@@ -649,8 +653,8 @@ function createSidebarHudState(): SidebarHydrateMessage["hud"] {
     },
     commands: [],
     completionBellEnabled: false,
-    completionSound: "ping",
-    completionSoundLabel: "Ping",
+    completionSound: "arcade",
+    completionSoundLabel: "Arcade",
     debuggingMode: false,
     focusedSessionTitle: undefined,
     git: {

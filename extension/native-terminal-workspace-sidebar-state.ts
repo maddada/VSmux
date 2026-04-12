@@ -354,7 +354,7 @@ function buildSidebarItem(
     effectiveActivity.agentName,
   );
   const shouldPreferTerminalTitle =
-    visibleTerminalTitle && shouldPreferTerminalTitleForAgentIcon(agentIcon);
+    Boolean(visibleTerminalTitle) && shouldPreferTerminalTitleForAgentIcon(agentIcon);
 
   return {
     activity: isSleeping ? "idle" : effectiveActivity.activity,
@@ -373,6 +373,8 @@ function buildSidebarItem(
       sessionSnapshot.status === "running" &&
       options.terminalHasLiveProjection(sessionRecord.sessionId),
     isVisible,
+    isPrimaryTitleTerminalTitle:
+      Boolean(visibleTerminalTitle) && (!visiblePrimaryTitle || shouldPreferTerminalTitle),
     kind: "workspace",
     lastInteractionAt:
       getIsoTimestampFromMs(options.getLastTerminalActivityAt(sessionRecord.sessionId)) ??

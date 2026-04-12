@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vite-plus/test";
-import { createDisplaySessionLayout } from "./active-sessions-sort";
+import {
+  createDisplaySessionLayout,
+  getDisplaySessionIdsInOrder,
+} from "../shared/active-sessions-sort";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
 
 describe("createDisplaySessionLayout", () => {
@@ -37,6 +40,32 @@ describe("createDisplaySessionLayout", () => {
       "group-1": ["session-2", "session-1"],
       "group-2": ["session-4", "session-3"],
     });
+  });
+
+  test("should flatten sessions in the same order shown in the sidebar", () => {
+    expect(
+      getDisplaySessionIdsInOrder({
+        sessionIdsByGroup: {
+          "group-1": ["session-1", "session-2"],
+          "group-2": ["session-4", "session-3"],
+        },
+        sessionsById: createSessionsById(),
+        sortMode: "manual",
+        workspaceGroupIds: ["group-2", "group-1"],
+      }),
+    ).toEqual(["session-4", "session-3", "session-1", "session-2"]);
+
+    expect(
+      getDisplaySessionIdsInOrder({
+        sessionIdsByGroup: {
+          "group-1": ["session-1", "session-2"],
+          "group-2": ["session-4", "session-3"],
+        },
+        sessionsById: createSessionsById(),
+        sortMode: "lastActivity",
+        workspaceGroupIds: ["group-2", "group-1"],
+      }),
+    ).toEqual(["session-4", "session-3", "session-2", "session-1"]);
   });
 });
 

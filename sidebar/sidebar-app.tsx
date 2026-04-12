@@ -55,7 +55,7 @@ import {
 import { SessionGroupSection } from "./session-group-section";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
 import type { WebviewApi } from "./webview-api";
-import { createDisplaySessionLayout } from "./active-sessions-sort";
+import { createDisplaySessionLayout } from "../shared/active-sessions-sort";
 import { matchesSidebarSessionSearchQuery } from "./previous-session-search";
 
 export type SidebarAppProps = {
@@ -1037,7 +1037,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                     }}
                     tooltip={activeSessionsSortMode === "manual" ? "Manual Sort" : "Last Activity"}
                   >
-                    <IconArrowsSort aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+                    <IconArrowsSort
+                      aria-hidden="true"
+                      className="toolbar-tabler-icon"
+                      stroke={1.8}
+                    />
                   </ToolbarIconButton>
                   <ToolbarIconButton
                     ariaExpanded={isSessionSearchOpen}
@@ -1082,7 +1086,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
               title="Active"
             />
             {isSessionSearchOpen && !isSessionsCollapsed ? (
-              <SidebarSessionSearchField query={sessionSearchQuery} setQuery={setSessionSearchQuery} />
+              <SidebarSessionSearchField
+                query={sessionSearchQuery}
+                setQuery={setSessionSearchQuery}
+              />
             ) : null}
           </div>
           {!isSessionsCollapsed ? (
@@ -1539,7 +1546,11 @@ function renderSidebarTopControls({
                       role="menuitem"
                       type="button"
                     >
-                      <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
+                      <IconPlus
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                      />
                       Add Agent
                     </button>
                     <button
@@ -1548,7 +1559,11 @@ function renderSidebarTopControls({
                       role="menuitem"
                       type="button"
                     >
-                      <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
+                      <IconPlus
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                      />
                       Add Action
                     </button>
                     <button
@@ -1557,7 +1572,11 @@ function renderSidebarTopControls({
                       role="menuitem"
                       type="button"
                     >
-                      <IconPlus aria-hidden="true" className="session-context-menu-icon" size={14} />
+                      <IconPlus
+                        aria-hidden="true"
+                        className="session-context-menu-icon"
+                        size={14}
+                      />
                       Add Webpage
                     </button>
                   </div>

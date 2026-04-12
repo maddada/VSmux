@@ -1,6 +1,16 @@
 import { IconPencil, IconWorld } from "@tabler/icons-react";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  cloneElement,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEventHandler,
+  type MouseEventHandler,
+  type ReactElement,
+  type RefObject,
+} from "react";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
 import { getSidebarAgentNameByIcon, type SidebarAgentIcon } from "../shared/sidebar-agents";
 import { AGENT_LOGOS } from "./agent-logos";
@@ -20,9 +30,9 @@ const AGENT_SECONDARY_LABELS: Record<SidebarAgentIcon, readonly string[]> = {
 
 let activeOverflowTooltipId: symbol | undefined;
 let activeOverflowTooltipClose: (() => void) | undefined;
+const TERMINAL_TITLE_MARKER = "∗";
 
 export type SessionCardContentProps = {
-  alwaysShowTitleTooltip?: boolean;
   aliasHeadingRef?: RefObject<HTMLDivElement | null>;
   onClose?: () => void;
   onRename?: () => void;
@@ -34,7 +44,6 @@ export type SessionCardContentProps = {
 };
 
 export function SessionCardContent({
-  alwaysShowTitleTooltip = false,
   aliasHeadingRef,
   onClose,
   onRename,
@@ -44,21 +53,9 @@ export function SessionCardContent({
   showHotkeys,
   showLastInteractionTime = false,
 }: SessionCardContentProps) {
-  const headingText = session.primaryTitle?.trim() || session.alias;
-  const secondaryText = getSessionTooltipSecondaryText(session);
-  const showDebugSessionNumber = showDebugSessionNumbers && session.sessionNumber !== undefined;
-  const debugSessionNumberTooltip = showDebugSessionNumber
-    ? `Session number: ${session.sessionNumber}`
-    : undefined;
-  const titleTooltip = buildSessionTitleTooltip({
-    debugSessionNumberTooltip,
-    headingText,
-    secondaryText,
-  });
-  const titleTooltipOptions = getSessionTitleTooltipOptions({
-    alwaysShowTitleTooltip,
-    headingText,
-    titleTooltip,
+  const { headingText } = getSessionCardTitleTooltip({
+    session,
+    showDebugSessionNumbers,
   });
   const showMeta = showHotkeys;
   const hasLastInteractionTime = showLastInteractionTime && Boolean(session.lastInteractionAt);
@@ -75,13 +72,9 @@ export function SessionCardContent({
   return (
     <>
       <div className="session-head">
-        <OverflowTooltipText
-          className="session-alias-heading"
-          textRef={aliasHeadingRef}
-          text={headingText}
-          tooltip={titleTooltipOptions.tooltip}
-          tooltipWhen={titleTooltipOptions.tooltipWhen}
-        />
+        <div className="session-alias-heading" ref={aliasHeadingRef}>
+          {headingText}
+        </div>
         {lastInteractionLabel ? (
           <div className="session-last-interaction-time" style={lastInteractionStyle}>
             {lastInteractionLabel}
@@ -125,6 +118,69 @@ export function SessionCardContent({
       ) : null}
     </>
   );
+}
+
+export function getSessionCardTitleTooltip({
+  alwaysShowTitleTooltip = false,
+  session,
+  showDebugSessionNumbers,
+}: {
+  alwaysShowTitleTooltip?: boolean;
+  session: Pick<
+    SidebarSessionItem,
+    | "activityLabel"
+    | "agentIcon"
+    | "alias"
+    | "detail"
+    | "isPrimaryTitleTerminalTitle"
+    | "primaryTitle"
+    | "sessionNumber"
+    | "terminalTitle"
+  >;
+  showDebugSessionNumbers: boolean;
+}): {
+  headingText: string;
+  tooltip?: string;
+  tooltipWhen: "always" | "overflow";
+} {
+  const headingText = formatSessionHeadingText({
+    isPrimaryTitleTerminalTitle: session.isPrimaryTitleTerminalTitle,
+    primaryTitle: session.primaryTitle,
+    alias: session.alias,
+  });
+  const secondaryText = getSessionTooltipSecondaryText(session);
+  const debugSessionNumberTooltip =
+    showDebugSessionNumbers && session.sessionNumber !== undefined
+      ? `Session number: ${session.sessionNumber}`
+      : undefined;
+  const titleTooltip = buildSessionTitleTooltip({
+    debugSessionNumberTooltip,
+    headingText,
+    secondaryText,
+  });
+  const titleTooltipOptions = getSessionTitleTooltipOptions({
+    alwaysShowTitleTooltip,
+    headingText,
+    titleTooltip,
+  });
+
+  return {
+    headingText,
+    ...titleTooltipOptions,
+  };
+}
+
+export function formatSessionHeadingText({
+  alias,
+  isPrimaryTitleTerminalTitle,
+  primaryTitle,
+}: Pick<SidebarSessionItem, "alias" | "isPrimaryTitleTerminalTitle" | "primaryTitle">): string {
+  const baseHeadingText = primaryTitle?.trim() || alias;
+  if (!isPrimaryTitleTerminalTitle) {
+    return baseHeadingText;
+  }
+
+  return `${baseHeadingText} ${TERMINAL_TITLE_MARKER}`;
 }
 
 export function buildSessionTitleTooltip({
@@ -308,15 +364,20 @@ function stripAgentTooltipText(
 }
 
 type OverflowTooltipTextProps = {
-  className: string;
-  text: string;
+  children: ReactElement<{
+    onBlur?: FocusEventHandler<HTMLElement>;
+    onFocus?: FocusEventHandler<HTMLElement>;
+    onMouseEnter?: MouseEventHandler<HTMLElement>;
+    onMouseLeave?: MouseEventHandler<HTMLElement>;
+  }>;
   textRef?: RefObject<HTMLDivElement | null>;
+  text: string;
   tooltip?: string;
   tooltipWhen?: "always" | "overflow";
 };
 
-function OverflowTooltipText({
-  className,
+export function OverflowTooltipText({
+  children,
   text,
   textRef,
   tooltip,
@@ -380,32 +441,23 @@ function OverflowTooltipText({
   useEffect(() => {
     return () => {
       clearOpenTimeout();
+      if (activeOverflowTooltipId === tooltipIdRef.current) {
+        activeOverflowTooltipId = undefined;
+        activeOverflowTooltipClose = undefined;
+      }
     };
   }, []);
 
-  const content = (
-    <div className={className} ref={textRef}>
-      {text}
-    </div>
-  );
+  const trigger = cloneElement(children, {
+    onBlur: chainEventHandlers(children.props.onBlur, closeTooltip),
+    onFocus: chainEventHandlers(children.props.onFocus, openTooltip),
+    onMouseEnter: chainEventHandlers(children.props.onMouseEnter, openTooltip),
+    onMouseLeave: chainEventHandlers(children.props.onMouseLeave, closeTooltip),
+  });
 
   return (
     <Tooltip.Root onOpenChange={(open) => !open && closeTooltip()} open={isOpen}>
-      <Tooltip.Trigger
-        disabled
-        render={
-          <div
-            className="session-tooltip-trigger"
-            key={`${className}:${text}:${tooltip ?? ""}`}
-            onBlur={closeTooltip}
-            onFocus={openTooltip}
-            onMouseEnter={openTooltip}
-            onMouseLeave={closeTooltip}
-          >
-            {content}
-          </div>
-        }
-      />
+      <Tooltip.Trigger disabled render={trigger} />
       <Tooltip.Portal>
         <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
           <Tooltip.Popup className="tooltip-popup">{tooltip ?? text}</Tooltip.Popup>
@@ -413,4 +465,14 @@ function OverflowTooltipText({
       </Tooltip.Portal>
     </Tooltip.Root>
   );
+}
+
+function chainEventHandlers<Event>(
+  originalHandler: ((event: Event) => void) | undefined,
+  nextHandler: (event: Event) => void,
+): (event: Event) => void {
+  return (event) => {
+    originalHandler?.(event);
+    nextHandler(event);
+  };
 }

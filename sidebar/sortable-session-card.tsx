@@ -26,7 +26,12 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
-import { SessionCardContent, SessionFloatingAgentIcon } from "./session-card-content";
+import {
+  getSessionCardTitleTooltip,
+  OverflowTooltipText,
+  SessionCardContent,
+  SessionFloatingAgentIcon,
+} from "./session-card-content";
 import {
   createSessionDragData,
   createSessionDropTargetData,
@@ -224,6 +229,11 @@ export function SortableSessionCard({
   if (!session) {
     return null;
   }
+
+  const sessionTitleTooltip = getSessionCardTitleTooltip({
+    session,
+    showDebugSessionNumbers,
+  });
 
   useEffect(() => {
     setContextMenuPosition(undefined);
@@ -536,118 +546,125 @@ export function SortableSessionCard({
 
   return (
     <>
-      <div
-        className="session-frame"
-        data-activity={session.activity}
-        data-dragging={String(Boolean(sortable.isDragging))}
-        data-drop-position={visibleDropPosition}
-        data-drop-target={String(isVisibleDropTarget)}
-        data-focused={String(session.isFocused)}
-        data-running={String(session.isRunning)}
-        data-sleeping={String(Boolean(session.isSleeping))}
-        data-visible={String(session.isVisible)}
-        ref={sortable.ref}
+      <OverflowTooltipText
+        text={sessionTitleTooltip.headingText}
+        textRef={aliasHeadingRef}
+        tooltip={sessionTitleTooltip.tooltip}
+        tooltipWhen={sessionTitleTooltip.tooltipWhen}
       >
         <div
-          aria-hidden
-          className="session-drop-target-surface session-drop-target-surface-before"
-          ref={beforeDropTarget.ref}
-        />
-        <div
-          aria-hidden
-          className="session-drop-target-surface session-drop-target-surface-after"
-          ref={afterDropTarget.ref}
-        />
-        <SessionFloatingAgentIcon agentIcon={session.agentIcon} isFavorite={session.isFavorite} />
-        <article
-          aria-expanded={contextMenuPosition ? true : undefined}
-          aria-haspopup="menu"
-          aria-pressed={session.isFocused}
-          className="session"
+          className="session-frame"
           data-activity={session.activity}
-          data-has-agent-icon={String(Boolean(session.agentIcon))}
           data-dragging={String(Boolean(sortable.isDragging))}
           data-drop-position={visibleDropPosition}
           data-drop-target={String(isVisibleDropTarget)}
           data-focused={String(session.isFocused)}
           data-running={String(session.isRunning)}
           data-sleeping={String(Boolean(session.isSleeping))}
-          data-sidebar-session-id={session.sessionId}
           data-visible={String(session.isVisible)}
-          onPointerCancel={(event) => {
-            postSessionDragDebugLog("session.pointerCancel", {
-              button: event.button,
-              buttons: event.buttons,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              pointerId: event.pointerId,
-              pointerType: event.pointerType,
-            });
-          }}
-          onPointerDown={(event) => {
-            postSessionDragDebugLog("session.pointerDown", {
-              button: event.button,
-              buttons: event.buttons,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              isDragging: sortable.isDragging,
-              pointerId: event.pointerId,
-              pointerType: event.pointerType,
-            });
-          }}
-          onPointerUp={(event) => {
-            postSessionDragDebugLog("session.pointerUp", {
-              button: event.button,
-              buttons: event.buttons,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              isDragging: sortable.isDragging,
-              pointerId: event.pointerId,
-              pointerType: event.pointerType,
-            });
-          }}
-          onAuxClick={(event) => {
-            if (event.button !== 1) {
-              return;
-            }
+          ref={sortable.ref}
+        >
+          <div
+            aria-hidden
+            className="session-drop-target-surface session-drop-target-surface-before"
+            ref={beforeDropTarget.ref}
+          />
+          <div
+            aria-hidden
+            className="session-drop-target-surface session-drop-target-surface-after"
+            ref={afterDropTarget.ref}
+          />
+          <SessionFloatingAgentIcon agentIcon={session.agentIcon} isFavorite={session.isFavorite} />
+          <article
+            aria-expanded={contextMenuPosition ? true : undefined}
+            aria-haspopup="menu"
+            aria-pressed={session.isFocused}
+            className="session"
+            data-activity={session.activity}
+            data-has-agent-icon={String(Boolean(session.agentIcon))}
+            data-dragging={String(Boolean(sortable.isDragging))}
+            data-drop-position={visibleDropPosition}
+            data-drop-target={String(isVisibleDropTarget)}
+            data-focused={String(session.isFocused)}
+            data-running={String(session.isRunning)}
+            data-sleeping={String(Boolean(session.isSleeping))}
+            data-sidebar-session-id={session.sessionId}
+            data-visible={String(session.isVisible)}
+            onPointerCancel={(event) => {
+              postSessionDragDebugLog("session.pointerCancel", {
+                button: event.button,
+                buttons: event.buttons,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                pointerId: event.pointerId,
+                pointerType: event.pointerType,
+              });
+            }}
+            onPointerDown={(event) => {
+              postSessionDragDebugLog("session.pointerDown", {
+                button: event.button,
+                buttons: event.buttons,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                isDragging: sortable.isDragging,
+                pointerId: event.pointerId,
+                pointerType: event.pointerType,
+              });
+            }}
+            onPointerUp={(event) => {
+              postSessionDragDebugLog("session.pointerUp", {
+                button: event.button,
+                buttons: event.buttons,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                isDragging: sortable.isDragging,
+                pointerId: event.pointerId,
+                pointerType: event.pointerType,
+              });
+            }}
+            onAuxClick={(event) => {
+              if (event.button !== 1) {
+                return;
+              }
 
-            event.preventDefault();
-            requestClose();
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-
-            if (event.metaKey) {
               event.preventDefault();
               requestClose();
-              return;
-            }
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
 
-            requestFocusSession();
-          }}
-          onContextMenu={(event: ReactMouseEvent<HTMLElement>) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openContextMenu(event.clientX, event.clientY);
-          }}
-          onKeyDown={handleKeyDown}
-          ref={sortable.sourceRef}
-          role="button"
-          tabIndex={0}
-        >
-          <SessionCardContent
-            aliasHeadingRef={aliasHeadingRef}
-            onClose={requestClose}
-            onRename={isBrowserSession ? undefined : requestRename}
-            session={session}
-            showDebugSessionNumbers={showDebugSessionNumbers}
-            showCloseButton={showCloseButton}
-            showHotkeys={showHotkeys}
-            showLastInteractionTime={showLastInteractionTime}
-          />
-        </article>
-        <div aria-hidden className="session-status-dot" />
-      </div>
+              if (event.metaKey) {
+                event.preventDefault();
+                requestClose();
+                return;
+              }
+
+              requestFocusSession();
+            }}
+            onContextMenu={(event: ReactMouseEvent<HTMLElement>) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openContextMenu(event.clientX, event.clientY);
+            }}
+            onKeyDown={handleKeyDown}
+            ref={sortable.sourceRef}
+            role="button"
+            tabIndex={0}
+          >
+            <SessionCardContent
+              aliasHeadingRef={aliasHeadingRef}
+              onClose={requestClose}
+              onRename={isBrowserSession ? undefined : requestRename}
+              session={session}
+              showDebugSessionNumbers={showDebugSessionNumbers}
+              showCloseButton={showCloseButton}
+              showHotkeys={showHotkeys}
+              showLastInteractionTime={showLastInteractionTime}
+            />
+          </article>
+          <div aria-hidden className="session-status-dot" />
+        </div>
+      </OverflowTooltipText>
       {contextMenuPosition
         ? createPortal(
             <div

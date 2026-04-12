@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   buildSessionTitleTooltip,
+  formatSessionHeadingText,
+  getSessionCardTitleTooltip,
   getSessionTitleTooltipOptions,
   getSessionTooltipSecondaryText,
 } from "./session-card-content";
@@ -61,6 +63,74 @@ describe("getSessionTitleTooltipOptions", () => {
       tooltip: undefined,
       tooltipWhen: "overflow",
     });
+  });
+});
+
+describe("getSessionCardTitleTooltip", () => {
+  test("should keep plain title-only cards overflow-triggered by default", () => {
+    expect(
+      getSessionCardTitleTooltip({
+        session: {
+          activityLabel: undefined,
+          agentIcon: undefined,
+          alias: "Session 1",
+          detail: undefined,
+          isPrimaryTitleTerminalTitle: false,
+          primaryTitle: "A very long session title",
+          sessionNumber: undefined,
+          terminalTitle: undefined,
+        },
+        showDebugSessionNumbers: false,
+      }),
+    ).toEqual({
+      headingText: "A very long session title",
+      tooltip: undefined,
+      tooltipWhen: "overflow",
+    });
+  });
+
+  test("should always show the tooltip when extra metadata exists", () => {
+    expect(
+      getSessionCardTitleTooltip({
+        session: {
+          activityLabel: undefined,
+          agentIcon: "codex",
+          alias: "Session 1",
+          detail: "OpenAI Codex / repo sweep",
+          isPrimaryTitleTerminalTitle: true,
+          primaryTitle: "A very long session title",
+          sessionNumber: 3,
+          terminalTitle: undefined,
+        },
+        showDebugSessionNumbers: true,
+      }),
+    ).toEqual({
+      headingText: "A very long session title ∗",
+      tooltip: "A very long session title ∗\nrepo sweep\nSession number: 3",
+      tooltipWhen: "always",
+    });
+  });
+});
+
+describe("formatSessionHeadingText", () => {
+  test("should append the terminal title marker when the displayed title comes from the terminal", () => {
+    expect(
+      formatSessionHeadingText({
+        alias: "Session 1",
+        isPrimaryTitleTerminalTitle: true,
+        primaryTitle: "Claude Code",
+      }),
+    ).toBe("Claude Code ∗");
+  });
+
+  test("should keep the raw title unchanged when the displayed title is the user title", () => {
+    expect(
+      formatSessionHeadingText({
+        alias: "Session 1",
+        isPrimaryTitleTerminalTitle: false,
+        primaryTitle: "Bug Fix",
+      }),
+    ).toBe("Bug Fix");
   });
 });
 
