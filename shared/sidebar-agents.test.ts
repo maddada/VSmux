@@ -3,6 +3,7 @@ import {
   createSidebarAgentButtons,
   normalizeStoredSidebarAgentOrder,
   normalizeStoredSidebarAgents,
+  shouldPreferTerminalTitleForAgentIcon,
 } from "./sidebar-agents";
 
 describe("createSidebarAgentButtons", () => {
@@ -350,6 +351,12 @@ describe("createSidebarAgentButtons", () => {
         name: "OpenCode",
       },
     ]);
+  });
+});
+
+describe("shouldPreferTerminalTitleForAgentIcon", () => {
+  test("should prefer terminal titles for OpenCode", () => {
+    expect(shouldPreferTerminalTitleForAgentIcon("opencode")).toBe(true);
   });
 });
 

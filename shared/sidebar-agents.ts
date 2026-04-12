@@ -155,7 +155,7 @@ export function getSidebarAgentNameByIcon(icon: SidebarAgentIcon | undefined): s
 }
 
 export function shouldPreferTerminalTitleForAgentIcon(icon: SidebarAgentIcon | undefined): boolean {
-  return icon === "claude" || icon === "codex";
+  return icon === "claude" || icon === "codex" || icon === "opencode";
 }
 
 export function normalizeStoredSidebarAgents(candidate: unknown): StoredSidebarAgent[] {

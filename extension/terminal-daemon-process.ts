@@ -33,7 +33,11 @@ import {
 import { TerminalDaemonRingBuffer } from "./terminal-daemon-ring-buffer";
 import { createTerminalDaemonSessionKey } from "./terminal-daemon-session-scope";
 import { parseTerminalTitleFromOutputChunk } from "./terminal-workspace-history";
-import { normalizeTerminalEngine, type TerminalEngine } from "../shared/session-grid-contract";
+import {
+  normalizeTerminalEngine,
+  normalizeTerminalTitle,
+  type TerminalEngine,
+} from "../shared/session-grid-contract";
 import type {
   TerminalHostAcknowledgeAttentionRequest,
   TerminalHostConfigureRequest,
@@ -756,14 +760,26 @@ function updateSessionLiveTitle(session: ManagedSession, chunk: string): boolean
   applySessionTitleActivity(session);
   scheduleTitleActivityRefresh(session);
   const normalizedTitle = title.trim().replace(/\s+/g, " ");
-  if (!hasOpenCodeTitlePrefix(normalizedTitle)) {
-    void persistSessionLiveTitle(session, title);
+  const presentationTitle = getSessionPresentationTitle(title, normalizedTitle);
+  if (presentationTitle) {
+    void persistSessionLiveTitle(session, presentationTitle);
     session.snapshot = {
       ...session.snapshot,
-      title,
+      title: presentationTitle,
     };
   }
   return true;
+}
+
+export function getSessionPresentationTitle(
+  title: string,
+  normalizedTitle = title.trim().replace(/\s+/g, " "),
+): string | undefined {
+  if (hasOpenCodeTitlePrefix(normalizedTitle)) {
+    return normalizeTerminalTitle(title);
+  }
+
+  return title;
 }
 
 async function persistSessionLiveTitle(session: ManagedSession, title: string): Promise<void> {
