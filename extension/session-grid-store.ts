@@ -253,8 +253,12 @@ export class SessionGridStore {
     return result.changed;
   }
 
-  public async setGroupSleeping(groupId: string, sleeping: boolean): Promise<boolean> {
-    const result = setGroupSleepingInSimpleWorkspace(this.snapshot, groupId, sleeping);
+  public async setGroupSleeping(
+    groupId: string,
+    sleeping: boolean,
+    sessionIds?: readonly string[],
+  ): Promise<boolean> {
+    const result = setGroupSleepingInSimpleWorkspace(this.snapshot, groupId, sleeping, sessionIds);
     this.snapshot = result.snapshot;
     if (result.changed) {
       await this.persist();

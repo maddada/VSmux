@@ -157,6 +157,12 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-button-background) 88%, transparent);
 }
 
+.session[data-search-selected="true"] {
+  border-color: var(--app-search-selection-border);
+  outline-color: var(--app-search-selection-border);
+  box-shadow: inset 0 0 0 1px var(--app-search-selection-ring);
+}
+
 .session:focus-visible {
   outline-color: color-mix(in srgb, var(--app-button-background) 72%, #ffffff 28%);
 }
@@ -233,13 +239,18 @@
 }
 
 .session-frame[data-activity="working"] .session-status-dot,
-.session-frame[data-activity="attention"] .session-status-dot {
+.session-frame[data-activity="attention"] .session-status-dot,
+.session-frame[data-lifecycle-state="error"] .session-status-dot {
   opacity: 1;
 }
 
 .session-frame[data-activity="working"] .session-status-dot {
   --session-status-dot-color: #ffb454;
   animation: session-status-dot-pulse 1.35s ease-in-out infinite;
+}
+
+.session-frame[data-lifecycle-state="error"] .session-status-dot {
+  --session-status-dot-color: #ff6b6b;
 }
 
 .session-head {

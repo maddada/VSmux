@@ -16,12 +16,17 @@ describe("sidebar store", () => {
   });
 
   test("should update only the targeted session record on sessionPresentationChanged", () => {
-    useSidebarStore.getState().applySidebarMessage(
-      createHydrateMessage([
-        createGroup("group-1", [createSession("session-1", "groups"), createSession("session-2", "notes")]),
-        createGroup("group-2", [createSession("session-3", "logs")]),
-      ]),
-    );
+    useSidebarStore
+      .getState()
+      .applySidebarMessage(
+        createHydrateMessage([
+          createGroup("group-1", [
+            createSession("session-1", "groups"),
+            createSession("session-2", "notes"),
+          ]),
+          createGroup("group-2", [createSession("session-3", "logs")]),
+        ]),
+      );
 
     const before = useSidebarStore.getState();
     const previousGroupsById = before.groupsById;
@@ -32,6 +37,7 @@ describe("sidebar store", () => {
     useSidebarStore.getState().applySessionPresentationMessage({
       session: {
         ...previousSession,
+        lifecycleState: "done",
         primaryTitle: "updated groups",
       },
       type: "sessionPresentationChanged",
@@ -41,6 +47,7 @@ describe("sidebar store", () => {
     expect(after.groupsById).toBe(previousGroupsById);
     expect(after.sessionIdsByGroup).toBe(previousSessionIdsByGroup);
     expect(after.sessionsById["session-1"]).not.toBe(previousSession);
+    expect(after.sessionsById["session-1"]?.lifecycleState).toBe("done");
     expect(after.sessionsById["session-1"]?.primaryTitle).toBe("updated groups");
     expect(after.sessionsById["session-2"]).toBe(previousSiblingSession);
   });
@@ -77,6 +84,7 @@ function createSession(sessionId: string, primaryTitle: string): SidebarSessionI
     alias: primaryTitle,
     column: 0,
     isFocused: sessionId === "session-1",
+    lifecycleState: sessionId === "session-1" ? "running" : "done",
     isRunning: sessionId === "session-1",
     isVisible: sessionId === "session-1",
     primaryTitle,

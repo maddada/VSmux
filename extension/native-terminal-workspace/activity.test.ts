@@ -24,6 +24,7 @@ import {
   MIN_WORKING_DURATION_BEFORE_ATTENTION_MS,
   getEffectiveSessionActivity,
   hasReachedLastActivityThreshold,
+  shouldRecordLastActivityTransition,
   syncKnownSessionActivities,
 } from "./activity";
 
@@ -272,6 +273,41 @@ describe("getEffectiveSessionActivity", () => {
     expect(activity.activity).toBe("attention");
     expect(activity.agentName).toBe("opencode");
     vi.useRealTimers();
+  });
+});
+
+describe("shouldRecordLastActivityTransition", () => {
+  test("should skip terminal transitions during initial hydration", () => {
+    expect(
+      shouldRecordLastActivityTransition({
+        hasCompletedInitialActivityHydration: false,
+        nextActivity: "working",
+        previousActivity: "idle",
+        sessionKind: "terminal",
+      }),
+    ).toBe(false);
+  });
+
+  test("should allow terminal transitions after initial hydration", () => {
+    expect(
+      shouldRecordLastActivityTransition({
+        hasCompletedInitialActivityHydration: true,
+        nextActivity: "working",
+        previousActivity: "idle",
+        sessionKind: "terminal",
+      }),
+    ).toBe(true);
+  });
+
+  test("should keep non-terminal transitions unaffected by hydration", () => {
+    expect(
+      shouldRecordLastActivityTransition({
+        hasCompletedInitialActivityHydration: false,
+        nextActivity: "attention",
+        previousActivity: "working",
+        sessionKind: "t3",
+      }),
+    ).toBe(true);
   });
 });
 

@@ -59,6 +59,7 @@ export type SessionGroupSectionProps = {
   onCollapsedChange: (groupId: string, collapsed: boolean) => void;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   orderedSessionIds?: readonly string[];
+  selectedSearchSessionId?: string;
   sessionDropIndicatorGroupId?: string;
   showSessionDropPositionIndicators?: boolean;
   vscode: WebviewApi;
@@ -115,6 +116,7 @@ export function SessionGroupSection({
   onCollapsedChange,
   onFocusRequested,
   orderedSessionIds: orderedSessionIdsProp,
+  selectedSearchSessionId,
   sessionDropIndicatorGroupId,
   showSessionDropPositionIndicators = true,
   vscode,
@@ -554,13 +556,30 @@ export function SessionGroupSection({
                 {isCollapsed && hasCollapsedSummary ? (
                   <div aria-label={collapsedSummaryLabel} className="group-collapsed-summary">
                     {sessionSummary.activeCount > 0 ? (
-                      <span className="group-summary-pill" data-state="active">
-                        {formatCollapsedSummaryCount(sessionSummary.activeCount, "active")}
+                      <span
+                        aria-label={formatCollapsedSummaryCount(
+                          sessionSummary.activeCount,
+                          "active",
+                        )}
+                        className="group-summary-indicator"
+                        data-activity="working"
+                      >
+                        <span className="group-summary-count">
+                          {String(sessionSummary.activeCount)}
+                        </span>
+                        <span aria-hidden className="session-status-dot" />
                       </span>
                     ) : null}
                     {sessionSummary.doneCount > 0 ? (
-                      <span className="group-summary-pill" data-state="done">
-                        {formatCollapsedSummaryCount(sessionSummary.doneCount, "done")}
+                      <span
+                        aria-label={formatCollapsedSummaryCount(sessionSummary.doneCount, "done")}
+                        className="group-summary-indicator"
+                        data-activity="attention"
+                      >
+                        <span className="group-summary-count">
+                          {String(sessionSummary.doneCount)}
+                        </span>
+                        <span aria-hidden className="session-status-dot" />
                       </span>
                     ) : null}
                   </div>
@@ -644,6 +663,7 @@ export function SessionGroupSection({
                   dragDisabled={draggingDisabled}
                   groupId={group.groupId}
                   index={sessionIndex}
+                  isSearchSelected={selectedSearchSessionId === sessionId}
                   key={sessionId}
                   onFocusRequested={onFocusRequested}
                   sessionId={sessionId}

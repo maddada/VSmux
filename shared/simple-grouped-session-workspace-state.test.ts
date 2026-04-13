@@ -947,6 +947,51 @@ describe("setGroupSleepingInSimpleWorkspace", () => {
     ).toBe(true);
     expect(result.snapshot.groups[1]?.snapshot.visibleSessionIds).toEqual([]);
   });
+
+  test("should only sleep the targeted sessions in the group", () => {
+    const result = setGroupSleepingInSimpleWorkspace(
+      createWorkspaceSnapshot({
+        activeGroupId: "group-2",
+        groups: [
+          {
+            groupId: DEFAULT_MAIN_GROUP_ID,
+            snapshot: {
+              focusedSessionId: sessionIdForDisplay(0),
+              fullscreenRestoreVisibleCount: undefined,
+              sessions: [createSessionRecord(1, 0)],
+              viewMode: "grid",
+              visibleCount: 1,
+              visibleSessionIds: [sessionIdForDisplay(0)],
+            },
+            title: "Main",
+          },
+          {
+            groupId: "group-2",
+            snapshot: {
+              focusedSessionId: sessionIdForDisplay(1),
+              fullscreenRestoreVisibleCount: undefined,
+              sessions: [createSessionRecord(2, 0), createSessionRecord(3, 1)],
+              viewMode: "grid",
+              visibleCount: 2,
+              visibleSessionIds: [sessionIdForDisplay(1), sessionIdForDisplay(2)],
+            },
+            title: "Focused",
+          },
+        ],
+        nextGroupNumber: 3,
+        nextSessionDisplayId: 3,
+        nextSessionNumber: 4,
+      }),
+      "group-2",
+      true,
+      [sessionIdForDisplay(1)],
+    );
+
+    expect(result.snapshot.activeGroupId).toBe("group-2");
+    expect(result.snapshot.groups[1]?.snapshot.sessions[0]?.isSleeping).toBe(true);
+    expect(result.snapshot.groups[1]?.snapshot.sessions[1]?.isSleeping).toBeUndefined();
+    expect(result.snapshot.groups[1]?.snapshot.visibleSessionIds).toEqual([sessionIdForDisplay(2)]);
+  });
 });
 
 function createWorkspaceSnapshot(

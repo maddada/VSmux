@@ -8,6 +8,7 @@ import type {
 } from "./sidebar-commands";
 import type { SidebarGitAction, SidebarGitState } from "./sidebar-git";
 import type {
+  SessionLifecycleState,
   SessionGridSnapshot,
   TerminalViewMode,
   VisibleSessionCount,
@@ -51,6 +52,7 @@ export type SidebarSessionItem = {
   activity: "idle" | "working" | "attention";
   activityLabel?: string;
   agentIcon?: SidebarAgentIcon;
+  lifecycleState?: SessionLifecycleState;
   isFavorite?: boolean;
   lastInteractionAt?: string;
   sessionId: string;
@@ -68,6 +70,20 @@ export type SidebarSessionItem = {
   isRunning: boolean;
   detail?: string;
 };
+
+export function getSidebarSessionLifecycleState(
+  session: Pick<SidebarSessionItem, "lifecycleState" | "isRunning" | "isSleeping">,
+): SessionLifecycleState {
+  if (session.lifecycleState) {
+    return session.lifecycleState;
+  }
+
+  if (session.isSleeping) {
+    return "sleeping";
+  }
+
+  return session.isRunning ? "running" : "done";
+}
 
 export type SidebarPreviousSessionItem = SidebarSessionItem & {
   closedAt: string;

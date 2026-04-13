@@ -18,11 +18,6 @@ type SessionActivityContext = {
     isRunning: boolean;
   };
   lastKnownActivityBySessionId: Map<string, TerminalAgentStatus>;
-  recordLastActivityTransition?: (
-    sessionId: string,
-    previousActivity: TerminalAgentStatus | undefined,
-    nextActivity: TerminalAgentStatus,
-  ) => void;
   queueCompletionSound: (sessionId: string) => void;
   workingStartedAtBySessionId: Map<string, number>;
   workspaceId: string;
@@ -45,6 +40,19 @@ export function shouldRefreshLastActivityOnTransition(
     (nextActivity === "working" && previousActivity !== "working") ||
     (previousActivity === "working" && nextActivity !== "working")
   );
+}
+
+export function shouldRecordLastActivityTransition(args: {
+  hasCompletedInitialActivityHydration: boolean;
+  nextActivity: TerminalAgentStatus;
+  previousActivity: TerminalAgentStatus | undefined;
+  sessionKind: SessionRecord["kind"];
+}): boolean {
+  if (!shouldRefreshLastActivityOnTransition(args.previousActivity, args.nextActivity)) {
+    return false;
+  }
+
+  return args.sessionKind !== "terminal" || args.hasCompletedInitialActivityHydration;
 }
 
 export function getEffectiveSessionActivity(
@@ -99,8 +107,7 @@ export function getEffectiveSessionActivity(
     const workingDurationMs =
       workingStartedAt === undefined ? undefined : Math.max(0, now - workingStartedAt);
     if (
-      !shouldTrustNativeAgentStatus &&
-      workingStartedAt === undefined ||
+      (!shouldTrustNativeAgentStatus && workingStartedAt === undefined) ||
       (!shouldTrustNativeAgentStatus &&
         (workingDurationMs ?? 0) < MIN_WORKING_DURATION_BEFORE_ATTENTION_MS)
     ) {

@@ -26,6 +26,7 @@ import type {
 import {
   deletePersistedSessionStateFile,
   readPersistedSessionStateSnapshotFromFile,
+  updatePersistedSessionStateFile,
   type PersistedSessionState,
 } from "./session-state-file";
 import {
@@ -237,6 +238,45 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   public getSessionSnapshot(sessionId: string): TerminalSessionSnapshot | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  public async persistLastTerminalActivityAt(sessionId: string, activityAt: number): Promise<void> {
+    if (!Number.isFinite(activityAt)) {
+      return;
+    }
+
+    const nextActivityAt = new Date(activityAt).toISOString();
+    const persistedState = await updatePersistedSessionStateFile(
+      this.getSessionAgentStateFilePath(sessionId),
+      (currentState) => {
+        if (currentState.lastActivityAt && currentState.lastActivityAt >= nextActivityAt) {
+          return currentState;
+        }
+
+        return {
+          ...currentState,
+          lastActivityAt: nextActivityAt,
+        };
+      },
+    ).catch(() => undefined);
+    if (!persistedState) {
+      return;
+    }
+
+    const nextActivityAtMs = getPersistedSessionActivityAtMs(persistedState);
+    if (nextActivityAtMs === undefined) {
+      return;
+    }
+
+    const previousActivityAtMs = this.lastTerminalActivityAtBySessionId.get(sessionId);
+    if (previousActivityAtMs === nextActivityAtMs) {
+      return;
+    }
+
+    this.lastTerminalActivityAtBySessionId.set(sessionId, nextActivityAtMs);
+    this.changeSessionActivityEmitter.fire(
+      createPersistedSessionActivityChange(sessionId, persistedState),
+    );
   }
 
   public async killSession(sessionId: string): Promise<void> {

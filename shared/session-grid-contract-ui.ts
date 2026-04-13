@@ -97,9 +97,11 @@ export function createSidebarSessionItems(
     alias: session.alias,
     column: session.column,
     detail: undefined,
+    lifecycleState:
+      session.kind === "browser" ? "running" : session.isSleeping === true ? "sleeping" : "done",
     isFocused: snapshot.focusedSessionId === session.sessionId,
     isSleeping: session.isSleeping === true,
-    isRunning: false,
+    isRunning: session.kind === "browser",
     isVisible: visibleIds.has(session.sessionId),
     lastInteractionAt: undefined,
     primaryTitle: getVisiblePrimaryTitle(session.title),

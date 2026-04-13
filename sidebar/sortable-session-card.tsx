@@ -25,7 +25,10 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { SidebarSessionItem } from "../shared/session-grid-contract";
+import {
+  getSidebarSessionLifecycleState,
+  type SidebarSessionItem,
+} from "../shared/session-grid-contract";
 import {
   getSessionCardTitleTooltip,
   OverflowTooltipText,
@@ -90,6 +93,7 @@ export type SortableSessionCardProps = {
   dragDisabled?: boolean;
   groupId: string;
   index: number;
+  isSearchSelected?: boolean;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   sessionId: string;
   showDropPositionIndicator?: boolean;
@@ -122,6 +126,7 @@ export function SortableSessionCard({
   dragDisabled = false,
   groupId,
   index,
+  isSearchSelected = false,
   onFocusRequested,
   sessionId,
   showDropPositionIndicator = true,
@@ -234,6 +239,7 @@ export function SortableSessionCard({
     session,
     showDebugSessionNumbers,
   });
+  const lifecycleState = getSidebarSessionLifecycleState(session);
 
   useEffect(() => {
     setContextMenuPosition(undefined);
@@ -559,7 +565,8 @@ export function SortableSessionCard({
           data-drop-position={visibleDropPosition}
           data-drop-target={String(isVisibleDropTarget)}
           data-focused={String(session.isFocused)}
-          data-running={String(session.isRunning)}
+          data-lifecycle-state={lifecycleState}
+          data-running={String(lifecycleState === "running")}
           data-sleeping={String(Boolean(session.isSleeping))}
           data-visible={String(session.isVisible)}
           ref={sortable.ref}
@@ -586,7 +593,9 @@ export function SortableSessionCard({
             data-drop-position={visibleDropPosition}
             data-drop-target={String(isVisibleDropTarget)}
             data-focused={String(session.isFocused)}
-            data-running={String(session.isRunning)}
+            data-lifecycle-state={lifecycleState}
+            data-running={String(lifecycleState === "running")}
+            data-search-selected={String(isSearchSelected)}
             data-sleeping={String(Boolean(session.isSleeping))}
             data-sidebar-session-id={session.sessionId}
             data-visible={String(session.isVisible)}

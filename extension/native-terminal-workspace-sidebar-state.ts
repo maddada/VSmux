@@ -33,6 +33,11 @@ import {
 } from "./terminal-workspace-helpers";
 import type { PreviousSessionHistoryEntry } from "./previous-session-history";
 import { BROWSER_SIDEBAR_GROUP_ID } from "./live-browser-tabs";
+import {
+  isRunningSessionLifecycleState,
+  resolveT3SessionLifecycleState,
+  resolveTerminalSessionLifecycleState,
+} from "./native-terminal-workspace/session-indicator-state";
 
 type SidebarBrowserTab = {
   detail?: string;
@@ -171,6 +176,7 @@ export function createPreviousSessionEntry(
       ...sidebarItem,
       isFocused: false,
       isSleeping: false,
+      lifecycleState: "done",
       isRunning: false,
       isVisible: false,
     },
@@ -232,6 +238,7 @@ function buildBrowserSidebarGroup(browserTabs: readonly SidebarBrowserTab[]): Si
       alias: browserTab.label,
       column: 0,
       detail: browserTab.detail,
+      lifecycleState: "running",
       isFocused: browserTab.isActive,
       isFavorite: false,
       isRunning: true,
@@ -289,10 +296,11 @@ function buildSidebarItem(
       alias: sessionRecord.alias,
       column: sessionRecord.column,
       detail: sessionRecord.browser.url,
+      lifecycleState: "running",
       isFocused,
       isFavorite: false,
       isSleeping: false,
-      isRunning: isVisible || options.browserHasLiveProjection(sessionRecord.sessionId),
+      isRunning: true,
       isVisible,
       kind: "workspace",
       lastInteractionAt: undefined,
@@ -312,6 +320,10 @@ function buildSidebarItem(
       options.getTerminalTitle(sessionRecord.sessionId),
     );
     const activityState = options.getT3ActivityState(sessionRecord);
+    const lifecycleState = resolveT3SessionLifecycleState({
+      isRunning: activityState.isRunning,
+      isSleeping,
+    });
     return {
       activity: isSleeping ? "idle" : activityState.activity,
       activityLabel: isSleeping ? undefined : getSessionActivityLabel(activityState.activity, "t3"),
@@ -326,10 +338,11 @@ function buildSidebarItem(
           sessionRecord.t3.threadId.trim()
             ? `Thread ${sessionRecord.t3.threadId.slice(0, 8)}`
             : undefined)),
+      lifecycleState,
       isFocused,
       isFavorite: sessionRecord.isFavorite === true,
       isSleeping,
-      isRunning: isSleeping ? false : activityState.isRunning,
+      isRunning: isRunningSessionLifecycleState(lifecycleState),
       isVisible,
       kind: "workspace",
       lastInteractionAt: activityState.lastInteractionAt ?? sessionRecord.createdAt,
@@ -355,6 +368,13 @@ function buildSidebarItem(
   );
   const shouldPreferTerminalTitle =
     Boolean(visibleTerminalTitle) && shouldPreferTerminalTitleForAgentIcon(agentIcon);
+  const lifecycleState = resolveTerminalSessionLifecycleState({
+    hasLiveRuntime:
+      sessionSnapshot.status === "running" &&
+      options.terminalHasLiveProjection(sessionRecord.sessionId),
+    isSleeping,
+    status: sessionSnapshot.status,
+  });
 
   return {
     activity: isSleeping ? "idle" : effectiveActivity.activity,
@@ -365,13 +385,11 @@ function buildSidebarItem(
     alias: sessionRecord.alias,
     column: sessionRecord.column,
     detail: isSleeping ? "Sleeping" : sessionSnapshot.errorMessage,
+    lifecycleState,
     isFocused,
     isFavorite: sessionRecord.isFavorite === true,
     isSleeping,
-    isRunning:
-      !isSleeping &&
-      sessionSnapshot.status === "running" &&
-      options.terminalHasLiveProjection(sessionRecord.sessionId),
+    isRunning: isRunningSessionLifecycleState(lifecycleState),
     isVisible,
     isPrimaryTitleTerminalTitle:
       Boolean(visibleTerminalTitle) && (!visiblePrimaryTitle || shouldPreferTerminalTitle),

@@ -1,6 +1,20 @@
 import { describe, expect, test } from "vite-plus/test";
 import { createSessionRecord } from "../shared/session-grid-contract";
-import { getWorkspacePanePrimaryTitle } from "./workspace-app";
+import { getWorkspacePanePrimaryTitle, getWorkspaceShellPaneGapPx } from "./workspace-app";
+
+describe("getWorkspaceShellPaneGapPx", () => {
+  test("should force a 1px inset in single-pane mode", () => {
+    expect(getWorkspaceShellPaneGapPx(1, 24)).toBe(1);
+  });
+
+  test("should keep the configured gap in multi-pane mode", () => {
+    expect(getWorkspaceShellPaneGapPx(2, 24)).toBe(24);
+  });
+
+  test("should fall back to the default gap in multi-pane mode when unset", () => {
+    expect(getWorkspaceShellPaneGapPx(2, undefined)).toBe(12);
+  });
+});
 
 describe("getWorkspacePanePrimaryTitle", () => {
   test("should ignore the generic VSmux terminal title", () => {

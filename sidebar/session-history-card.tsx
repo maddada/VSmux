@@ -10,6 +10,7 @@ import {
 import { getSessionHistoryCardTitle } from "./session-history-card-title";
 
 export type SessionHistoryCardProps = {
+  isSearchSelected?: boolean;
   onDelete: () => void;
   onRestore: () => void;
   session: SidebarPreviousSessionItem;
@@ -18,6 +19,7 @@ export type SessionHistoryCardProps = {
 };
 
 export function SessionHistoryCard({
+  isSearchSelected = false,
   onDelete,
   onRestore,
   session,
@@ -64,6 +66,8 @@ export function SessionHistoryCard({
           data-dragging="false"
           data-focused="false"
           data-running="false"
+          data-search-selected={String(isSearchSelected)}
+          data-sidebar-history-id={session.historyId}
           data-restorable={String(session.isRestorable)}
           data-visible="false"
           onAuxClick={(event) => {

@@ -12,16 +12,26 @@ export function getGroupSessionSummary(
   let doneCount = 0;
 
   for (const session of sessions) {
-    if (session.isSleeping) {
-      continue;
-    }
+    const lifecycleState = session.lifecycleState;
 
-    if (session.isRunning) {
+    if (lifecycleState === "running") {
       activeCount += 1;
       continue;
     }
 
-    doneCount += 1;
+    if (lifecycleState === "done") {
+      doneCount += 1;
+      continue;
+    }
+
+    if (session.activity === "working") {
+      activeCount += 1;
+      continue;
+    }
+
+    if (session.activity === "attention") {
+      doneCount += 1;
+    }
   }
 
   return {

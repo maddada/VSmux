@@ -45,6 +45,7 @@ describe("buildSidebarMessage", () => {
     expect(message.groups[0]?.sessions).toEqual([
       expect.objectContaining({
         detail: "https://example.com/docs",
+        lifecycleState: "running",
         isFocused: true,
         isRunning: true,
         isVisible: true,
@@ -104,6 +105,7 @@ describe("buildSidebarMessage", () => {
       expect.objectContaining({
         activity: "idle",
         detail: undefined,
+        lifecycleState: "running",
         isRunning: true,
         primaryTitle: "T3 Code",
         sessionId: sessionRecord.sessionId,
@@ -463,6 +465,7 @@ describe("buildSidebarMessage", () => {
       expect.objectContaining({
         activity: "idle",
         detail: "Sleeping",
+        lifecycleState: "sleeping",
         isRunning: false,
         isSleeping: true,
         primaryTitle: "Codex",
@@ -615,6 +618,7 @@ describe("createPreviousSessionEntry", () => {
 
     expect(previousSession?.agentIcon).toBe("codex");
     expect(previousSession?.sidebarItem.agentIcon).toBe("codex");
+    expect(previousSession?.sidebarItem.lifecycleState).toBe("done");
   });
 
   test("should preserve favorite state in previous session history", () => {

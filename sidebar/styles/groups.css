@@ -239,30 +239,38 @@
   min-width: 0;
 }
 
-.group-summary-pill {
+.group-summary-indicator {
   align-items: center;
-  border: 1px solid transparent;
-  border-radius: 999px;
   display: inline-flex;
-  font-size: calc(10px * var(--sidebar-density-scale));
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  line-height: 1;
-  padding: calc(5px * var(--sidebar-density-scale)) calc(8px * var(--sidebar-density-scale));
-  text-transform: uppercase;
+  gap: calc(6px * var(--sidebar-density-scale));
   white-space: nowrap;
 }
 
-.group-summary-pill[data-state="active"] {
-  background: color-mix(in srgb, #ffb454 16%, transparent);
-  border-color: color-mix(in srgb, #ffb454 34%, var(--app-border));
-  color: color-mix(in srgb, #ffb454 74%, var(--app-foreground) 26%);
+.group-summary-count {
+  color: color-mix(in srgb, var(--app-foreground) 82%, var(--app-muted) 18%);
+  font-size: calc(11px * var(--sidebar-density-scale));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
 }
 
-.group-summary-pill[data-state="done"] {
-  background: color-mix(in srgb, var(--attention-dot) 14%, transparent);
-  border-color: color-mix(in srgb, var(--attention-dot) 30%, var(--app-border));
-  color: color-mix(in srgb, var(--attention-dot) 72%, var(--app-foreground) 28%);
+.group-summary-indicator .session-status-dot {
+  opacity: 1;
+  pointer-events: none;
+  position: static;
+  right: auto;
+  scale: 1;
+  top: auto;
+  translate: none;
+}
+
+.group-summary-indicator[data-activity="working"] .session-status-dot {
+  --session-status-dot-color: #ffb454;
+  animation: session-status-dot-pulse 1.35s ease-in-out infinite;
+}
+
+.group-summary-indicator[data-activity="attention"] .session-status-dot {
+  --session-status-dot-color: var(--attention-dot);
 }
 
 .group-meta {

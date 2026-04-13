@@ -15,6 +15,7 @@ export type TerminalViewMode = "horizontal" | "vertical" | "grid";
 export type SessionGridDirection = "up" | "right" | "down" | "left";
 
 export type SidebarSessionActivityState = "idle" | "working" | "attention";
+export type SessionLifecycleState = "running" | "done" | "sleeping" | "error";
 
 export type SidebarTheme =
   | "plain-dark"

@@ -44,7 +44,13 @@ type SidebarStoryWorkspaceOptions = {
 
 type SidebarSessionDecoration = Pick<
   SidebarSessionItem,
-  "activity" | "activityLabel" | "detail" | "isRunning" | "lastInteractionAt" | "terminalTitle"
+  | "activity"
+  | "activityLabel"
+  | "detail"
+  | "lifecycleState"
+  | "isRunning"
+  | "lastInteractionAt"
+  | "terminalTitle"
 >;
 
 export type SidebarStoryWorkspace = {
@@ -79,6 +85,7 @@ export function createSidebarStoryWorkspace(message: SidebarHydrateMessage): Sid
             activity: session.activity,
             activityLabel: session.activityLabel,
             detail: session.detail,
+            lifecycleState: session.lifecycleState,
             isRunning: session.isRunning,
             lastInteractionAt: session.lastInteractionAt,
             terminalTitle: session.terminalTitle,
@@ -112,7 +119,9 @@ export function createSidebarStoryMessage(
       ...item,
       ...workspace.sessionDecorationsById[item.sessionId],
       activity: workspace.sessionDecorationsById[item.sessionId]?.activity ?? "idle",
-      isRunning: workspace.sessionDecorationsById[item.sessionId]?.isRunning ?? true,
+      lifecycleState:
+        workspace.sessionDecorationsById[item.sessionId]?.lifecycleState ?? item.lifecycleState,
+      isRunning: workspace.sessionDecorationsById[item.sessionId]?.isRunning ?? item.isRunning,
       lastInteractionAt: workspace.sessionDecorationsById[item.sessionId]?.lastInteractionAt,
       terminalTitle: workspace.sessionDecorationsById[item.sessionId]?.terminalTitle,
     }));

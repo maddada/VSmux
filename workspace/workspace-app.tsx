@@ -19,7 +19,11 @@ import type {
   WorkspacePanelSessionStateMessage,
   WorkspacePanelShowToastMessage,
 } from "../shared/workspace-panel-contract";
-import { getVisiblePrimaryTitle, getVisibleTerminalTitle } from "../shared/session-grid-contract";
+import {
+  getVisiblePrimaryTitle,
+  getVisibleTerminalTitle,
+  type SessionLifecycleState,
+} from "../shared/session-grid-contract";
 import {
   getSidebarAgentIconById,
   shouldPreferTerminalTitleForAgentIcon,
@@ -97,6 +101,8 @@ const WORKSPACE_TOAST_CONFIRM_FADE_MS = 300;
 let nextWorkspaceBootId = 0;
 let nextWorkspacePaneViewInstanceId = 0;
 let nextWorkspacePortalTargetId = 0;
+const DEFAULT_WORKSPACE_PANE_GAP_PX = 12;
+const SINGLE_PANE_WORKSPACE_INSET_PX = 1;
 
 const getInitialWorkspaceState = (): WorkspaceStateMessage | undefined => {
   if (typeof window === "undefined") {
@@ -128,11 +134,23 @@ const describeActiveElement = () => {
 
 type WorkspaceToastComparable = WorkspacePanelShowToastMessage | WorkspaceToastState | undefined;
 
+export function getWorkspaceShellPaneGapPx(
+  visibleCount: number | undefined,
+  configuredPaneGap: number | undefined,
+): number {
+  if (visibleCount === 1) {
+    return SINGLE_PANE_WORKSPACE_INSET_PX;
+  }
+
+  return configuredPaneGap ?? DEFAULT_WORKSPACE_PANE_GAP_PX;
+}
+
 const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
   panes.map((pane) =>
     pane.kind === "terminal"
       ? {
           activity: pane.activity,
+          lifecycleState: pane.lifecycleState,
           isVisible: pane.isVisible,
           kind: pane.kind,
           renderNonce: pane.renderNonce,
@@ -145,6 +163,7 @@ const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
         }
       : {
           activity: pane.activity,
+          lifecycleState: pane.lifecycleState,
           isVisible: pane.isVisible,
           kind: pane.kind,
           renderNonce: pane.renderNonce,
@@ -186,10 +205,22 @@ const summarizeTerminalLayerState = (
         ],
   );
 
-function getWorkspacePaneHeaderActivity(
+function getWorkspacePaneHeaderIndicatorState(
   pane: WorkspacePanelPane,
-): "attention" | "working" | undefined {
-  return pane.activity === "working" || pane.activity === "attention" ? pane.activity : undefined;
+): SessionLifecycleState | undefined {
+  if (pane.lifecycleState === "error") {
+    return "error";
+  }
+
+  if (pane.activity === "working") {
+    return "running";
+  }
+
+  if (pane.activity === "attention") {
+    return "done";
+  }
+
+  return undefined;
 }
 
 export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = window, vscode }) => {
@@ -428,6 +459,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
       if (nextMessage.type === "terminalPresentationChanged") {
         postWorkspaceDebugLog(debuggingModeRef.current, "workspace.terminalPresentationChanged", {
+          activity: nextMessage.activity,
+          lifecycleState: nextMessage.lifecycleState,
           sessionId: nextMessage.sessionId,
           snapshotAgentName: nextMessage.snapshot?.agentName,
           snapshotHistoryBytes: nextMessage.snapshot?.history?.length ?? 0,
@@ -450,6 +483,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
                 ? pane
                 : {
                     ...pane,
+                    activity: nextMessage.activity ?? pane.activity,
+                    lifecycleState: nextMessage.lifecycleState ?? pane.lifecycleState,
                     snapshot: nextMessage.snapshot ?? pane.snapshot,
                     terminalTitle: nextMessage.terminalTitle,
                   },
@@ -705,11 +740,15 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       ),
     [orderedPanes],
   );
+  const workspaceShellPaneGapPx = getWorkspaceShellPaneGapPx(
+    workspaceState?.visibleCount,
+    workspaceState?.layoutAppearance.paneGap,
+  );
   const workspaceShellStyle = useMemo(() => {
     const nextStyle: WorkspaceShellStyle = {
       "--workspace-active-pane-border-color":
         workspaceState?.layoutAppearance.activePaneBorderColor,
-      "--workspace-pane-gap": `${String(workspaceState?.layoutAppearance.paneGap ?? 12)}px`,
+      "--workspace-pane-gap": `${String(workspaceShellPaneGapPx)}px`,
     };
 
     if (visiblePanes.length > 0) {
@@ -722,8 +761,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     return nextStyle;
   }, [
     workspaceState?.layoutAppearance.activePaneBorderColor,
-    workspaceState?.layoutAppearance.paneGap,
     workspaceState?.viewMode,
+    workspaceShellPaneGapPx,
     visiblePanes.length,
   ]);
   const hiddenPaneInPlaceStyles = useMemo(() => {
@@ -750,7 +789,6 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     return nextStyles;
   }, [activeGroupLayoutKey, activeGroupSessionIdSet, orderedPanes]);
   const hiddenPaneParkingStyles = useMemo(() => {
-    const paneGap = workspaceState?.layoutAppearance.paneGap ?? 12;
     const hiddenPanes = orderedPanes.filter(
       (pane) =>
         !pane.isVisible &&
@@ -767,7 +805,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         left: "0",
         pointerEvents: "none",
         position: "absolute",
-        top: `calc(100% + ${String((index + 1) * (paneGap + 24))}px)`,
+        top: `calc(100% + ${String((index + 1) * (workspaceShellPaneGapPx + 24))}px)`,
         width: measuredBounds?.width ? `${String(measuredBounds.width)}px` : "1px",
         zIndex: 0,
       });
@@ -779,7 +817,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     activeGroupSessionIdSet,
     orderedPanes,
     paneMeasuredBoundsVersion,
-    workspaceState?.layoutAppearance.paneGap,
+    workspaceShellPaneGapPx,
   ]);
 
   useEffect(() => {
@@ -1684,7 +1722,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   const paneViewInstanceIdRef = useRef(`workspace-pane-view-${++nextWorkspacePaneViewInstanceId}`);
   const sectionRef = useRef<HTMLElement | null>(null);
   const primaryTitle = getWorkspacePanePrimaryTitle(pane);
-  const headerActivity = getWorkspacePaneHeaderActivity(pane);
+  const headerIndicatorState = getWorkspacePaneHeaderIndicatorState(pane);
   const canFork = supportsWorkspacePaneFork(pane);
   const canReload = supportsWorkspacePaneFullReload(pane);
 
@@ -1777,18 +1815,18 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
     >
       <header
         className={`workspace-pane-header ${canDrag ? "workspace-pane-header-draggable" : ""}`}
-        data-activity={headerActivity}
+        data-lifecycle-state={headerIndicatorState}
         draggable={false}
         onDragStart={canDrag ? onHeaderNativeDragStart : undefined}
         onPointerDownCapture={canDrag ? onHeaderPointerDown : undefined}
       >
         <div className="workspace-pane-title">
           <span className="workspace-pane-title-text">{primaryTitle}</span>
-          {headerActivity ? (
+          {headerIndicatorState && headerIndicatorState !== "sleeping" ? (
             <span
               aria-hidden="true"
               className="workspace-pane-title-indicator"
-              data-activity={headerActivity}
+              data-lifecycle-state={headerIndicatorState}
             />
           ) : null}
         </div>

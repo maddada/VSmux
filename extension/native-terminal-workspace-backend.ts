@@ -685,6 +685,21 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.recordSessionActivity(sessionId, Date.now(), true);
   }
 
+  public async persistLastTerminalActivityAt(sessionId: string, activityAt: number): Promise<void> {
+    if (!Number.isFinite(activityAt)) {
+      return;
+    }
+
+    const persistedState = await this.persistSessionActivity(sessionId, activityAt);
+    const persistedActivityAtMs = getPersistedSessionActivityAtMs(persistedState);
+    if (
+      persistedActivityAtMs !== undefined &&
+      this.updateLastTerminalActivityAt(sessionId, persistedActivityAtMs)
+    ) {
+      this.changeSessionActivityEmitter.fire({ sessionId });
+    }
+  }
+
   public syncSessions(sessionRecords: readonly SessionRecord[]): void {
     const nextSessionRecords = sessionRecords.filter(isTerminalSession);
     const nextSessionIdSet = new Set(
@@ -1623,27 +1638,41 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   private recordSessionActivity(sessionId: string, activityAt = Date.now(), persist = false): void {
-    if (this.updateLastTerminalActivityAt(sessionId, activityAt)) {
-      this.changeSessionActivityEmitter.fire({ sessionId });
-    }
-
     if (persist) {
-      void this.persistSessionActivity(sessionId, activityAt);
+      void this.persistLastTerminalActivityAt(sessionId, activityAt);
     }
   }
 
-  private async persistSessionActivity(sessionId: string, activityAt: number): Promise<void> {
+  private async persistSessionActivity(
+    sessionId: string,
+    activityAt: number,
+  ): Promise<{
+    agentName?: string;
+    agentStatus: TerminalAgentStatus;
+    lastActivityAt?: string;
+    title?: string;
+  }> {
     const nextActivityAt = new Date(activityAt).toISOString();
-    await updatePersistedSessionStateFile(this.getSessionAgentStateFilePath(sessionId), (state) => {
-      if (state.lastActivityAt && state.lastActivityAt >= nextActivityAt) {
-        return state;
-      }
+    return (
+      (await updatePersistedSessionStateFile(
+        this.getSessionAgentStateFilePath(sessionId),
+        (state) => {
+          if (state.lastActivityAt && state.lastActivityAt >= nextActivityAt) {
+            return state;
+          }
 
-      return {
-        ...state,
-        lastActivityAt: nextActivityAt,
-      };
-    }).catch(() => undefined);
+          return {
+            ...state,
+            lastActivityAt: nextActivityAt,
+          };
+        },
+      ).catch(() => undefined)) ?? {
+        agentName: undefined,
+        agentStatus: "idle",
+        lastActivityAt: undefined,
+        title: undefined,
+      }
+    );
   }
 
   private createTerminalEnvironment(sessionId: string): Record<string, string> {
@@ -1849,10 +1878,7 @@ function isWindowsPowerShellShell(shellPath: string): boolean {
   );
 }
 
-function getPersistedSessionActivityAtMs(state: {
-  lastActivityAt?: string;
-  updatedAtMs?: number;
-}): number | undefined {
+function getPersistedSessionActivityAtMs(state: { lastActivityAt?: string }): number | undefined {
   if (state.lastActivityAt) {
     const timestampMs = Date.parse(state.lastActivityAt);
     if (Number.isFinite(timestampMs)) {
@@ -1860,7 +1886,5 @@ function getPersistedSessionActivityAtMs(state: {
     }
   }
 
-  return typeof state.updatedAtMs === "number" && Number.isFinite(state.updatedAtMs)
-    ? state.updatedAtMs
-    : undefined;
+  return undefined;
 }

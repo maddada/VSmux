@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import type {
+  SessionLifecycleState,
   SessionRecord,
   SidebarPreviousSessionItem,
   SidebarSessionItem,
 } from "../shared/session-grid-contract";
 import {
+  getSidebarSessionLifecycleState,
   getVisiblePrimaryTitle,
   getVisibleTerminalTitle,
   isGeneratedSessionAlias,
@@ -59,6 +61,7 @@ export class PreviousSessionHistory {
           activityLabel: undefined,
           closedAt: entry.closedAt,
           historyId: entry.historyId,
+          lifecycleState: normalizeHistoryLifecycleState(sidebarItem),
           isGeneratedName: isGeneratedSessionAlias(entry.sessionRecord),
           isRestorable: true,
         },
@@ -219,6 +222,15 @@ function isSidebarSessionItem(candidate: unknown): candidate is SidebarSessionIt
     typeof item.isRunning === "boolean" &&
     typeof item.activity === "string"
   );
+}
+
+function normalizeHistoryLifecycleState(sidebarItem: SidebarSessionItem): SessionLifecycleState {
+  const resolvedLifecycleState = getSidebarSessionLifecycleState(sidebarItem);
+  if (resolvedLifecycleState === "running" || resolvedLifecycleState === "sleeping") {
+    return "done";
+  }
+
+  return resolvedLifecycleState;
 }
 
 function isSessionRecord(candidate: unknown): candidate is SessionRecord {

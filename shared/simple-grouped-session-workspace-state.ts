@@ -385,6 +385,7 @@ export function setGroupSleepingInSimpleWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   groupId: string,
   sleeping: boolean,
+  sessionIds?: readonly string[],
 ): WorkspaceMutationResult {
   const normalizedSnapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot(snapshot);
   const group = getGroupById(normalizedSnapshot, groupId);
@@ -392,7 +393,13 @@ export function setGroupSleepingInSimpleWorkspace(
     return { changed: false, snapshot: normalizedSnapshot };
   }
 
-  const hasChange = group.snapshot.sessions.some((session) => session.isSleeping !== sleeping);
+  const targetSessionIdSet =
+    sessionIds === undefined ? undefined : new Set(sessionIds.map((sessionId) => sessionId.trim()));
+  const targetSessions =
+    targetSessionIdSet === undefined
+      ? group.snapshot.sessions
+      : group.snapshot.sessions.filter((session) => targetSessionIdSet.has(session.sessionId));
+  const hasChange = targetSessions.some((session) => session.isSleeping !== sleeping);
   if (!hasChange) {
     return { changed: false, snapshot: normalizedSnapshot };
   }
@@ -401,10 +408,14 @@ export function setGroupSleepingInSimpleWorkspace(
     ...targetGroup,
     snapshot: normalizeGroupSnapshot({
       ...targetGroup.snapshot,
-      sessions: targetGroup.snapshot.sessions.map((session) => ({
-        ...session,
-        isSleeping: sleeping,
-      })),
+      sessions: targetGroup.snapshot.sessions.map((session) =>
+        targetSessionIdSet === undefined || targetSessionIdSet.has(session.sessionId)
+          ? {
+              ...session,
+              isSleeping: sleeping,
+            }
+          : session,
+      ),
     }),
   }));
   const shouldSwitchGroups =
