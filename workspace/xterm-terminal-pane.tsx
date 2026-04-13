@@ -106,6 +106,16 @@ function getLoadableWebFontFamilies(fontFamily: string | undefined): string[] {
     return [];
   }
 
+  const registeredFamilies = new Set(
+    Array.from(document.fonts ?? [])
+      .map((font) =>
+        font.family
+          .trim()
+          .replace(/^['"]|['"]$/g, "")
+          .toLowerCase(),
+      )
+      .filter((family) => family.length > 0),
+  );
   const seen = new Set<string>();
   return (
     fontFamily
@@ -113,6 +123,9 @@ function getLoadableWebFontFamilies(fontFamily: string | undefined): string[] {
       ?.map((family) => family.trim().replace(/^['"]|['"]$/g, ""))
       .filter((family) => family.length > 0)
       .filter((family) => !GENERIC_FONT_FAMILIES.has(family.toLowerCase()))
+      .filter(
+        (family) => registeredFamilies.size === 0 || registeredFamilies.has(family.toLowerCase()),
+      )
       .filter((family) => {
         if (seen.has(family)) {
           return false;
@@ -286,10 +299,12 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       const loadKey = getTerminalAppearanceFontLoadKey(fontFamily);
       let loadPromise = terminalWebFontLoadPromiseByKey.get(loadKey);
       if (!loadPromise) {
-        loadPromise = loadFonts(families).catch((error) => {
-          terminalWebFontLoadPromiseByKey.delete(loadKey);
-          throw error;
-        });
+        loadPromise = loadFonts(families)
+          .then(() => undefined)
+          .catch((error) => {
+            terminalWebFontLoadPromiseByKey.delete(loadKey);
+            throw error;
+          });
         terminalWebFontLoadPromiseByKey.set(loadKey, loadPromise);
       }
       await loadPromise;
@@ -1033,7 +1048,8 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       };
     };
 
-    void ensureWebFontsLoaded(terminalAppearanceOptions.fontFamily, "initial").finally(() => {
+    void (async () => {
+      await ensureWebFontsLoaded(terminalAppearanceOptions.fontFamily, "initial");
       if (didDispose || !containerRef.current) {
         return;
       }
@@ -1060,7 +1076,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       if (isVisibleRef.current || pendingVisibleStartup) {
         ensureTerminalVisibleReady();
       }
-    });
+    })();
 
     if (connection.mock && pane.snapshot?.history !== undefined) {
       terminal.write(pane.snapshot.history);
@@ -1341,7 +1357,8 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       return;
     }
 
-    void ensureWebFontsLoaded(terminalAppearanceOptions.fontFamily, "appearance").finally(() => {
+    void (async () => {
+      await ensureWebFontsLoaded(terminalAppearanceOptions.fontFamily, "appearance");
       if (!terminalRef.current) {
         return;
       }
@@ -1357,14 +1374,15 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
           container: containerRef.current ?? terminal.element ?? document.body,
           useDevicePixelAdjustment: true,
         });
-        if (isVisibleRef.current) {
-          ensureTerminalVisibleReadyRef.current?.();
-        } else {
-          lastMeasuredSizeRef.current = undefined;
-        }
       });
+
+      if (isVisibleRef.current) {
+        ensureTerminalVisibleReadyRef.current?.();
+      } else {
+        lastMeasuredSizeRef.current = undefined;
+      }
       updateScrollToBottomButtonVisibilityRef.current?.();
-    });
+    })();
   }, [
     isVisible,
     terminalAppearance.xtermFrontendScrollback,

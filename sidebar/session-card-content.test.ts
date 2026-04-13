@@ -83,8 +83,8 @@ describe("getSessionCardTitleTooltip", () => {
         showDebugSessionNumbers: false,
       }),
     ).toEqual({
-      headingText: "A very long session title ∗",
-      tooltip: "A very long session title ∗ (Unsynced title)",
+      headingText: "∗ A very long session title",
+      tooltip: "∗ A very long session title (Unsynced title)",
       tooltipWhen: "always",
     });
   });
@@ -105,8 +105,8 @@ describe("getSessionCardTitleTooltip", () => {
         showDebugSessionNumbers: true,
       }),
     ).toEqual({
-      headingText: "A very long session title ∗",
-      tooltip: "A very long session title ∗ (Unsynced title)\nrepo sweep\nSession number: 3",
+      headingText: "∗ A very long session title",
+      tooltip: "∗ A very long session title (Unsynced title)\nrepo sweep\nSession number: 3",
       tooltipWhen: "always",
     });
   });
@@ -142,7 +142,7 @@ describe("formatSessionHeadingText", () => {
         isPrimaryTitleTerminalTitle: false,
         primaryTitle: "Claude Code",
       }),
-    ).toBe("Claude Code ∗");
+    ).toBe("∗ Claude Code");
   });
 
   test("should keep terminal-derived titles unmarked", () => {
@@ -155,6 +155,18 @@ describe("formatSessionHeadingText", () => {
     ).toBe("Bug Fix");
   });
 
+  test("should keep t3 titles unmarked even when they do not match the synced terminal title", () => {
+    expect(
+      formatSessionHeadingText({
+        agentIcon: "t3",
+        alias: "Session 1",
+        isPrimaryTitleTerminalTitle: false,
+        primaryTitle: "Refactor auth flow",
+        terminalTitle: "Thread 12345678",
+      }),
+    ).toBe("Refactor auth flow");
+  });
+
   test("should append the unsynced label in tooltip mode", () => {
     expect(
       formatSessionHeadingText({
@@ -163,7 +175,7 @@ describe("formatSessionHeadingText", () => {
         isPrimaryTitleTerminalTitle: false,
         primaryTitle: "Bug Fix",
       }),
-    ).toBe("Bug Fix ∗ (Unsynced title)");
+    ).toBe("∗ Bug Fix (Unsynced title)");
   });
 });
 

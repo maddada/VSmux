@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
+## 3.3.0 - 2026-04-13
+
+- VSmux startup and workspace recovery are more reliable now, with fixes for blank startup tabs, steadier webview initialization, and better handling around workspace message timing.
+- Workspace controls are more capable, including pane rename, fork, and sleep actions plus improved recovery for hidden xterm panes after reconnects.
+- The sidebar feels more polished, with better session ordering and title handling, clearer unsynced/search states, richer agent and action menus, and updated session-group controls and summaries.
+- Terminal customization is more flexible now with font presets for common mono stacks, plus stronger cross-platform shell behavior for Windows and PowerShell flows.
+
 ## 3.2.0 - 2026-04-11
 
 - Startup is more reliable now: VSmux is less likely to open into a blank tab, especially during initial workspace load.

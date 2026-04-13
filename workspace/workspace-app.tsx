@@ -33,6 +33,7 @@ import {
   buildFullSessionOrderFromVisiblePaneOrder,
   buildVisiblePaneOrderForDrop,
   sortPanesBySessionIds,
+  sortVisiblePanesBySlotIndex,
 } from "./workspace-pane-reorder";
 import { destroyCachedTerminalRuntime, getTerminalRuntimeCacheKey } from "./terminal-runtime-cache";
 import { blurAllCachedT3Runtimes } from "./t3-runtime-cache";
@@ -136,6 +137,7 @@ const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
           kind: pane.kind,
           renderNonce: pane.renderNonce,
           sessionId: pane.sessionId,
+          visibleSlotIndex: pane.visibleSlotIndex,
           snapshotAgentName: pane.snapshot?.agentName,
           snapshotHistoryBytes: pane.snapshot?.history?.length ?? 0,
           snapshotIsAttached: pane.snapshot?.isAttached,
@@ -147,6 +149,7 @@ const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
           kind: pane.kind,
           renderNonce: pane.renderNonce,
           sessionId: pane.sessionId,
+          visibleSlotIndex: pane.visibleSlotIndex,
           threadId: pane.sessionRecord.t3.threadId,
           title: pane.sessionRecord.title,
         },
@@ -626,8 +629,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     return new Set(activeGroup?.snapshot.sessions.map((session) => session.sessionId) ?? []);
   }, [workspaceState?.activeGroupId, workspaceState?.workspaceSnapshot.groups]);
   const visiblePanes = useMemo(() => {
-    return orderedPanes.filter((pane) => pane.isVisible);
-  }, [orderedPanes]);
+    const nextVisiblePanes = orderedPanes.filter((pane) => pane.isVisible);
+    return localPaneOrder
+      ? sortPanesBySessionIds(nextVisiblePanes, localPaneOrder)
+      : sortVisiblePanesBySlotIndex(nextVisiblePanes);
+  }, [localPaneOrder, orderedPanes]);
   const visiblePaneLayoutBySessionId = useMemo(() => {
     const resolvedViewMode = workspaceState?.viewMode ?? "grid";
     const rowLengths = createEditorLayoutPlan(

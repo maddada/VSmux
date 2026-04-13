@@ -4212,6 +4212,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       ),
     );
     const visibleSessionIdSet = new Set(activeSnapshot.visibleSessionIds);
+    const visibleSlotIndexBySessionId = new Map(
+      activeSnapshot.visibleSessionIds.map((sessionId, visibleSlotIndex) => [
+        sessionId,
+        visibleSlotIndex,
+      ]),
+    );
     const connection = {
       ...(await this.backend.getConnection()),
       workspaceId: this.workspaceId,
@@ -4231,6 +4237,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
                 : "idle",
               kind: "terminal" as const,
               isVisible: visibleSessionIdSet.has(sessionRecord.sessionId),
+              visibleSlotIndex: visibleSlotIndexBySessionId.get(sessionRecord.sessionId),
               renderNonce: this.getTerminalPaneRenderNonce(sessionRecord.sessionId),
               sessionId: sessionRecord.sessionId,
               sessionRecord,
@@ -4247,6 +4254,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
             activity: this.getT3ActivityState(sessionRecord).activity,
             kind: "t3" as const,
             isVisible: visibleSessionIdSet.has(sessionRecord.sessionId),
+            visibleSlotIndex: visibleSlotIndexBySessionId.get(sessionRecord.sessionId),
             renderNonce: this.getT3PaneRenderNonce(sessionRecord.sessionId),
             sessionId: sessionRecord.sessionId,
             sessionRecord,

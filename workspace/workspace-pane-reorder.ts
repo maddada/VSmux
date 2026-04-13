@@ -67,6 +67,18 @@ export function sortPanesBySessionIds(
   });
 }
 
+export function sortVisiblePanesBySlotIndex(
+  panes: readonly WorkspacePanelPane[],
+): WorkspacePanelPane[] {
+  return [...panes].sort((left, right) => {
+    const leftSlotIndex =
+      typeof left.visibleSlotIndex === "number" ? left.visibleSlotIndex : Number.MAX_SAFE_INTEGER;
+    const rightSlotIndex =
+      typeof right.visibleSlotIndex === "number" ? right.visibleSlotIndex : Number.MAX_SAFE_INTEGER;
+    return leftSlotIndex - rightSlotIndex;
+  });
+}
+
 function swapPaneIds(
   paneIds: readonly string[],
   sourcePaneId: string,

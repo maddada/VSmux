@@ -1,4 +1,6 @@
 import {
+  IconChevronDown,
+  IconChevronRight,
   IconMoon,
   IconPencil,
   IconPlayerPlay,
@@ -27,6 +29,7 @@ import {
   createSessionDropTargetData,
   createSessionDropTargetId,
 } from "./sidebar-dnd";
+import { getGroupSessionSummary } from "./group-session-summary";
 import { useSidebarStore } from "./sidebar-store";
 import { SortableSessionCard } from "./sortable-session-card";
 import type { WebviewApi } from "./webview-api";
@@ -51,7 +54,9 @@ export type SessionGroupSectionProps = {
   draggingDisabled?: boolean;
   groupId: string;
   index: number;
+  isCollapsed: boolean;
   onAutoEditHandled: () => void;
+  onCollapsedChange: (groupId: string, collapsed: boolean) => void;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   orderedSessionIds?: readonly string[];
   sessionDropIndicatorGroupId?: string;
@@ -105,7 +110,9 @@ export function SessionGroupSection({
   draggingDisabled = false,
   groupId,
   index,
+  isCollapsed,
   onAutoEditHandled,
+  onCollapsedChange,
   onFocusRequested,
   orderedSessionIds: orderedSessionIdsProp,
   sessionDropIndicatorGroupId,
@@ -174,15 +181,23 @@ export function SessionGroupSection({
   const groupSessions = orderedSessionIds
     .map((sessionId) => sessionsById[sessionId])
     .filter((session): session is NonNullable<typeof session> => session !== undefined);
+  const sessionSummary = getGroupSessionSummary(groupSessions);
   const allSessionsSleeping =
     groupSessions.length > 0 && groupSessions.every((session) => session.isSleeping);
   const canFullReloadGroup = groupSessions.length > 0;
+  const hasCollapsedSummary = sessionSummary.activeCount > 0 || sessionSummary.doneCount > 0;
+  const collapsedSummaryLabel = getCollapsedSummaryLabel(
+    sessionSummary.activeCount,
+    sessionSummary.doneCount,
+  );
+  const sessionsRegionId = `${group.groupId}-sessions`;
 
   const isGroupDropTarget =
     sortable.isDropTarget ||
     emptyGroupDropTarget.isDropTarget ||
     sessionDropIndicatorGroupId === groupId;
-  const shouldRenderGroupSessions = !isBrowserGroup || orderedSessionIds.length > 0;
+  const shouldRenderGroupSessions =
+    !isCollapsed && (!isBrowserGroup || orderedSessionIds.length > 0);
 
   useEffect(() => {
     postGroupDebugLog("group.sectionMounted", {
@@ -455,11 +470,16 @@ export function SessionGroupSection({
     setIsEditing(false);
   };
 
+  const toggleCollapsed = () => {
+    onCollapsedChange(group.groupId, !isCollapsed);
+  };
+
   return (
     <>
       <section
         className="group"
         data-active={String(group.isActive)}
+        data-collapsed={String(isCollapsed)}
         data-dragging={String(Boolean(sortable.isDragging))}
         data-drop-target={String(isGroupDropTarget)}
         data-sidebar-group-id={group.groupId}
@@ -495,6 +515,35 @@ export function SessionGroupSection({
               />
             ) : (
               <div className="group-title-row">
+                <button
+                  aria-controls={isCollapsed ? undefined : sessionsRegionId}
+                  aria-expanded={!isCollapsed}
+                  aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
+                  className="group-collapse-button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleCollapsed();
+                  }}
+                  title={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
+                  type="button"
+                >
+                  {isCollapsed ? (
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className="group-collapse-icon"
+                      size={14}
+                      stroke={2}
+                    />
+                  ) : (
+                    <IconChevronDown
+                      aria-hidden="true"
+                      className="group-collapse-icon"
+                      size={14}
+                      stroke={2}
+                    />
+                  )}
+                </button>
                 <div
                   className="group-title-handle"
                   data-draggable={String(!isBrowserGroup)}
@@ -502,6 +551,20 @@ export function SessionGroupSection({
                 >
                   <div className="group-title">{group.title}</div>
                 </div>
+                {isCollapsed && hasCollapsedSummary ? (
+                  <div aria-label={collapsedSummaryLabel} className="group-collapsed-summary">
+                    {sessionSummary.activeCount > 0 ? (
+                      <span className="group-summary-pill" data-state="active">
+                        {formatCollapsedSummaryCount(sessionSummary.activeCount, "active")}
+                      </span>
+                    ) : null}
+                    {sessionSummary.doneCount > 0 ? (
+                      <span className="group-summary-pill" data-state="done">
+                        {formatCollapsedSummaryCount(sessionSummary.doneCount, "done")}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {group.isActive && !isBrowserGroup ? (
                   <div
                     className="group-layout-controls"
@@ -570,7 +633,11 @@ export function SessionGroupSection({
           </div>
         </div>
         {shouldRenderGroupSessions ? (
-          <div className="group-sessions" data-drop-target={String(isGroupDropTarget)}>
+          <div
+            className="group-sessions"
+            data-drop-target={String(isGroupDropTarget)}
+            id={sessionsRegionId}
+          >
             {orderedSessionIds.length > 0 ? (
               orderedSessionIds.map((sessionId, sessionIndex) => (
                 <SortableSessionCard
@@ -738,4 +805,21 @@ let sessionGroupDebugInstanceCounter = 0;
 function createSessionGroupDebugInstanceId(): number {
   sessionGroupDebugInstanceCounter += 1;
   return sessionGroupDebugInstanceCounter;
+}
+
+function formatCollapsedSummaryCount(count: number, label: "active" | "done"): string {
+  return `${String(count)} ${label}`;
+}
+
+function getCollapsedSummaryLabel(activeCount: number, doneCount: number): string {
+  const segments: string[] = [];
+
+  if (activeCount > 0) {
+    segments.push(formatCollapsedSummaryCount(activeCount, "active"));
+  }
+  if (doneCount > 0) {
+    segments.push(formatCollapsedSummaryCount(doneCount, "done"));
+  }
+
+  return segments.join(", ");
 }

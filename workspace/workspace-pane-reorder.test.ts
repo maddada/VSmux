@@ -4,6 +4,7 @@ import {
   buildFullSessionOrderFromVisiblePaneOrder,
   buildVisiblePaneOrderForDrop,
   sortPanesBySessionIds,
+  sortVisiblePanesBySlotIndex,
 } from "./workspace-pane-reorder";
 
 describe("buildVisiblePaneOrderForDrop", () => {
@@ -79,11 +80,33 @@ describe("sortPanesBySessionIds", () => {
   });
 });
 
-function createTerminalPane(sessionId: string): WorkspacePanelPane {
+describe("sortVisiblePanesBySlotIndex", () => {
+  test("should sort visible panes by their explicit visible slot index", () => {
+    const panes: WorkspacePanelPane[] = [
+      createTerminalPane("terminal-2", { visibleSlotIndex: 1 }),
+      createTerminalPane("terminal-3", { visibleSlotIndex: 2 }),
+      createTerminalPane("terminal-1", { visibleSlotIndex: 0 }),
+    ];
+
+    expect(sortVisiblePanesBySlotIndex(panes)).toEqual([
+      createTerminalPane("terminal-1", { visibleSlotIndex: 0 }),
+      createTerminalPane("terminal-2", { visibleSlotIndex: 1 }),
+      createTerminalPane("terminal-3", { visibleSlotIndex: 2 }),
+    ]);
+  });
+});
+
+function createTerminalPane(
+  sessionId: string,
+  options?: {
+    visibleSlotIndex?: number;
+  },
+): WorkspacePanelPane {
   return {
     isVisible: true,
     kind: "terminal",
     sessionId,
+    visibleSlotIndex: options?.visibleSlotIndex,
     sessionRecord: {
       alias: sessionId,
       column: 0,

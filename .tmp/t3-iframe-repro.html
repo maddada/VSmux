@@ -1,11 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>T3 Iframe Repro</title>
     <style>
-      html, body {
+      html,
+      body {
         background: #0f1722;
         color: #d9e2ec;
         font-family: system-ui, sans-serif;
@@ -41,15 +42,18 @@
   </head>
   <body>
     <pre id="status">booting…</pre>
-    <iframe id="frame" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"></iframe>
+    <iframe
+      id="frame"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
+    ></iframe>
     <script>
       const bootstrap = {
         bootstrapScriptSrc: "http://127.0.0.1:8037/out/workspace/t3-frame-host.js",
-        scriptSrc: "http://127.0.0.1:8037/forks/t3code-embed/dist/assets/index-Dfn7Pjai.js",
+        scriptSrc: "http://127.0.0.1:8037/t3code-embed/dist/assets/index-Dfn7Pjai.js",
         serverOrigin: "http://127.0.0.1:3773",
         sessionId: "repro-session",
         sessionRecordTitle: "T3 Repro",
-        styleHref: "http://127.0.0.1:8037/forks/t3code-embed/dist/assets/index-BxIGfSJM.css",
+        styleHref: "http://127.0.0.1:8037/t3code-embed/dist/assets/index-BxIGfSJM.css",
         threadId: "ad3a7988-7724-47e4-b7e1-9c0718352b7a",
         workspaceRoot: "/Users/madda/dev/_active/agent-tiler",
         wsUrl: "ws://127.0.0.1:3773",
@@ -67,11 +71,11 @@
 
       const paneHtml = [
         "<!DOCTYPE html>",
-        "<html lang=\"en\">",
+        '<html lang="en">',
         "  <head>",
-        "    <meta charset=\"UTF-8\" />",
+        '    <meta charset="UTF-8" />',
         `    <meta http-equiv="Content-Security-Policy" content="${csp.replaceAll('"', "&quot;")}" />`,
-        "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
+        '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
         `    <title>${bootstrap.sessionRecordTitle}</title>`,
         "    <style>",
         "      html, body, #root {",
@@ -83,7 +87,7 @@
         "    </style>",
         "  </head>",
         "  <body>",
-        "    <div id=\"root\"></div>",
+        '    <div id="root"></div>',
         "    <script>",
         "      const report = (payload) => {",
         "        try { window.parent?.postMessage({ type: 't3-debug', payload }, '*'); } catch {}",

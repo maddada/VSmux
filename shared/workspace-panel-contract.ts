@@ -44,6 +44,7 @@ export type WorkspacePanelTerminalPane = {
   activity?: SidebarSessionActivityState;
   kind: "terminal";
   isVisible: boolean;
+  visibleSlotIndex?: number;
   renderNonce: number;
   sessionId: string;
   sessionRecord: TerminalSessionRecord;
@@ -55,6 +56,7 @@ export type WorkspacePanelT3Pane = {
   activity?: SidebarSessionActivityState;
   kind: "t3";
   isVisible: boolean;
+  visibleSlotIndex?: number;
   renderNonce: number;
   sessionId: string;
   sessionRecord: T3SessionRecord;

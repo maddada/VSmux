@@ -1,7 +1,7 @@
 {
   "name": "VSmux",
   "displayName": "VSmux - T3code & Agent CLIs Manager",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "private": true,
   "description": "VSmux - T3code & Agent CLIs Manager",
   "categories": [
@@ -386,8 +386,50 @@
         "VSmux.terminalFontFamily": {
           "title": "Terminal Font Family",
           "type": "string",
-          "default": "monospace",
-          "description": "Font family used by VSmux workspace terminals."
+          "default": "Monospace",
+          "enum": [
+            "Monospace",
+            "UI Monospace",
+            "Meslo",
+            "Cross Platform Mono",
+            "Consolas",
+            "Menlo",
+            "Monaco",
+            "Liberation Mono",
+            "DejaVu Sans Mono",
+            "Courier New",
+            "Cascadia Mono",
+            "Cascadia Code",
+            "JetBrains Mono",
+            "Fira Code",
+            "Source Code Pro",
+            "IBM Plex Mono",
+            "Roboto Mono",
+            "Noto Sans Mono",
+            "Ubuntu Mono"
+          ],
+          "enumDescriptions": [
+            "Use the exact literal `monospace` terminal font behavior VSmux had before.",
+            "Use the platform UI monospace font with a monospace fallback.",
+            "Use the bundled Meslo Nerd Font stack from the repo.",
+            "Use the shared installed-font fallback stack: Consolas, Menlo, Monaco, Liberation Mono, DejaVu Sans Mono, Courier New, monospace.",
+            "Prefer Consolas when installed, then fall back to monospace.",
+            "Prefer Menlo when installed, then fall back to monospace.",
+            "Prefer Monaco when installed, then fall back to monospace.",
+            "Prefer Liberation Mono when installed, then fall back to monospace.",
+            "Prefer DejaVu Sans Mono when installed, then fall back to monospace.",
+            "Prefer Courier New when installed, then fall back to monospace.",
+            "Prefer Cascadia Mono when installed, then fall back to monospace.",
+            "Prefer Cascadia Code when installed, then fall back to monospace.",
+            "Prefer JetBrains Mono when installed, then fall back to monospace.",
+            "Prefer Fira Code when installed, then fall back to monospace.",
+            "Prefer Source Code Pro when installed, then fall back to monospace.",
+            "Prefer IBM Plex Mono when installed, then fall back to monospace.",
+            "Prefer Roboto Mono when installed, then fall back to monospace.",
+            "Prefer Noto Sans Mono when installed, then fall back to monospace.",
+            "Prefer Ubuntu Mono when installed, then fall back to monospace."
+          ],
+          "description": "Choose the font preset used by VSmux workspace terminals."
         },
         "VSmux.terminalFontSize": {
           "title": "Terminal Font Size",

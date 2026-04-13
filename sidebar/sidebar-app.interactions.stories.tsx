@@ -129,6 +129,57 @@ export const ToolbarActions: Story = {
   },
 };
 
+export const GroupCollapse: Story = {
+  args: {
+    fixture: "overflow-stress",
+    highlightedVisibleCount: 2,
+    visibleCount: 2,
+  },
+  play: async ({ canvasElement, step, userEvent }) => {
+    const storyRoot = canvasElement.ownerDocument.body;
+
+    await waitForReadyMessage();
+
+    const group = await findRequiredElement(
+      storyRoot,
+      '[data-sidebar-group-id="group-1"]',
+      "group-1 section",
+    );
+
+    await step("collapse a group and keep its active and done summary visible", async () => {
+      resetSidebarStoryMessages();
+      await userEvent.click(
+        within(group).getByRole("button", {
+          name: "Collapse Main workspace with a deliberately long group title",
+        }),
+      );
+
+      await expectNoMessage({ type: "focusGroup" });
+      await expect(within(group).getByText("2 active")).toBeVisible();
+      await expect(within(group).getByText("1 done")).toBeVisible();
+      await waitFor(() => {
+        expect(group.querySelector('[data-sidebar-session-id="session-1"]')).toBeNull();
+      });
+    });
+
+    await step("expand the group and restore its session cards", async () => {
+      resetSidebarStoryMessages();
+      await userEvent.click(
+        within(group).getByRole("button", {
+          name: "Expand Main workspace with a deliberately long group title",
+        }),
+      );
+
+      await expectNoMessage({ type: "focusGroup" });
+      await waitFor(() => {
+        expect(group.querySelector('[data-sidebar-session-id="session-1"]')).not.toBeNull();
+      });
+      await expect(within(group).queryByText("2 active")).toBeNull();
+      await expect(within(group).queryByText("1 done")).toBeNull();
+    });
+  },
+};
+
 export const ActiveSortToggle: Story = {
   args: {
     fixture: "sort-toggle-demo",

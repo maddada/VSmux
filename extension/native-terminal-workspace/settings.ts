@@ -15,6 +15,11 @@ import {
   type SidebarThemeVariant,
 } from "../../shared/session-grid-contract";
 import { DEFAULT_BROWSER_LAUNCH_URL } from "../../shared/sidebar-commands";
+import {
+  DEFAULT_TERMINAL_FONT_PRESET,
+  getTerminalFontFamilyForPreset,
+  normalizeTerminalFontPreset,
+} from "../../shared/terminal-font-preset";
 
 export const SETTINGS_SECTION = "VSmux";
 export const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTimeoutMinutes";
@@ -347,13 +352,13 @@ export function getGitSkipSuggestedCommitConfirmation(): boolean {
 }
 
 export function getTerminalFontFamily(): string {
-  const defaultFontFamily = '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace';
   const value =
     vscode.workspace
       .getConfiguration(SETTINGS_SECTION)
-      .get<string>(TERMINAL_FONT_FAMILY_SETTING, defaultFontFamily) ?? defaultFontFamily;
+      .get<string>(TERMINAL_FONT_FAMILY_SETTING, DEFAULT_TERMINAL_FONT_PRESET) ??
+    DEFAULT_TERMINAL_FONT_PRESET;
 
-  return value.trim() || defaultFontFamily;
+  return getTerminalFontFamilyForPreset(normalizeTerminalFontPreset(value));
 }
 
 export function getTerminalFontSize(): number {

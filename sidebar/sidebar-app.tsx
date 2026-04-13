@@ -126,6 +126,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const [isSessionSearchOpen, setIsSessionSearchOpen] = useState(false);
+  const [collapsedGroupsById, setCollapsedGroupsById] = useState<Record<string, true>>({});
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [isSessionsCollapsed, setIsSessionsCollapsed] = useState(false);
   const [sessionDropIndicatorGroupId, setSessionDropIndicatorGroupId] = useState<string>();
@@ -191,7 +192,49 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const gitCommitDraft = useSidebarStore((state) => state.gitCommitDraft);
   const authoritativeSessionIdsByGroup = useSidebarStore((state) => state.sessionIdsByGroup);
 
+  useEffect(() => {
+    setCollapsedGroupsById((previous) => {
+      const validGroupIds = new Set(groupOrder);
+      let changed = false;
+      const next: Record<string, true> = {};
+
+      for (const [groupId, collapsed] of Object.entries(previous)) {
+        if (!validGroupIds.has(groupId)) {
+          changed = true;
+          continue;
+        }
+
+        next[groupId] = collapsed;
+      }
+
+      return changed ? next : previous;
+    });
+  }, [groupOrder]);
+
   const isSidebarInteractionBlocked = isStartupInteractionBlocked;
+
+  const setGroupCollapsed = (groupId: string, collapsed: boolean) => {
+    setCollapsedGroupsById((previous) => {
+      if (collapsed) {
+        if (previous[groupId]) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          [groupId]: true,
+        };
+      }
+
+      if (!previous[groupId]) {
+        return previous;
+      }
+
+      const next = { ...previous };
+      delete next[groupId];
+      return next;
+    });
+  };
 
   const requestNewSession = () => {
     if (isSidebarInteractionBlocked) {
@@ -1100,8 +1143,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                       draggingDisabled={isSessionSearchOpen}
                       groupId={groupId}
                       index={-1}
+                      isCollapsed={collapsedGroupsById[groupId] === true}
                       key={groupId}
                       onAutoEditHandled={() => undefined}
+                      onCollapsedChange={setGroupCollapsed}
                       orderedSessionIds={displayedBrowserSessionIdsByGroup[groupId] ?? []}
                       vscode={vscode}
                     />
@@ -1124,8 +1169,10 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                       draggingDisabled={isSessionSearchOpen}
                       groupId={groupId}
                       index={groupIndex}
+                      isCollapsed={collapsedGroupsById[groupId] === true}
                       key={groupId}
                       onAutoEditHandled={() => setAutoEditingGroupId(undefined)}
+                      onCollapsedChange={setGroupCollapsed}
                       onFocusRequested={applyLocalFocus}
                       orderedSessionIds={displayedWorkspaceSessionIdsByGroup[groupId] ?? []}
                       sessionDropIndicatorGroupId={sessionDropIndicatorGroupId}

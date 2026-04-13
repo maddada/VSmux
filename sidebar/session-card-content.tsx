@@ -145,6 +145,7 @@ export function getSessionCardTitleTooltip({
   tooltipWhen: "always" | "overflow";
 } {
   const headingText = formatSessionHeadingText({
+    agentIcon: session.agentIcon,
     includeUnsyncedTitleLabel: false,
     isPrimaryTitleTerminalTitle: session.isPrimaryTitleTerminalTitle,
     primaryTitle: session.primaryTitle,
@@ -152,6 +153,7 @@ export function getSessionCardTitleTooltip({
     alias: session.alias,
   });
   const tooltipHeadingText = formatSessionHeadingText({
+    agentIcon: session.agentIcon,
     includeUnsyncedTitleLabel: true,
     isPrimaryTitleTerminalTitle: session.isPrimaryTitleTerminalTitle,
     primaryTitle: session.primaryTitle,
@@ -181,6 +183,7 @@ export function getSessionCardTitleTooltip({
 }
 
 export function formatSessionHeadingText({
+  agentIcon,
   alias,
   includeUnsyncedTitleLabel = false,
   isPrimaryTitleTerminalTitle,
@@ -188,7 +191,7 @@ export function formatSessionHeadingText({
   terminalTitle,
 }: Pick<
   SidebarSessionItem,
-  "alias" | "isPrimaryTitleTerminalTitle" | "primaryTitle" | "terminalTitle"
+  "agentIcon" | "alias" | "isPrimaryTitleTerminalTitle" | "primaryTitle" | "terminalTitle"
 > & {
   includeUnsyncedTitleLabel?: boolean;
 }): string {
@@ -196,6 +199,7 @@ export function formatSessionHeadingText({
   const normalizedTerminalTitle = terminalTitle?.trim();
   const baseHeadingText = normalizedPrimaryTitle || alias;
   if (
+    agentIcon === "t3" ||
     isPrimaryTitleTerminalTitle ||
     !normalizedPrimaryTitle ||
     normalizedPrimaryTitle === normalizedTerminalTitle
@@ -204,8 +208,8 @@ export function formatSessionHeadingText({
   }
 
   return includeUnsyncedTitleLabel
-    ? `${baseHeadingText} ${TERMINAL_TITLE_MARKER} ${UNSYNCED_TITLE_LABEL}`
-    : `${baseHeadingText} ${TERMINAL_TITLE_MARKER}`;
+    ? `${TERMINAL_TITLE_MARKER} ${baseHeadingText} ${UNSYNCED_TITLE_LABEL}`
+    : `${TERMINAL_TITLE_MARKER} ${baseHeadingText}`;
 }
 
 export function buildSessionTitleTooltip({
