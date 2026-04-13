@@ -44,8 +44,7 @@ export function useDirectoryHandle(): UseDirectoryHandleReturn {
       if (save) {
         await saveDirectoryHandle(dirHandle);
       }
-    } catch (err) {
-      console.error("Error scanning folder:", err);
+    } catch {
     } finally {
       setIsScanning(false);
     }
@@ -60,15 +59,13 @@ export function useDirectoryHandle(): UseDirectoryHandleReturn {
 
   const handleDeleteFile = useCallback(async (file: JsonlFile) => {
     if (!file.name.endsWith(".jsonl")) {
-      console.error("Safety check failed: Not a .jsonl file");
       return;
     }
 
     try {
       await file.parentDirHandle.removeEntry(file.name);
       setFiles((prev) => prev.filter((f) => f.path !== file.path));
-    } catch (err) {
-      console.error("Failed to delete file:", err);
+    } catch {
       alert("Failed to delete the file. You may need read-write permission.");
     }
   }, []);
@@ -86,9 +83,7 @@ export function useDirectoryHandle(): UseDirectoryHandleReturn {
         mode: "readwrite",
       });
       await loadDirectory(dirHandle);
-    } catch (err) {
-      console.error("Error selecting folder:", err);
-    }
+    } catch {}
   }, [loadDirectory]);
 
   useEffect(() => {

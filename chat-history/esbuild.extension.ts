@@ -18,14 +18,11 @@ async function build() {
   if (isWatch) {
     const ctx = await esbuild.context(buildOptions);
     await ctx.watch();
-    console.log("Watching extension for changes...");
   } else {
     await esbuild.build(buildOptions);
-    console.log("Extension build complete");
   }
 }
 
-build().catch((err) => {
-  console.error(err);
+build().catch(() => {
   process.exit(1);
 });

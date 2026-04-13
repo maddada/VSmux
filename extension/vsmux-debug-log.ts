@@ -1,6 +1,6 @@
-import * as vscode from "vscode";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
+import * as vscode from "vscode";
 import {
   formatVscodeWorkspaceLogPrefix,
   getVscodeWorkspaceLogLabel,
@@ -10,6 +10,7 @@ const SETTINGS_SECTION = "VSmux";
 const DEBUGGING_MODE_SETTING = "debuggingMode";
 const DEBUG_LOG_FILE_NAME = "vsmux-debug.log";
 const DEBUG_EVENT_PREFIX_ALLOWLIST = [
+  "workspace.webview.focus.",
   "workspace.webview.terminal.",
   "workspace.webview.workspace.sessionStatePaneSummary",
   "workspace.webview.workspace.terminalPresentationChanged",
@@ -46,6 +47,18 @@ export function initializeVSmuxDebugLog(context: vscode.ExtensionContext): void 
 
 export function resetVSmuxDebugLog(): void {
   outputChannel?.clear();
+  if (!debugLogFilePath) {
+    return;
+  }
+
+  const logFilePath = debugLogFilePath;
+  fileWriteQueue = fileWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(path.dirname(logFilePath), { recursive: true });
+      await writeFile(logFilePath, "", "utf8");
+    })
+    .catch(() => undefined);
 }
 
 export function logVSmuxDebug(event: string, details?: unknown): void {

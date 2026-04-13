@@ -116,18 +116,12 @@
   if (isLikelyWorkbench && !isLikelyVSmux) {
     const message =
       "This script is still pointing at the main VS Code workbench, not the VSmux terminal document.";
-    console.error(message, { selectedFrame: selected.path, href: targetLocation });
     throw new Error(message);
   }
 
   if (selected.summary.resttyCount <= 0 || selected.summary.canvasCount <= 0) {
     const message =
       "The script did not find the inner VSmux terminal frame. Open DevTools on the VSmux workarea itself and rerun.";
-    console.error(message, {
-      selectedFrame: selected.path,
-      href: targetLocation,
-      summary: selected.summary,
-    });
     throw new Error(message);
   }
 
@@ -319,21 +313,14 @@
 
   targetWindow.__VSMUX_LIVE_DUMP__ = result;
   targetWindow.__VSMUX_LIVE_DUMP_FILE__ = filename;
-  console.log("VSMUX_LIVE_DUMP", result);
 
   try {
     downloadText(filename, json);
-    console.log(`Downloaded ${filename}`);
-  } catch (error) {
-    console.log("Automatic download failed", error);
-  }
+  } catch {}
 
   try {
     copy(json);
-    console.log("Copied JSON to clipboard");
-  } catch {
-    console.log("copy() was unavailable; use __VSMUX_LIVE_DUMP__");
-  }
+  } catch {}
 
   return result;
 })();

@@ -79,14 +79,11 @@ async function build() {
   if (isWatch) {
     const ctx = await esbuild.context(buildOptions);
     await ctx.watch();
-    console.log("Watching webview JS for changes...");
   } else {
     await esbuild.build(buildOptions);
-    console.log("Webview JS build complete");
   }
 }
 
-build().catch((err) => {
-  console.error(err);
+build().catch(() => {
   process.exit(1);
 });

@@ -70,7 +70,6 @@ async function resolvePackageDir(packageName) {
   throw new Error(`Unable to resolve package root for ${packageName}.`);
 }
 
-main().catch((error) => {
-  console.error(error);
+main().catch(() => {
   process.exitCode = 1;
 });

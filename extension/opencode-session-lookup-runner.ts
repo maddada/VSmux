@@ -7,7 +7,7 @@ type OpenCodeSession = {
 };
 
 function fail(message: string): never {
-  console.error(message);
+  void message;
   process.exit(1);
 }
 
