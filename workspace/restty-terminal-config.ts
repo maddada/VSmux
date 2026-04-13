@@ -1,6 +1,4 @@
 import { parseGhosttyTheme, type GhosttyTheme, type ResttyFontSource } from "restty";
-import mesloBoldUrl from "./fonts/MesloLGLNerdFontMono-Bold.ttf";
-import mesloRegularUrl from "./fonts/MesloLGLNerdFontMono-Regular.ttf";
 
 const GENERIC_FONT_FAMILIES = new Set([
   "cursive",
@@ -51,9 +49,7 @@ const fallbackTheme = {
 
 export function getResttyFontSources(fontFamily: string | undefined): ResttyFontSource[] {
   const configuredFamilies = getConfiguredFontFamilies(fontFamily);
-  const configuredSources = configuredFamilies.flatMap(createLocalFontSourcesForFamily);
-
-  return [...configuredSources, ...getBundledMesloFallbackSources()];
+  return configuredFamilies.flatMap(createLocalFontSourcesForFamily);
 }
 
 export function getResttyTheme(): GhosttyTheme | undefined {
@@ -134,21 +130,6 @@ function getConfiguredFontFamilies(fontFamily: string | undefined): string[] {
         return true;
       }) ?? []
   );
-}
-
-function getBundledMesloFallbackSources(): ResttyFontSource[] {
-  return [
-    {
-      label: "Meslo fallback regular",
-      type: "url",
-      url: mesloRegularUrl,
-    },
-    {
-      label: "Meslo fallback bold",
-      type: "url",
-      url: mesloBoldUrl,
-    },
-  ];
 }
 
 function dedupeMatchers(matchers: readonly string[]): string[] {

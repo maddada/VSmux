@@ -29,6 +29,15 @@
   width: 100%;
 }
 
+.terminal-pane-root-windows .xterm .xterm-helper-textarea {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  caret-color: transparent;
+  color: transparent;
+  outline: none;
+}
+
 .terminal-pane-canvas .pane-canvas {
   background: #000;
   display: block;

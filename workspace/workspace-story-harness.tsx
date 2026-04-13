@@ -179,9 +179,9 @@ function createWorkspaceStoryMessage(
     },
     panes,
     terminalAppearance: {
-      cursorBlink: true,
+      cursorBlink: false,
       cursorStyle: "bar",
-      fontFamily: '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace',
+      fontFamily: "monospace",
       fontSize: 12,
       letterSpacing: 0,
       lineHeight: 1,

@@ -11,6 +11,10 @@ import { logWorkspaceDebug } from "./workspace-debug";
 import { getResttyFontSources, getResttyTheme } from "./restty-terminal-config";
 import type { WorkspaceResttyTransportController } from "./restty-session-transport";
 import {
+  getShiftEnterInputSequence,
+  getWindowsCtrlWordDeleteInputSequence,
+} from "./terminal-input-shortcuts";
+import {
   acquireCachedTerminalRuntime,
   getTerminalRuntimeCacheKey,
   releaseCachedTerminalRuntime,
@@ -34,6 +38,19 @@ const SCHEDULER_OVERSHOOT_WARN_MS = 250;
 const SEARCH_RESULTS_EMPTY = {
   resultCount: 0,
   resultIndex: -1,
+};
+
+const describeDebugElement = (element: Element | null | undefined) => {
+  if (!element) {
+    return null;
+  }
+
+  return {
+    className: element instanceof HTMLElement ? element.className || undefined : undefined,
+    id: element instanceof HTMLElement ? element.id || undefined : undefined,
+    role: element.getAttribute("role") || undefined,
+    tagName: element.tagName,
+  };
 };
 
 export type TerminalPaneProps = {
@@ -235,7 +252,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     return !!root && !!activeElement && root.contains(activeElement);
   };
 
-  const focusTerminal = () => {
+  const focusTerminal = (reason: string) => {
+    reportDebug("terminal.focusCall", {
+      activeElement: describeDebugElement(document.activeElement),
+      reason,
+      rootHasFocusWithin: rootRef.current?.matches(":focus-within") ?? false,
+      sessionId: pane.sessionId,
+    });
     activePaneRef.current?.focus();
   };
 
@@ -249,7 +272,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       }
 
       attempts += 1;
-      focusTerminal();
+      focusTerminal(`retry:${reason}:attempt-${String(attempts)}`);
 
       requestAnimationFrame(() => {
         if (isTerminalFocusWithin()) {
@@ -287,7 +310,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     activePaneRef.current?.clearSearch();
     setSearchResults(SEARCH_RESULTS_EMPTY);
     requestAnimationFrame(() => {
-      focusTerminal();
+      focusTerminal("close-search");
     });
   };
 
@@ -1560,7 +1583,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       const didScroll = scrollTerminalToBottom();
       if (didScroll) {
         handledScrollToBottomRequestIdRef.current = scrollToBottomRequestId;
-        focusTerminal();
+        focusTerminal("scroll-to-bottom");
         reportDebug("terminal.scrollToBottomRequestApplied", {
           attempts,
           requestId: scrollToBottomRequestId,
@@ -1612,10 +1635,18 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
-    const handleFocusIn = () => {
+    const handleFocusIn = (event: FocusEvent) => {
       if (!isVisibleRef.current) {
         return;
       }
+
+      reportDebug("terminal.focusInObserved", {
+        activeElement: describeDebugElement(document.activeElement),
+        relatedTarget: describeDebugElement(event.relatedTarget as Element | null | undefined),
+        rootHasFocusWithin: root.matches(":focus-within"),
+        sessionId: pane.sessionId,
+        target: describeDebugElement(event.target as Element | null | undefined),
+      });
 
       requestAnimationFrame(() => {
         if (!isVisibleRef.current) {
@@ -1627,6 +1658,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         }
 
         reportDebug("terminal.focusActivate", {
+          activeElement: describeDebugElement(document.activeElement),
+          rootHasFocusWithin: root.matches(":focus-within"),
           sessionId: pane.sessionId,
         });
         onActivate("focusin");
@@ -1653,7 +1686,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         }
 
         reportDebug("terminal.pointerActivate", {
+          activeElement: describeDebugElement(document.activeElement),
           pointerType: event.pointerType,
+          rootHasFocusWithin: rootRef.current?.matches(":focus-within") ?? false,
           sessionId: pane.sessionId,
         });
         onActivate("pointer");
@@ -1682,8 +1717,23 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
           event.stopPropagation();
-          sendRawTerminalInput("\x1b[13;2u");
+          sendRawTerminalInput(
+            getShiftEnterInputSequence({
+              isMac: IS_MAC,
+              shellPath: pane.snapshot?.shell,
+            }),
+          );
           return;
+        }
+
+        if (!IS_MAC && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          const sequence = getWindowsCtrlWordDeleteInputSequence(event.key);
+          if (sequence) {
+            event.preventDefault();
+            event.stopPropagation();
+            sendRawTerminalInput(sequence);
+            return;
+          }
         }
 
         if (IS_MAC && event.metaKey && !event.altKey && event.key === "ArrowLeft") {

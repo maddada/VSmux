@@ -1,6 +1,6 @@
 import type { TerminalEngine } from "./session-grid-contract";
 
-export const TERMINAL_HOST_PROTOCOL_VERSION = 24;
+export const TERMINAL_HOST_PROTOCOL_VERSION = 25;
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error" | "disconnected";
 
@@ -48,6 +48,7 @@ export type TerminalHostCreateOrAttachRequest = {
   shellIntegrationBinDir?: string;
   shellIntegrationZdotDir?: string;
   shell: string;
+  shellArgs?: string[];
   terminalEngine: TerminalEngine;
   xtermHeadlessScrollback: number;
 };

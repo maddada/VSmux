@@ -17,10 +17,12 @@ type MockTerminal = {
   creationOptions: {
     name?: string;
   };
-  exitStatus: {
-    code: number | undefined;
-    reason: number;
-  } | undefined;
+  exitStatus:
+    | {
+        code: number | undefined;
+        reason: number;
+      }
+    | undefined;
   name: string;
 };
 
@@ -32,13 +34,15 @@ type MockWindow = {
   };
 };
 
-const mockWindow: MockWindow = {
-  activeTerminal: undefined,
-  tabGroups: {
-    activeTabGroup: undefined,
-    all: [],
-  },
-};
+const { mockWindow } = vi.hoisted(() => ({
+  mockWindow: {
+    activeTerminal: undefined,
+    tabGroups: {
+      activeTabGroup: undefined,
+      all: [],
+    },
+  } as MockWindow,
+}));
 
 vi.mock("vscode", () => ({
   TabInputTerminal: class MockTabInputTerminal {},
@@ -86,7 +90,9 @@ describe("native terminal workbench helpers", () => {
   });
 
   test("should not treat panel terminals as editor-group terminals", () => {
-    getMockWindow().tabGroups.all = [createTerminalGroup(undefined, [{ isActive: true, label: "panel" }])];
+    getMockWindow().tabGroups.all = [
+      createTerminalGroup(undefined, [{ isActive: true, label: "panel" }]),
+    ];
 
     expect(findTerminalGroupIndex("panel")).toBeUndefined();
   });

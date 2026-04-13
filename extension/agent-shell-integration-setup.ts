@@ -6,6 +6,7 @@ import {
   getClaudeHookSettingsContent,
   getClaudeNotifyCommandContent,
   getOpenCodePluginContent,
+  getPowerShellBootstrapContent,
   getZshEnvShimContent,
   getZshPassThroughShimContent,
   getZshRcShimContent,
@@ -16,6 +17,7 @@ export type AgentShellIntegration = {
   claudeSettingsPath: string;
   notifyPath: string;
   opencodeConfigDir: string;
+  powerShellBootstrapPath: string;
   zshDotDir: string;
 };
 
@@ -45,13 +47,15 @@ export async function createAgentShellIntegration(
   const opencodeConfigDir = path.join(hooksDir, "opencode");
   const opencodePluginDir = path.join(opencodeConfigDir, "plugin");
   const opencodePluginPath = path.join(opencodePluginDir, OPENCODE_PLUGIN_FILE_NAME);
-  const opencodePluginLogPath = path.join(opencodeConfigDir, "vsmux-opencode-plugin.log");
+  const powerShellDir = path.join(integrationRoot, "powershell");
+  const powerShellBootstrapPath = path.join(powerShellDir, "vsmux-bootstrap.ps1");
   const zshDotDir = path.join(integrationRoot, "zsh");
 
   await mkdir(binDir, { recursive: true });
   await mkdir(hooksDir, { recursive: true });
   await mkdir(claudeConfigDir, { recursive: true });
   await mkdir(opencodePluginDir, { recursive: true });
+  await mkdir(powerShellDir, { recursive: true });
   await mkdir(zshDotDir, { recursive: true });
 
   await writeFileIfChanged(
@@ -94,9 +98,10 @@ export async function createAgentShellIntegration(
 
   await writeFileIfChanged(
     opencodePluginPath,
-    getOpenCodePluginContent(notifyPath, process.execPath, opencodePluginLogPath),
+    getOpenCodePluginContent(notifyPath, process.execPath),
     0o644,
   );
+  await writeFileIfChanged(powerShellBootstrapPath, getPowerShellBootstrapContent(), 0o644);
   await writeFileIfChanged(path.join(zshDotDir, ".zshenv"), getZshEnvShimContent(), 0o644);
   await writeFileIfChanged(
     path.join(zshDotDir, ".zprofile"),
@@ -120,6 +125,7 @@ export async function createAgentShellIntegration(
     claudeSettingsPath,
     notifyPath,
     opencodeConfigDir,
+    powerShellBootstrapPath,
     zshDotDir,
   };
 }

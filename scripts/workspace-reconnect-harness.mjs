@@ -66,8 +66,7 @@ try {
   await startHarnessServer();
 
   const pageUrl = `http://127.0.0.1:${String(HARNESS_PORT)}/`;
-  console.log(`[workspace-reconnect-harness] url=${pageUrl}`);
-  console.log(`[workspace-reconnect-harness] resume=${resumeCommand}`);
+  void pageUrl;
   await waitForExit();
 } finally {
   await cleanup();
@@ -326,7 +325,7 @@ function createHydrateMessage(sessionSnapshot) {
     terminalAppearance: {
       cursorBlink: false,
       cursorStyle: "bar",
-      fontFamily: '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace',
+      fontFamily: "monospace",
       fontSize: 18,
       letterSpacing: 0,
       lineHeight: 1,
@@ -406,19 +405,10 @@ function getHarnessHtml() {
       const statusElement = document.getElementById("harness-status");
       window.__vsmuxHarness = {
         bootstraps: 0,
-        debugEvents: [],
         lastBootstrapAt: undefined,
       };
       const vscodeApi = {
         postMessage(message) {
-          console.log("[harness.postMessage]", message);
-          if (message && message.type === "workspaceDebugLog") {
-            window.__vsmuxHarness.debugEvents.push({
-              details: message.details,
-              event: message.event,
-              timestamp: Date.now(),
-            });
-          }
           if (message && message.type === "ready") {
             void loadBootstrap();
           }
@@ -446,12 +436,8 @@ function getHarnessHtml() {
       }
 
       window.acquireVsCodeApi = () => vscodeApi;
-      window.addEventListener("error", (event) => {
-        console.error("[harness.window.error]", event.error || event.message);
-      });
-      window.addEventListener("unhandledrejection", (event) => {
-        console.error("[harness.unhandledrejection]", event.reason);
-      });
+      window.addEventListener("error", () => {});
+      window.addEventListener("unhandledrejection", () => {});
     </script>
     <script type="module" src="/workspace/workspace.js"></script>
   </body>

@@ -216,6 +216,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       sessionStateFilePath: this.getSessionAgentStateFilePath(sessionRecord.sessionId),
       ...createAgentShellIntegrationEnvironmentRequest(this.agentShellIntegration),
       shell: getDefaultShell(),
+      shellArgs: getManagedTerminalShellArgs(getDefaultShell(), this.agentShellIntegration),
       terminalEngine: sessionRecord.terminalEngine,
       xtermHeadlessScrollback: getXtermHeadlessScrollback(),
       workspaceId: this.options.workspaceId,
@@ -291,6 +292,12 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public async writeText(sessionId: string, data: string, shouldExecute = true): Promise<void> {
+    if (shouldExecute && isWindowsPowerShellShell(getDefaultShell())) {
+      await this.runtime.write(this.options.workspaceId, sessionId, data);
+      await this.runtime.write(this.options.workspaceId, sessionId, "\r");
+      return;
+    }
+
     const text = shouldExecute ? `${data}\n` : data;
     await this.runtime.write(this.options.workspaceId, sessionId, text);
   }
@@ -612,6 +619,43 @@ export function hasMeaningfulAgentPresentationChange(diff: {
 
 function normalizeTitle(title: string | undefined): string | undefined {
   return normalizeTerminalTitle(title);
+}
+
+function getManagedTerminalShellArgs(
+  shellPath: string,
+  agentShellIntegration: AgentShellIntegration | undefined,
+): string[] | undefined {
+  if (process.platform !== "win32" || !agentShellIntegration?.powerShellBootstrapPath) {
+    return undefined;
+  }
+
+  if (!isWindowsPowerShellShell(shellPath)) {
+    return undefined;
+  }
+
+  return [
+    "-NoLogo",
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    agentShellIntegration.powerShellBootstrapPath,
+  ];
+}
+
+function isWindowsPowerShellShell(shellPath: string): boolean {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  const shellName = path.basename(shellPath).toLowerCase();
+  return (
+    shellName === "powershell.exe" ||
+    shellName === "powershell" ||
+    shellName === "pwsh.exe" ||
+    shellName === "pwsh"
+  );
 }
 
 function getPersistedSessionActivityAtMs(state: PersistedSessionState): number | undefined {

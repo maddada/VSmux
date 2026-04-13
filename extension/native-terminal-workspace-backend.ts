@@ -676,7 +676,12 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       return;
     }
 
-    projection.terminal.sendText(data, shouldExecute);
+    if (shouldExecute && isWindowsPowerShellShell(getDefaultShell())) {
+      projection.terminal.sendText(data, false);
+      projection.terminal.sendText("\r", false);
+    } else {
+      projection.terminal.sendText(data, shouldExecute);
+    }
     this.recordSessionActivity(sessionId, Date.now(), true);
   }
 
@@ -754,6 +759,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
         viewColumn: vscode.window.tabGroups.activeTabGroup?.viewColumn ?? vscode.ViewColumn.One,
       },
       name: this.getSessionSurfaceTitle(sessionRecord.sessionId),
+      shellArgs: getManagedTerminalShellArgs(getDefaultShell(), this.agentShellIntegration),
       shellPath: getDefaultShell(),
     });
     const projection = {
@@ -1804,6 +1810,43 @@ function haveSameTerminalSessionPresentation(
 
 function normalizeTitle(title: string | undefined): string | undefined {
   return normalizeTerminalTitle(title);
+}
+
+function getManagedTerminalShellArgs(
+  shellPath: string,
+  agentShellIntegration: AgentShellIntegration | undefined,
+): string[] | undefined {
+  if (process.platform !== "win32" || !agentShellIntegration?.powerShellBootstrapPath) {
+    return undefined;
+  }
+
+  if (!isWindowsPowerShellShell(shellPath)) {
+    return undefined;
+  }
+
+  return [
+    "-NoLogo",
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    agentShellIntegration.powerShellBootstrapPath,
+  ];
+}
+
+function isWindowsPowerShellShell(shellPath: string): boolean {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  const shellName = path.basename(shellPath).toLowerCase();
+  return (
+    shellName === "powershell.exe" ||
+    shellName === "powershell" ||
+    shellName === "pwsh.exe" ||
+    shellName === "pwsh"
+  );
 }
 
 function getPersistedSessionActivityAtMs(state: {

@@ -10,7 +10,10 @@ export {
   detectCodexLifecycleEventFromLogLine,
   parseAgentControlChunk,
 } from "./agent-shell-integration-parser";
-export { getClaudeHookSettingsContent } from "./agent-shell-integration-content";
+export {
+  getClaudeHookSettingsContent,
+  getPowerShellBootstrapContent,
+} from "./agent-shell-integration-content";
 
 const integrationPromises = new Map<string, Promise<AgentShellIntegration>>();
 

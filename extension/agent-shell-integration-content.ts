@@ -258,11 +258,196 @@ opencode() {
 `;
 }
 
-export function getOpenCodePluginContent(
-  notifyPath: string,
-  nodePath: string,
-  logPath: string,
-): string {
+export function getPowerShellBootstrapContent(): string {
+  return `$ErrorActionPreference = "SilentlyContinue"
+
+$profileCandidates = @(
+  $PROFILE.CurrentUserAllHosts,
+  $PROFILE.CurrentUserCurrentHost,
+  $PROFILE.AllUsersAllHosts,
+  $PROFILE.AllUsersCurrentHost
+) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+
+foreach ($profilePath in $profileCandidates) {
+  if (Test-Path -LiteralPath $profilePath) {
+    . $profilePath
+  }
+}
+
+if (-not (Get-Variable -Name __VSMUX_POWERSHELL_INIT -Scope Global -ErrorAction SilentlyContinue)) {
+  $global:__VSMUX_POWERSHELL_INIT = $true
+
+  function global:__vsmux_normalize_title([string]$Title) {
+    if ([string]::IsNullOrWhiteSpace($Title)) {
+      return $null
+    }
+
+    return (($Title -replace "[\`r\`n\`t]+", " " -replace "\\s+", " ").Trim())
+  }
+
+  function global:__vsmux_read_state_value([string]$WantedKey) {
+    $stateFile = $env:VSMUX_SESSION_STATE_FILE
+    if ([string]::IsNullOrWhiteSpace($stateFile) -or -not (Test-Path -LiteralPath $stateFile)) {
+      return $null
+    }
+
+    foreach ($line in [System.IO.File]::ReadAllLines($stateFile)) {
+      $separatorIndex = $line.IndexOf("=")
+      if ($separatorIndex -lt 0) {
+        continue
+      }
+
+      $key = $line.Substring(0, $separatorIndex)
+      if ($key -ne $WantedKey) {
+        continue
+      }
+
+      $value = $line.Substring($separatorIndex + 1).Trim()
+      if ([string]::IsNullOrWhiteSpace($value)) {
+        return $null
+      }
+
+      return $value
+    }
+
+    return $null
+  }
+
+  function global:__vsmux_write_session_title([string]$Title) {
+    $stateFile = $env:VSMUX_SESSION_STATE_FILE
+    if ([string]::IsNullOrWhiteSpace($stateFile)) {
+      return
+    }
+
+    $normalizedTitle = __vsmux_normalize_title $Title
+    $status = __vsmux_read_state_value "status"
+    if ([string]::IsNullOrWhiteSpace($status)) {
+      $status = "idle"
+    }
+
+    $agent = __vsmux_read_state_value "agent"
+    if ($null -eq $agent) {
+      $agent = ""
+    }
+
+    $lastActivityAt = __vsmux_read_state_value "lastActivityAt"
+    if ($null -eq $lastActivityAt) {
+      $lastActivityAt = ""
+    }
+    $persistedTitle = ""
+    if ($null -ne $normalizedTitle) {
+      $persistedTitle = [string]$normalizedTitle
+    }
+
+    $directory = [System.IO.Path]::GetDirectoryName($stateFile)
+    if (-not [string]::IsNullOrWhiteSpace($directory)) {
+      [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+
+    $tmpFile = "$stateFile.tmp.$PID"
+    [System.IO.File]::WriteAllLines($tmpFile, @(
+      "status=$status"
+      "agent=$agent"
+      "lastActivityAt=$lastActivityAt"
+      "title=$persistedTitle"
+      ""
+    ))
+    Move-Item -LiteralPath $tmpFile -Destination $stateFile -Force
+  }
+
+  function global:__vsmux_emit_session_title([string]$Title) {
+    $normalizedTitle = __vsmux_normalize_title $Title
+    if ([string]::IsNullOrWhiteSpace($normalizedTitle)) {
+      return
+    }
+
+    [System.Console]::Out.Write("$([char]27)]0;$normalizedTitle$([char]7)")
+  }
+
+  function global:__vsmux_get_current_title() {
+    $title = $null
+    try {
+      $title = $Host.UI.RawUI.WindowTitle
+    } catch {}
+
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      try {
+        $title = [Console]::Title
+      } catch {}
+    }
+
+    return __vsmux_normalize_title $title
+  }
+
+  function global:__vsmux_sync_current_title() {
+    $title = __vsmux_get_current_title
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      $title = __vsmux_normalize_title (__vsmux_read_state_value "title")
+    }
+
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      return
+    }
+
+    try {
+      $Host.UI.RawUI.WindowTitle = $title
+    } catch {}
+
+    try {
+      [Console]::Title = $title
+    } catch {}
+
+    __vsmux_write_session_title $title
+    __vsmux_emit_session_title $title
+  }
+
+  function global:vsmux_set_title {
+    param(
+      [Parameter(ValueFromRemainingArguments = $true)]
+      [string[]]$TitleParts
+    )
+
+    $title = __vsmux_normalize_title ($TitleParts -join " ")
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      return
+    }
+
+    try {
+      $Host.UI.RawUI.WindowTitle = $title
+    } catch {}
+
+    try {
+      [Console]::Title = $title
+    } catch {}
+
+    __vsmux_write_session_title $title
+    __vsmux_emit_session_title $title
+  }
+
+  Set-Alias -Name vam-title -Value vsmux_set_title -Scope Global
+
+  $global:__vsmux_original_prompt = if (Test-Path Function:\\prompt) {
+    (Get-Item Function:\\prompt).ScriptBlock
+  } else {
+    $null
+  }
+
+  function global:prompt {
+    __vsmux_sync_current_title
+    if ($global:__vsmux_original_prompt) {
+      & $global:__vsmux_original_prompt
+      return
+    }
+
+    "PS $($executionContext.SessionState.Path.CurrentLocation)> "
+  }
+}
+
+__vsmux_sync_current_title
+`;
+}
+
+export function getOpenCodePluginContent(notifyPath: string, nodePath: string): string {
   return `/**
  * VSmux notification plugin for OpenCode.
  */
@@ -275,45 +460,15 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
 
   const notifyPath = ${JSON.stringify(notifyPath)};
   const nodePath = ${JSON.stringify(nodePath)};
-  const logPath = ${JSON.stringify(logPath)};
   let currentState = "idle";
   let rootSessionId = null;
   let stopSent = false;
   const childSessionCache = new Map();
 
-  const logDebug = async (eventName, details = {}) => {
-    try {
-      const [{ appendFile, mkdir }, { dirname }] = await Promise.all([
-        import("node:fs/promises"),
-        import("node:path"),
-      ]);
-      await mkdir(dirname(logPath), { recursive: true });
-      await appendFile(
-        logPath,
-        \`\${new Date().toISOString()} \${eventName} \${JSON.stringify({
-          ...details,
-          currentSessionId,
-          currentState,
-          rootSessionId,
-          stopSent,
-        })}\\n\`,
-        "utf8",
-      );
-    } catch {
-      // best effort only
-    }
-  };
-
-  await logDebug("plugin.init");
-
   const notify = async (eventName) => {
     const payload = JSON.stringify({
       agent: "opencode",
       hook_event_name: eventName,
-    });
-
-    await logDebug("notify.dispatch", {
-      eventName,
     });
 
     try {
@@ -327,48 +482,23 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
           },
           stdio: "ignore",
         });
-        child.once("error", async (error) => {
-          await logDebug("notify.error", {
-            eventName,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          resolve(undefined);
-        });
-        child.once("exit", async (code, signal) => {
-          await logDebug("notify.exit", {
-            code,
-            eventName,
-            signal,
-          });
-          resolve(undefined);
-        });
+        child.once("error", () => resolve(undefined));
+        child.once("exit", () => resolve(undefined));
       });
     } catch {
-      await logDebug("notify.importError", {
-        eventName,
-      });
       // best effort only
     }
   };
 
   const isChildSession = async (sessionId) => {
     if (!sessionId) {
-      await logDebug("session.child.skipMissingSessionId");
       return true;
     }
     if (!client?.session?.list) {
-      await logDebug("session.child.skipMissingList", {
-        sessionId,
-      });
       return true;
     }
     if (childSessionCache.has(sessionId)) {
-      const cachedResult = childSessionCache.get(sessionId);
-      await logDebug("session.child.cacheHit", {
-        isChild: cachedResult,
-        sessionId,
-      });
-      return cachedResult;
+      return childSessionCache.get(sessionId);
     }
 
     try {
@@ -376,16 +506,8 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
       const session = sessions.data?.find((candidate) => candidate.id === sessionId);
       const isChild = !!session?.parentID;
       childSessionCache.set(sessionId, isChild);
-      await logDebug("session.child.resolved", {
-        hasParentId: Boolean(session?.parentID),
-        isChild,
-        sessionId,
-      });
       return isChild;
     } catch {
-      await logDebug("session.child.error", {
-        sessionId,
-      });
       return true;
     }
   };
@@ -398,32 +520,19 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
     }
 
     if (sessionId !== rootSessionId) {
-      await logDebug("session.busy.ignoredNonRoot", {
-        sessionId,
-      });
       return;
     }
 
     if (currentState === "idle") {
       currentState = "busy";
       stopSent = false;
-      await logDebug("session.busy.transition", {
-        sessionId,
-      });
       await notify("Start");
       return;
     }
-
-    await logDebug("session.busy.noopAlreadyBusy", {
-      sessionId,
-    });
   };
 
   const handleStop = async (sessionId) => {
     if (rootSessionId && sessionId !== rootSessionId) {
-      await logDebug("session.stop.ignoredNonRoot", {
-        sessionId,
-      });
       return;
     }
 
@@ -431,38 +540,22 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
       currentState = "idle";
       stopSent = true;
       rootSessionId = null;
-      await logDebug("session.stop.transition", {
-        sessionId,
-      });
       await notify("Stop");
-      return;
     }
-
-    await logDebug("session.stop.noopAlreadyIdle", {
-      sessionId,
-    });
   };
 
   const syncInitialStatus = async () => {
     if (!client?.session?.status) {
-      await logDebug("session.status.skipMissingStatusApi");
       return;
     }
 
     if (await isChildSession(currentSessionId)) {
-      await logDebug("session.status.skipChildSession", {
-        sessionId: currentSessionId,
-      });
       return;
     }
 
     try {
       const statuses = await client.session.status();
       const status = statuses.data?.[currentSessionId];
-      await logDebug("session.status.initial", {
-        sessionId: currentSessionId,
-        statusType: status?.type,
-      });
       if (isSessionActive(status)) {
         await handleBusy(currentSessionId);
         return;
@@ -472,9 +565,6 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
         await handleStop(currentSessionId);
       }
     } catch {
-      await logDebug("session.status.initialError", {
-        sessionId: currentSessionId,
-      });
       // best effort only
     }
   };
@@ -486,16 +576,7 @@ export const VSmuxNotifyPlugin = async ({ client }) => {
   return {
     event: async ({ event }) => {
       const sessionId = event.properties?.sessionID;
-      await logDebug("session.event.received", {
-        eventType: event.type,
-        sessionId,
-        statusType: event.properties?.status?.type,
-      });
       if (await isChildSession(sessionId)) {
-        await logDebug("session.event.ignoredChild", {
-          eventType: event.type,
-          sessionId,
-        });
         return;
       }
 

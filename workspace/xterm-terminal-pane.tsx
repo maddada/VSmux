@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowBigDownFilled } from "@tabler/icons-react";
 import { AttachAddon } from "@xterm/addon-attach";
+import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { loadFonts } from "@xterm/addon-web-fonts";
@@ -23,12 +24,17 @@ import {
   getTerminalAppearanceFontLoadKey,
   getTerminalAppearanceOptions,
 } from "./terminal-appearance";
+import {
+  getShiftEnterInputSequence,
+  getWindowsCtrlWordDeleteInputSequence,
+} from "./terminal-input-shortcuts";
 import { getTerminalTheme } from "./terminal-theme";
 import { logWorkspaceDebug } from "./workspace-debug";
 import { getXtermViewportDimensions, measureTerminalFont } from "./xterm-font-metrics";
 import "./terminal-pane.css";
 
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const IS_WINDOWS = navigator.platform.toLowerCase().includes("win");
 const SCROLL_TO_BOTTOM_BUTTON_MARGIN_PX = 200;
 const SCROLL_ANCHOR_BOTTOM_THRESHOLD_ROWS = 1;
 const SOCKET_RECONNECT_BASE_DELAY_MS = 250;
@@ -45,6 +51,18 @@ const SEARCH_DECORATIONS: NonNullable<ISearchOptions["decorations"]> = {
   matchBackground: "#a0c4ff",
   matchBorder: "#4a7bd1",
   matchOverviewRuler: "#4a7bd1",
+};
+const describeDebugElement = (element: Element | null | undefined) => {
+  if (!element) {
+    return null;
+  }
+
+  return {
+    className: element instanceof HTMLElement ? element.className || undefined : undefined,
+    id: element instanceof HTMLElement ? element.id || undefined : undefined,
+    role: element.getAttribute("role") || undefined,
+    tagName: element.tagName,
+  };
 };
 const terminalWebFontLoadPromiseByKey = new Map<string, Promise<void>>();
 const GENERIC_FONT_FAMILIES = new Set([
@@ -219,13 +237,30 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
     debugLogRef.current?.(event, decoratedPayload);
   };
 
+  const focusTerminal = (reason: string) => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return false;
+    }
+
+    reportDebug("terminal.focusCall", {
+      activeElement: describeDebugElement(document.activeElement),
+      reason,
+      rootHasFocusWithin: containerRef.current
+        ?.closest(".terminal-pane-root")
+        ?.matches(":focus-within"),
+    });
+    terminal.focus();
+    return true;
+  };
+
   const scrollTerminalToBottom = () => {
     const terminal = terminalRef.current;
     if (!terminal || !isTerminalOpenRef.current) {
       return false;
     }
 
-    terminal.focus();
+    focusTerminal("scroll-to-bottom");
     terminal.scrollToBottom();
     requestAnimationFrame(() => {
       updateScrollToBottomButtonVisibilityRef.current?.();
@@ -298,7 +333,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
     searchAddonRef.current?.clearDecorations();
     setSearchResults(SEARCH_RESULTS_EMPTY);
     requestAnimationFrame(() => {
-      terminalRef.current?.focus();
+      focusTerminal("close-search");
     });
   };
 
@@ -311,12 +346,13 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
     const terminal = new Terminal({
       allowProposedApi: true,
       ...terminalAppearanceOptions,
-      fontWeight: "400",
-      fontWeightBold: "700",
       scrollback: terminalAppearance.xtermFrontendScrollback,
       theme: getTerminalTheme(),
     });
     terminalRef.current = terminal;
+
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
 
     const searchAddon = new SearchAddon({
       highlightLimit: 1_000,
@@ -511,6 +547,29 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       return nextMetrics;
     };
 
+    const getViewportDimensions = (bounds: DOMRect): { cols: number; rows: number } | null => {
+      if (isTerminalOpenRef.current) {
+        const fittedDimensions = fitAddon.proposeDimensions();
+        if (fittedDimensions && fittedDimensions.cols > 0 && fittedDimensions.rows > 0) {
+          return fittedDimensions;
+        }
+      }
+
+      const currentContainer = containerRef.current;
+      const currentWindow = currentContainer?.ownerDocument.defaultView;
+      const fontMetrics = measureFontMetrics();
+      if (!currentWindow || !fontMetrics) {
+        return null;
+      }
+
+      return getXtermViewportDimensions({
+        containerHeight: bounds.height,
+        containerWidth: bounds.width,
+        font: fontMetrics,
+        window: currentWindow,
+      });
+    };
+
     const applyViewportGeometry = (options?: { force?: boolean; refresh?: boolean }): boolean => {
       if (!isTerminalOpenRef.current) {
         return false;
@@ -541,18 +600,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
         return false;
       }
 
-      const currentWindow = currentContainer.ownerDocument.defaultView;
-      const fontMetrics = measureFontMetrics();
-      if (!currentWindow || !fontMetrics) {
-        return false;
-      }
-
-      const nextDimensions = getXtermViewportDimensions({
-        containerHeight: bounds.height,
-        containerWidth: bounds.width,
-        font: fontMetrics,
-        window: currentWindow,
-      });
+      const nextDimensions = getViewportDimensions(bounds);
       if (!nextDimensions) {
         return false;
       }
@@ -996,16 +1044,8 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       });
       if (initialFontMetrics) {
         fontMetricsRef.current = initialFontMetrics;
-        const currentWindow = containerRef.current.ownerDocument.defaultView;
         const bounds = containerRef.current.getBoundingClientRect();
-        const initialDimensions = currentWindow
-          ? getXtermViewportDimensions({
-              containerHeight: bounds.height,
-              containerWidth: bounds.width,
-              font: initialFontMetrics,
-              window: currentWindow,
-            })
-          : null;
+        const initialDimensions = getViewportDimensions(bounds);
         if (initialDimensions) {
           terminal.resize(initialDimensions.cols, initialDimensions.rows);
           lastMeasuredSizeRef.current = {
@@ -1029,7 +1069,15 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.key === "Enter" && event.shiftKey) {
         if (event.type === "keydown") {
-          sendSocketMessage(createTerminalInputMessage(pane.sessionId, "\x1b[13;2u"));
+          sendSocketMessage(
+            createTerminalInputMessage(
+              pane.sessionId,
+              getShiftEnterInputSequence({
+                isMac: IS_MAC,
+                shellPath: pane.snapshot?.shell,
+              }),
+            ),
+          );
         }
         return false;
       }
@@ -1041,6 +1089,21 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
         }
         if (event.key === "ArrowRight") {
           sendSocketMessage(createTerminalInputMessage(pane.sessionId, "\x05"));
+          return false;
+        }
+      }
+
+      if (
+        !IS_MAC &&
+        event.type === "keydown" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        const sequence = getWindowsCtrlWordDeleteInputSequence(event.key);
+        if (sequence) {
+          sendSocketMessage(createTerminalInputMessage(pane.sessionId, sequence));
           return false;
         }
       }
@@ -1183,7 +1246,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       if (!isVisibleRef.current || !isFocusedRef.current) {
         return;
       }
-      terminal.focus();
+      focusTerminal("window-focus");
     };
     window.addEventListener("focus", onWindowFocus);
 
@@ -1253,7 +1316,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
     }
 
     requestAnimationFrame(() => {
-      terminalRef.current?.focus();
+      focusTerminal("is-focused-effect");
     });
   }, [isFocused, isVisible]);
 
@@ -1398,7 +1461,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
 
     handledAutoFocusRequestIdRef.current = autoFocusRequest.requestId;
     requestAnimationFrame(() => {
-      terminal.focus();
+      focusTerminal(`auto-focus:${autoFocusRequest.source}`);
       reportDebug("terminal.autoFocusRequestApplied", {
         requestId: autoFocusRequest.requestId,
         source: autoFocusRequest.source,
@@ -1408,8 +1471,14 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
 
   return (
     <div
-      className={`terminal-pane-root ${isVisible ? "" : "terminal-pane-root-hidden"}`.trim()}
-      onFocusCapture={() => {
+      className={`terminal-pane-root ${IS_WINDOWS ? "terminal-pane-root-windows" : ""} ${isVisible ? "" : "terminal-pane-root-hidden"}`.trim()}
+      onFocusCapture={(event) => {
+        reportDebug("terminal.focusInObserved", {
+          activeElement: describeDebugElement(document.activeElement),
+          relatedTarget: describeDebugElement(event.relatedTarget as Element | null | undefined),
+          rootHasFocusWithin: event.currentTarget.matches(":focus-within"),
+          target: describeDebugElement(event.target as Element | null | undefined),
+        });
         onActivate("focusin");
       }}
       onKeyDownCapture={(event) => {
@@ -1434,8 +1503,14 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       }}
       onMouseDown={(event) => {
         event.stopPropagation();
+        reportDebug("terminal.pointerActivate", {
+          activeElement: describeDebugElement(document.activeElement),
+          pointerType: "mouse",
+          rootHasFocusWithin: event.currentTarget.matches(":focus-within"),
+          sessionId: pane.sessionId,
+        });
         onActivate("pointer");
-        terminalRef.current?.focus();
+        focusTerminal("mouse-down");
       }}
     >
       <div

@@ -6,8 +6,7 @@ export type TerminalAppearanceOptions = Pick<
   "cursorBlink" | "cursorStyle" | "fontFamily" | "fontSize" | "letterSpacing" | "lineHeight"
 >;
 
-const FALLBACK_TERMINAL_FONT_FAMILY =
-  '"MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace';
+const FALLBACK_TERMINAL_FONT_FAMILY = "monospace";
 
 export type TerminalAppearanceDependencies = readonly [
   cursorBlink: boolean,
@@ -20,19 +19,7 @@ export type TerminalAppearanceDependencies = readonly [
 ];
 
 function normalizeTerminalFontFamily(fontFamily: string): string {
-  const normalizedFontFamily = fontFamily.trim() || FALLBACK_TERMINAL_FONT_FAMILY;
-  const withMonospaceFallback = /\bmonospace\b/i.test(normalizedFontFamily)
-    ? normalizedFontFamily
-    : `${normalizedFontFamily}, monospace`;
-
-  if (
-    /Mac|iPhone|iPad|iPod/.test(navigator.platform) &&
-    !/\bAppleBraille\b/i.test(withMonospaceFallback)
-  ) {
-    return `${withMonospaceFallback}, AppleBraille`;
-  }
-
-  return withMonospaceFallback;
+  return fontFamily.trim() || FALLBACK_TERMINAL_FONT_FAMILY;
 }
 
 export function getNormalizedTerminalAppearance(

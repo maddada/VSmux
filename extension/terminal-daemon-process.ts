@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import * as pty from "@lydell/node-pty";
@@ -115,27 +115,8 @@ const REPLAY_CHUNK_BYTES = 128 * 1024;
 const MAX_XTERM_HEADLESS_SCROLLBACK = 100_000;
 const DEFAULT_XTERM_HEADLESS_SCROLLBACK = 50_000;
 const INFO_FILE_NAME = "daemon-info.json";
-const DAEMON_DEBUG_LOG_FILE_NAME = "terminal-daemon-debug.log";
-const DAEMON_DEBUG_EVENT_ALLOWLIST = new Set<string>([
-  "daemon.start",
-  "daemon.startSkippedExisting",
-  "daemon.shutdown",
-  "daemon.sessionCreateEnvironment",
-  "daemon.sessionSocketRejected",
-  "daemon.sessionSocketAccepted",
-  "daemon.sessionAttachmentStarted",
-  "daemon.sessionAttachmentReadyReceived",
-  "daemon.sessionAttachmentResizeReceived",
-  "daemon.sessionAttachmentActivated",
-  "daemon.sessionAttachmentPreemptedPreviousSocket",
-  "daemon.sessionAttachmentCompleted",
-  "daemon.sessionAttachmentReadyTimeout",
-  "daemon.sessionSocketEnded",
-]);
-
 const stateDir = getStateDirFromArgs();
 const infoFilePath = path.join(stateDir, INFO_FILE_NAME);
-const daemonDebugLogFilePath = path.join(stateDir, DAEMON_DEBUG_LOG_FILE_NAME);
 
 const sessions = new Map<string, ManagedSession>();
 const controlClients = new Set<ControlClient>();
@@ -495,7 +476,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     workspaceId: request.workspaceId,
     zdotdir: environment.ZDOTDIR,
   });
-  const spawnedPty = pty.spawn(request.shell, [], {
+  const spawnedPty = pty.spawn(request.shell, request.shellArgs ?? [], {
     cols: request.cols,
     cwd: request.cwd,
     encoding: null,
@@ -1081,27 +1062,8 @@ async function expireLeasedSessionsAndMaybeShutdown(): Promise<void> {
 }
 
 async function logDaemonDebug(event: string, details?: unknown): Promise<void> {
-  if (!DAEMON_DEBUG_EVENT_ALLOWLIST.has(event)) {
-    return;
-  }
-  const line = `${new Date().toISOString()} ${event}${details ? ` ${safeSerialize(details)}` : ""}\n`;
-  try {
-    await mkdir(stateDir, { recursive: true });
-    await appendFile(daemonDebugLogFilePath, line, "utf8");
-  } catch {
-    // Logging must never break the daemon.
-  }
-}
-
-function safeSerialize(details: unknown): string {
-  try {
-    return JSON.stringify(details);
-  } catch (error) {
-    return JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-      unserializable: true,
-    });
-  }
+  void event;
+  void details;
 }
 
 function getStateDirFromArgs(): string {

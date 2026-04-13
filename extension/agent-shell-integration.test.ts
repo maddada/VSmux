@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   detectCodexLifecycleEventFromLogLine,
   getClaudeHookSettingsContent,
+  getPowerShellBootstrapContent,
   parseAgentControlChunk,
 } from "./agent-shell-integration";
 import { getOpenCodePluginContent } from "./agent-shell-integration-content";
@@ -81,7 +82,7 @@ describe("detectCodexLifecycleEventFromLogLine", () => {
 
 describe("getClaudeHookSettingsContent", () => {
   test("should wire Claude lifecycle hooks into the shared notifier", () => {
-    const settings = JSON.parse(getClaudeHookSettingsContent("/tmp/vsmux-notify.sh")) as {
+    const settings = JSON.parse(getClaudeHookSettingsContent("/tmp/vsmux-notify.sh", "linux")) as {
       hooks: Record<
         string,
         Array<{ hooks: Array<{ command: string; type: string }>; matcher?: string }>
@@ -156,33 +157,38 @@ describe("getClaudeHookSettingsContent", () => {
 
 describe("getOpenCodePluginContent", () => {
   test("should schedule a non-blocking sync of the current session status", () => {
-    const plugin = getOpenCodePluginContent(
-      "/tmp/vsmux-notify.js",
-      "/usr/local/bin/node",
-      "/tmp/vsmux-opencode-plugin.log",
-    );
+    const plugin = getOpenCodePluginContent("/tmp/vsmux-notify.js", "/usr/local/bin/node");
 
     expect(plugin).toContain("const currentSessionId = process?.env?.VSMUX_SESSION_ID;");
-    expect(plugin).toContain('const logPath = "/tmp/vsmux-opencode-plugin.log";');
-    expect(plugin).toContain('await logDebug("plugin.init");');
     expect(plugin).toContain("if (!client?.session?.status) {");
     expect(plugin).toContain("const statuses = await client.session.status();");
     expect(plugin).toContain("const status = statuses.data?.[currentSessionId];");
-    expect(plugin).toContain('const isSessionActive = (status) => status?.type && status.type !== "idle";');
+    expect(plugin).toContain(
+      'const isSessionActive = (status) => status?.type && status.type !== "idle";',
+    );
     expect(plugin).toContain("setTimeout(() => {");
     expect(plugin).toContain("void syncInitialStatus();");
   });
 
   test("should treat non-idle session.status events as active", () => {
-    const plugin = getOpenCodePluginContent(
-      "/tmp/vsmux-notify.js",
-      "/usr/local/bin/node",
-      "/tmp/vsmux-opencode-plugin.log",
-    );
+    const plugin = getOpenCodePluginContent("/tmp/vsmux-notify.js", "/usr/local/bin/node");
 
-    expect(plugin).toContain('await logDebug("session.event.received", {');
     expect(plugin).toContain("if (isSessionActive(status)) {");
     expect(plugin).toContain('if (event.type === "session.busy") {');
-    expect(plugin).toContain('if (event.type === "session.idle" || event.type === "session.error") {');
+    expect(plugin).toContain(
+      'if (event.type === "session.idle" || event.type === "session.error") {',
+    );
+  });
+});
+
+describe("getPowerShellBootstrapContent", () => {
+  test("should persist and re-emit the current PowerShell title", () => {
+    const content = getPowerShellBootstrapContent();
+
+    expect(content).toContain("function global:__vsmux_sync_current_title()");
+    expect(content).toContain("function global:vsmux_set_title");
+    expect(content).toContain('[System.Console]::Out.Write("$([char]27)]0;');
+    expect(content).toContain("__vsmux_write_session_title $title");
+    expect(content).toContain("$Host.UI.RawUI.WindowTitle = $title");
   });
 });
