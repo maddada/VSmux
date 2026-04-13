@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -6,6 +7,11 @@ import type { T3RuntimeManager } from "../t3-runtime-manager";
 import type { WorkspaceAssetServer } from "../workspace-asset-server";
 
 export function getEmbeddedT3Root(context: vscode.ExtensionContext): vscode.Uri {
+  const packagedRoot = vscode.Uri.joinPath(context.extensionUri, "out", "t3-embed");
+  if (existsSync(path.join(packagedRoot.fsPath, "index.html"))) {
+    return packagedRoot;
+  }
+
   return vscode.Uri.joinPath(context.extensionUri, "forks", "dpcode-embed", "apps", "web", "dist");
 }
 
@@ -57,7 +63,10 @@ export async function createT3IframeSource(
 }
 
 export function createPendingT3IframeSource(title = "T3 Code"): string {
-  return createStatusIframeHtml(title, "Starting T3 Code…");
+  return createStatusIframeHtml(title, "Loading T3 Code…", {
+    caption: "Preparing the embedded workspace.",
+    loading: true,
+  });
 }
 
 function createMissingIframeHtml(): string {
@@ -93,13 +102,14 @@ type T3IframeBootstrapPayload = {
 };
 
 function createT3IframeHtml(payload: T3IframeBootstrapPayload): string {
+  const wsConnectOrigin = new URL(payload.wsUrl).origin.replace(/^http/i, "ws");
   const csp = [
     "default-src 'none'",
     "script-src http:",
     "style-src 'unsafe-inline' http:",
     "img-src http: https: data:",
     "font-src http: https: data:",
-    `connect-src ${payload.serverOrigin} ${payload.wsUrl}`,
+    `connect-src ${payload.serverOrigin} ${wsConnectOrigin}`,
     "worker-src http: blob:",
   ].join("; ");
 
@@ -127,7 +137,11 @@ function createT3IframeHtml(payload: T3IframeBootstrapPayload): string {
 </html>`;
 }
 
-function createStatusIframeHtml(title: string, message: string): string {
+function createStatusIframeHtml(
+  title: string,
+  message: string,
+  options?: { caption?: string; loading?: boolean },
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -151,15 +165,43 @@ function createStatusIframeHtml(title: string, message: string): string {
       }
 
       .status {
+        align-items: center;
         color: #d8e1ee;
+        display: flex;
+        flex-direction: column;
         font-size: 14px;
+        gap: 10px;
         letter-spacing: 0.02em;
         opacity: 0.86;
+        text-align: center;
+      }
+
+      .spinner {
+        animation: spin 0.9s linear infinite;
+        border: 2px solid rgba(216, 225, 238, 0.18);
+        border-radius: 999px;
+        border-top-color: rgba(216, 225, 238, 0.95);
+        height: 18px;
+        width: 18px;
+      }
+
+      .caption {
+        font-size: 12px;
+        opacity: 0.66;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
       }
     </style>
   </head>
   <body>
-    <div class="status">${escapeHtmlText(message)}</div>
+    <div class="status">
+      ${options?.loading ? '<div class="spinner" aria-hidden="true"></div>' : ""}
+      <div>${escapeHtmlText(message)}</div>
+      ${options?.caption ? `<div class="caption">${escapeHtmlText(options.caption)}</div>` : ""}
+    </div>
   </body>
 </html>`;
 }

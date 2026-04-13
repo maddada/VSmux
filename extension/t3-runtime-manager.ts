@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import * as vscode from "vscode";
@@ -17,6 +19,7 @@ const DEFAULT_MODEL = "gpt-5-codex";
 const LEGACY_T3_COMMAND = "npx --yes t3";
 const DEFAULT_T3_COMMAND = LEGACY_T3_COMMAND;
 const DEFAULT_MANAGED_T3_REPO_ROOT = "/Users/madda/dev/_active/agent-tiler";
+const MINIMUM_MANAGED_T3_BUN_VERSION = "1.3.9";
 const MANAGED_T3_ENTRYPOINT_SEGMENTS = [
   "forks",
   "dpcode-embed",
@@ -24,6 +27,14 @@ const MANAGED_T3_ENTRYPOINT_SEGMENTS = [
   "server",
   "src",
   "index.ts",
+] as const;
+const MANAGED_T3_WINDOWS_ENTRYPOINT_SEGMENTS = [
+  "forks",
+  "dpcode-embed",
+  "apps",
+  "server",
+  "dist",
+  "index.mjs",
 ] as const;
 const T3_HOST = "127.0.0.1";
 const T3_PORT = 3774;
@@ -39,6 +50,11 @@ const LEASES_DIR_NAME = "leases";
 const SUPERVISOR_STATE_FILE = "supervisor.json";
 const SUPERVISOR_LAUNCH_LOCK_FILE = "supervisor-launch.lock";
 const AUTH_STATE_FILE = "auth-state.json";
+const MANAGED_T3_REPO_ROOT_SETTING = "VSmux.t3RepoRoot";
+type ManagedT3EntrypointResolution = {
+  entrypoint: string;
+  repoRoot: string;
+};
 
 type T3ModelSelection = {
   model: string;
@@ -200,7 +216,19 @@ export class T3RuntimeManager implements vscode.Disposable {
   ): Promise<T3SessionMetadata> {
     await this.ensureRunning(metadata.workspaceRoot, startupCommand);
     const snapshot = await this.getSnapshot();
+    const existingThread =
+      snapshot.threads.find(
+        (candidate) => candidate.deletedAt === null && candidate.id === metadata.threadId,
+      ) ?? null;
     const project =
+      (existingThread
+        ? snapshot.projects.find(
+            (candidate) =>
+              candidate.deletedAt === null &&
+              candidate.id === existingThread.projectId &&
+              candidate.workspaceRoot === metadata.workspaceRoot,
+          )
+        : null) ??
       snapshot.projects.find(
         (candidate) =>
           candidate.deletedAt === null &&
@@ -212,12 +240,6 @@ export class T3RuntimeManager implements vscode.Disposable {
           candidate.deletedAt === null && candidate.workspaceRoot === metadata.workspaceRoot,
       ) ??
       (await this.createProject(metadata.workspaceRoot));
-    const existingThread = snapshot.threads.find(
-      (candidate) =>
-        candidate.deletedAt === null &&
-        candidate.id === metadata.threadId &&
-        candidate.projectId === project.id,
-    );
     const serverOrigin = this.getServerOrigin();
 
     if (metadata.serverOrigin === serverOrigin && existingThread) {
@@ -283,6 +305,7 @@ export class T3RuntimeManager implements vscode.Disposable {
     const resolvedStartupCommand = this.resolveStartupCommand(startupCommand);
     await this.ensureRuntimeStorage();
     await this.ensureManagedRuntimeEntrypoint();
+    await this.ensureManagedRuntimeDependencies();
     const hasManagedSupervisor = await this.hasActiveManagedSupervisor(resolvedStartupCommand);
     if (await isOriginResponsive(origin)) {
       if (hasManagedSupervisor) {
@@ -297,7 +320,16 @@ export class T3RuntimeManager implements vscode.Disposable {
         }
         await this.stopStaleManagedRuntime();
       } else {
-        return origin;
+        try {
+          await this.ensureAuthStateReady();
+          if (await this.isTransportResponsive()) {
+            await this.startLeaseHeartbeat();
+            return origin;
+          }
+        } catch {
+          // Fall through and restart the managed runtime below.
+        }
+        await this.stopStaleManagedRuntime();
       }
     }
 
@@ -508,8 +540,6 @@ export class T3RuntimeManager implements vscode.Disposable {
           shellPath,
           "--state-file",
           this.getSupervisorStatePath(),
-          "--bootstrap-json",
-          JSON.stringify(bootstrapEnvelope),
         ],
         {
           detached: true,
@@ -573,16 +603,55 @@ export class T3RuntimeManager implements vscode.Disposable {
   }
 
   private async ensureManagedRuntimeEntrypoint(): Promise<void> {
-    const entrypoint = getManagedT3EntrypointPath();
+    const { entrypoint, repoRoot } = resolveManagedT3Entrypoint(this.context);
     await stat(entrypoint).catch(() => {
       throw new Error(
         [
           "The updated T3 runtime source is missing from the main repo checkout.",
           `Expected: ${entrypoint}`,
-          "Sync forks/dpcode-embed in /Users/madda/dev/_active/agent-tiler and reinstall the main-branch VSIX.",
+          `Sync forks/dpcode-embed in ${repoRoot} and reinstall the main-branch VSIX.`,
         ].join(" "),
       );
     });
+  }
+
+  private async ensureManagedRuntimeDependencies(): Promise<void> {
+    const repoRoot = getManagedT3RepoRoot(this.context);
+    const embedRoot = getManagedT3EmbedRoot(this.context);
+    const bunVersion = getBunRuntimeVersion();
+    if (bunVersion && compareSemverStrings(bunVersion, MINIMUM_MANAGED_T3_BUN_VERSION) < 0) {
+      throw new Error(
+        [
+          `Managed DP Code requires Bun ${MINIMUM_MANAGED_T3_BUN_VERSION} or newer.`,
+          `Found: ${bunVersion}.`,
+          `Upgrade Bun, then run 'bun install' in ${embedRoot} and 'pnpm run t3:embed:build' in ${repoRoot}.`,
+        ].join(" "),
+      );
+    }
+
+    const nodeModulesPath = join(embedRoot, "node_modules");
+    await stat(nodeModulesPath).catch(() => {
+      throw new Error(
+        [
+          "Managed DP Code dependencies are missing.",
+          `Expected: ${nodeModulesPath}`,
+          `Run 'bun install' in ${embedRoot}, then run 'pnpm run t3:embed:build' in ${repoRoot}.`,
+        ].join(" "),
+      );
+    });
+
+    if (process.platform === "win32") {
+      const windowsEntrypoint = getManagedT3WindowsEntrypointPath(this.context);
+      await stat(windowsEntrypoint).catch(() => {
+        throw new Error(
+          [
+            "Managed DP Code server build output is missing on Windows.",
+            `Expected: ${windowsEntrypoint}`,
+            `Run 'bun run build' in ${join(embedRoot, "apps", "server")}, then reinstall the main-branch VSIX.`,
+          ].join(" "),
+        );
+      });
+    }
   }
 
   private async createManagedBootstrapEnvelope(): Promise<
@@ -717,7 +786,12 @@ export class T3RuntimeManager implements vscode.Disposable {
     }
 
     if (expectedCommand && state.command !== expectedCommand) {
-      await rm(this.getSupervisorStatePath(), { force: true });
+      await this.stopStaleManagedRuntime(state);
+      return false;
+    }
+
+    if (await this.isManagedRuntimeBuildNewerThan(state.startedAt)) {
+      await this.stopStaleManagedRuntime(state);
       return false;
     }
 
@@ -726,7 +800,7 @@ export class T3RuntimeManager implements vscode.Disposable {
       return true;
     }
 
-    await rm(this.getSupervisorStatePath(), { force: true });
+    await this.stopStaleManagedRuntime(state);
     return false;
   }
 
@@ -771,15 +845,40 @@ export class T3RuntimeManager implements vscode.Disposable {
     };
   }
 
-  private async stopStaleManagedRuntime(): Promise<void> {
-    const pid = getListeningProcessId(T3_PORT);
-    if (pid !== undefined && isProcessAlive(pid)) {
+  private async isManagedRuntimeBuildNewerThan(startedAt: string): Promise<boolean> {
+    const startedAtMs = Date.parse(startedAt);
+    if (!Number.isFinite(startedAtMs)) {
+      return false;
+    }
+
+    const latestBuildTimestamp = await getManagedRuntimeBuildTimestamp(this.context);
+    return latestBuildTimestamp !== undefined && latestBuildTimestamp > startedAtMs;
+  }
+
+  private async stopStaleManagedRuntime(state?: SupervisorState): Promise<void> {
+    const candidatePids = [state?.childPid, state?.pid, getListeningProcessId(T3_PORT)].filter(
+      (value, index, values): value is number => {
+        return (
+          typeof value === "number" && Number.isInteger(value) && values.indexOf(value) === index
+        );
+      },
+    );
+
+    for (const pid of candidatePids) {
+      if (!isProcessAlive(pid)) {
+        continue;
+      }
       try {
         process.kill(pid, "SIGTERM");
       } catch {
-        // Best-effort cleanup only.
+        try {
+          process.kill(pid);
+        } catch {
+          // Best-effort cleanup only.
+        }
       }
     }
+
     await rm(this.getSupervisorStatePath(), { force: true });
     await rm(this.getAuthStatePath(), { force: true });
   }
@@ -790,7 +889,7 @@ export class T3RuntimeManager implements vscode.Disposable {
       return trimmedCommand;
     }
 
-    return createManagedStartupCommand();
+    return createManagedStartupCommand(this.context);
   }
 }
 
@@ -798,9 +897,20 @@ function getT3Origin(): string {
   return `http://${T3_HOST}:${String(T3_PORT)}`;
 }
 
-function createManagedStartupCommand(): string {
+function createManagedStartupCommand(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): string {
+  const entrypoint = shellQuote(
+    process.platform === "win32"
+      ? getManagedT3WindowsEntrypointPath(context)
+      : getManagedT3EntrypointPath(context),
+  );
+  if (process.platform === "win32") {
+    const nodePath = shellQuote(getNodeRuntimePath());
+    return `& ${nodePath} ${entrypoint} --mode desktop --host ${T3_HOST} --port ${String(T3_PORT)} --no-browser`;
+  }
+
   const bunPath = shellQuote(getBunRuntimePath());
-  const entrypoint = shellQuote(getManagedT3EntrypointPath());
   return `${bunPath} ${entrypoint} --mode desktop --host ${T3_HOST} --port ${String(T3_PORT)} --no-browser`;
 }
 
@@ -858,6 +968,29 @@ function getBunRuntimePath(): string {
   }
 
   return "bun";
+}
+
+function getBunRuntimeVersion(): string | undefined {
+  const result = spawnSync(getBunRuntimePath(), ["--version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const version = result.stdout?.trim();
+  return version && /^\d+\.\d+\.\d+$/u.test(version) ? version : undefined;
+}
+
+function compareSemverStrings(left: string, right: string): number {
+  const leftParts = left.split(".").map((value) => Number.parseInt(value, 10));
+  const rightParts = right.split(".").map((value) => Number.parseInt(value, 10));
+  for (let index = 0; index < 3; index += 1) {
+    const leftPart = leftParts[index] ?? 0;
+    const rightPart = rightParts[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return leftPart - rightPart;
+    }
+  }
+
+  return 0;
 }
 
 async function isOriginResponsive(origin: string): Promise<boolean> {
@@ -946,14 +1079,184 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function getManagedT3EntrypointPath(): string {
-  const repoRoot = process.env.VSMUX_T3_REPO_ROOT?.trim() || DEFAULT_MANAGED_T3_REPO_ROOT;
-  return join(repoRoot, ...MANAGED_T3_ENTRYPOINT_SEGMENTS);
+function getManagedT3EntrypointPath(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): string {
+  return resolveManagedT3Entrypoint(context).entrypoint;
+}
+
+function getManagedT3WindowsEntrypointPath(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): string {
+  return join(getManagedT3RepoRoot(context), ...MANAGED_T3_WINDOWS_ENTRYPOINT_SEGMENTS);
+}
+
+function getManagedT3RepoRoot(context?: Pick<vscode.ExtensionContext, "extensionPath">): string {
+  return resolveManagedT3Entrypoint(context).repoRoot;
+}
+
+function getManagedT3EmbedRoot(context?: Pick<vscode.ExtensionContext, "extensionPath">): string {
+  return join(getManagedT3RepoRoot(context), "forks", "dpcode-embed");
+}
+
+async function getManagedRuntimeBuildTimestamp(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): Promise<number | undefined> {
+  const candidatePaths = new Set<string>();
+  const addCandidate = (value: string | undefined): void => {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      candidatePaths.add(trimmed);
+    }
+  };
+
+  const extensionRoots = new Set<string>();
+  if (context?.extensionPath) {
+    extensionRoots.add(context.extensionPath);
+    extensionRoots.add(dirname(context.extensionPath));
+  }
+
+  for (const root of extensionRoots) {
+    addCandidate(join(root, "out", "workspace", "t3-frame-host.js"));
+    addCandidate(join(root, "workspace", "t3-frame-host.js"));
+    addCandidate(join(root, "out", "t3-embed", "index.html"));
+    addCandidate(join(root, "t3-embed", "index.html"));
+  }
+
+  addCandidate(getManagedT3WindowsEntrypointPath(context));
+  addCandidate(getManagedT3EntrypointPath(context));
+
+  let latestTimestamp: number | undefined;
+  for (const candidatePath of candidatePaths) {
+    const stats = await stat(candidatePath).catch(() => undefined);
+    if (!stats) {
+      continue;
+    }
+    latestTimestamp = Math.max(latestTimestamp ?? 0, stats.mtimeMs);
+  }
+
+  return latestTimestamp;
+}
+
+function resolveManagedT3Entrypoint(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): ManagedT3EntrypointResolution {
+  const overrideRoot = process.env.VSMUX_T3_REPO_ROOT?.trim();
+  if (overrideRoot) {
+    return {
+      entrypoint: join(overrideRoot, ...MANAGED_T3_ENTRYPOINT_SEGMENTS),
+      repoRoot: overrideRoot,
+    };
+  }
+
+  const configuredRoot = getConfiguredManagedT3RepoRoot();
+  if (configuredRoot) {
+    return {
+      entrypoint: join(configuredRoot, ...MANAGED_T3_ENTRYPOINT_SEGMENTS),
+      repoRoot: configuredRoot,
+    };
+  }
+
+  const repoRootCandidates = getManagedT3RepoRootCandidates(context);
+  const repoRoot =
+    repoRootCandidates.find((candidate) => hasManagedT3Entrypoint(candidate)) ??
+    getDefaultManagedT3RepoRootCandidate(context) ??
+    DEFAULT_MANAGED_T3_REPO_ROOT;
+  return {
+    entrypoint: join(repoRoot, ...MANAGED_T3_ENTRYPOINT_SEGMENTS),
+    repoRoot,
+  };
+}
+
+function getManagedT3RepoRootCandidates(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const addWithParents = (candidate: string | undefined): void => {
+    const trimmedCandidate = candidate?.trim();
+    if (!trimmedCandidate) {
+      return;
+    }
+
+    let current = trimmedCandidate;
+    while (!seen.has(current)) {
+      seen.add(current);
+      candidates.push(current);
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  };
+
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    addWithParents(folder.uri.fsPath);
+    addWithParents(join(dirname(folder.uri.fsPath), "agent-tiler"));
+  }
+  addWithParents(context?.extensionPath);
+  if (context?.extensionPath) {
+    addWithParents(join(dirname(dirname(context.extensionPath)), "agent-tiler"));
+  }
+  addWithParents(process.cwd());
+  addWithParents(join(dirname(process.cwd()), "agent-tiler"));
+  addWithParents(join(homedir(), "dev", "_active", "agent-tiler"));
+  addWithParents(DEFAULT_MANAGED_T3_REPO_ROOT);
+  return candidates;
+}
+
+function hasManagedT3Entrypoint(repoRoot: string): boolean {
+  return existsSync(join(repoRoot, ...MANAGED_T3_ENTRYPOINT_SEGMENTS));
+}
+
+function getDefaultManagedT3RepoRootCandidate(
+  context?: Pick<vscode.ExtensionContext, "extensionPath">,
+): string | undefined {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceFolder) {
+    return join(dirname(workspaceFolder), "agent-tiler");
+  }
+
+  if (context?.extensionPath) {
+    return join(dirname(dirname(context.extensionPath)), "agent-tiler");
+  }
+
+  return join(dirname(process.cwd()), "agent-tiler");
+}
+
+function getConfiguredManagedT3RepoRoot(): string | undefined {
+  const configured = vscode.workspace
+    .getConfiguration()
+    .get<string>(MANAGED_T3_REPO_ROOT_SETTING)
+    ?.trim();
+  return configured && configured.length > 0 ? configured : undefined;
 }
 
 function getListeningProcessId(port: number): number | undefined {
   if (process.platform === "win32") {
-    return undefined;
+    const result = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${String(port)} -State Listen | Select-Object -ExpandProperty OwningProcess`,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    const pid = result.stdout
+      ?.split(/\r?\n/u)
+      .map((value) => value.trim())
+      .find((value) => value.length > 0);
+    if (!pid) {
+      return undefined;
+    }
+
+    const parsed = Number.parseInt(pid, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   const result = spawnSync("lsof", ["-nP", `-iTCP:${String(port)}`, "-sTCP:LISTEN", "-t"], {

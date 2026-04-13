@@ -190,7 +190,9 @@ export class WorkspaceAssetServer implements vscode.Disposable {
       }
 
       const upstreamSocket = connect(T3_PROXY_PORT, T3_PROXY_HOST, () => {
-        upstreamSocket.write(createProxyUpgradeRequest(request, url, this.t3ProxyAuthorizationToken));
+        upstreamSocket.write(
+          createProxyUpgradeRequest(request, url, this.t3ProxyAuthorizationToken),
+        );
         if (head.length > 0) {
           upstreamSocket.write(head);
         }
@@ -316,7 +318,7 @@ function createProxyRequestHeaders(
     proxiedHeaders.set(key, rawValue);
   }
 
-  if (authorizationToken && !proxiedHeaders.has("authorization")) {
+  if (authorizationToken) {
     proxiedHeaders.set("authorization", `Bearer ${authorizationToken}`);
   }
 
@@ -365,6 +367,13 @@ function createProxyUpgradeRequest(
   url: URL,
   authorizationToken: string | undefined,
 ): string {
+  const upstreamUrl = new URL(url.pathname, getT3ProxyOrigin());
+  if (authorizationToken) {
+    upstreamUrl.searchParams.set("token", authorizationToken);
+  } else {
+    upstreamUrl.search = url.search;
+  }
+
   const headerLines = [
     `Host: ${T3_PROXY_HOST}:${String(T3_PROXY_PORT)}`,
     `Origin: ${getT3ProxyOrigin()}`,
@@ -389,5 +398,5 @@ function createProxyUpgradeRequest(
     headerLines.push(`Authorization: Bearer ${authorizationToken}`);
   }
 
-  return `${request.method ?? "GET"} ${url.pathname}${url.search} HTTP/${request.httpVersion}\r\n${headerLines.join("\r\n")}\r\n\r\n`;
+  return `${request.method ?? "GET"} ${upstreamUrl.pathname}${upstreamUrl.search} HTTP/${request.httpVersion}\r\n${headerLines.join("\r\n")}\r\n\r\n`;
 }

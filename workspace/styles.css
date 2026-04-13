@@ -588,10 +588,49 @@ body {
 }
 
 .workspace-pane-title {
+  align-items: center;
+  display: inline-flex;
   font-size: 12px;
   font-weight: 700;
+  gap: 8px;
   letter-spacing: 0.02em;
+  min-width: 0;
   pointer-events: none;
+}
+
+.workspace-pane-title-text {
+  min-width: 0;
+}
+
+.workspace-pane-title-indicator {
+  --workspace-pane-title-indicator-color: #65e58a;
+  background-color: var(--workspace-pane-title-indicator-color);
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 2px rgba(18, 18, 18, 0.82),
+    0 0 0 6px color-mix(in srgb, var(--workspace-pane-title-indicator-color) 12%, transparent),
+    0 4px 12px color-mix(in srgb, var(--workspace-pane-title-indicator-color) 18%, transparent);
+  flex: none;
+  height: 10px;
+  width: 10px;
+}
+
+.workspace-pane-title-indicator[data-activity="working"] {
+  --workspace-pane-title-indicator-color: #cf944a;
+  animation: workspace-pane-title-indicator-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes workspace-pane-title-indicator-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+    scale: 0.92;
+  }
+
+  50% {
+    opacity: 1;
+    scale: 1;
+  }
 }
 
 .workspace-pane-header-actions {
@@ -724,6 +763,11 @@ body {
 .t3-pane-root {
   height: 100%;
   position: relative;
+  width: 100%;
+}
+
+.t3-pane-host {
+  height: 100%;
   width: 100%;
 }
 

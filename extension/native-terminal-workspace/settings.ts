@@ -48,7 +48,6 @@ export const TERMINAL_FONT_SIZE_SETTING = "terminalFontSize";
 export const TERMINAL_LINE_HEIGHT_SETTING = "terminalLineHeight";
 export const TERMINAL_LETTER_SPACING_SETTING = "terminalLetterSpacing";
 export const TERMINAL_CURSOR_STYLE_SETTING = "terminalCursorStyle";
-export const TERMINAL_CURSOR_BLINK_SETTING = "terminalCursorBlink";
 export const TERMINAL_ENGINE_SETTING = "terminalEngine";
 export const XTERM_HEADLESS_SCROLLBACK_SETTING = "xtermHeadlessScrollback";
 export const TERMINAL_SCROLL_TO_BOTTOM_WHEN_TYPING_SETTING = "terminalScrollToBottomWhenTyping";
@@ -411,11 +410,7 @@ export function getTerminalCursorStyle(): "bar" | "block" | "underline" {
 }
 
 export function getTerminalCursorBlink(): boolean {
-  return (
-    vscode.workspace
-      .getConfiguration(SETTINGS_SECTION)
-      .get<boolean>(TERMINAL_CURSOR_BLINK_SETTING, true) ?? true
-  );
+  return false;
 }
 
 export function getDefaultTerminalEngine(): TerminalEngine {

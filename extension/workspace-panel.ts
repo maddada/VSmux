@@ -155,10 +155,6 @@ export class WorkspacePanelManager implements vscode.Disposable {
       if (!isWorkspaceMessage(message)) {
         return;
       }
-      if (message.type === "workspaceDebugLog") {
-        void this.options.onMessage(message);
-        return;
-      }
       if (message.type === "ready") {
         logVSmuxDebug("workspace.panel.ready", {
           hasLatestMessage: this.latestMessage !== undefined,
@@ -297,14 +293,13 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
     return true;
   }
   if (message.type === "workspaceDebugLog") {
-    return (
-      typeof message.event === "string" &&
-      message.event.length > 0 &&
-      (message.details === undefined || typeof message.details === "string")
-    );
+    return typeof message.event === "string" && message.event.length > 0;
   }
   if (message.type === "reloadWorkspacePanel") {
     return true;
+  }
+  if (message.type === "reloadT3Session") {
+    return typeof message.sessionId === "string" && message.sessionId.length > 0;
   }
   if (message.type === "completeWelcome") {
     return true;
@@ -314,6 +309,15 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
   }
   if (message.type === "applyCodexStatusLine") {
     return true;
+  }
+  if (message.type === "t3ThreadChanged") {
+    return (
+      typeof message.sessionId === "string" &&
+      message.sessionId.length > 0 &&
+      typeof message.threadId === "string" &&
+      message.threadId.length > 0 &&
+      (message.title === undefined || typeof message.title === "string")
+    );
   }
   if (
     message.type === "focusSession" ||

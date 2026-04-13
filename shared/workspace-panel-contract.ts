@@ -1,5 +1,6 @@
 import type {
   GroupedSessionWorkspaceSnapshot,
+  SidebarSessionActivityState,
   TerminalViewMode,
   TerminalSessionRecord,
   T3SessionRecord,
@@ -40,6 +41,7 @@ export type WorkspacePanelAutoFocusRequest = {
 export type WorkspaceWelcomeModalMode = "optional" | "required";
 
 export type WorkspacePanelTerminalPane = {
+  activity?: SidebarSessionActivityState;
   kind: "terminal";
   isVisible: boolean;
   renderNonce: number;
@@ -50,8 +52,10 @@ export type WorkspacePanelTerminalPane = {
 };
 
 export type WorkspacePanelT3Pane = {
+  activity?: SidebarSessionActivityState;
   kind: "t3";
   isVisible: boolean;
+  renderNonce: number;
   sessionId: string;
   sessionRecord: T3SessionRecord;
   html: string;
@@ -176,7 +180,7 @@ export type WorkspacePanelSyncPaneOrderMessage = {
 };
 
 export type WorkspacePanelDebugLogMessage = {
-  details?: string;
+  details?: unknown;
   event: string;
   type: "workspaceDebugLog";
 };
@@ -184,6 +188,18 @@ export type WorkspacePanelDebugLogMessage = {
 export type WorkspacePanelReloadMessage = {
   sessionId?: string;
   type: "reloadWorkspacePanel";
+};
+
+export type WorkspacePanelReloadT3SessionMessage = {
+  sessionId: string;
+  type: "reloadT3Session";
+};
+
+export type WorkspacePanelT3ThreadChangedMessage = {
+  sessionId: string;
+  threadId: string;
+  title?: string;
+  type: "t3ThreadChanged";
 };
 
 export type WorkspacePanelCompleteWelcomeMessage = {
@@ -203,6 +219,7 @@ export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelCompleteWelcomeMessage
   | WorkspacePanelApplyCodexTerminalTitleMessage
   | WorkspacePanelApplyCodexStatusLineMessage
+  | WorkspacePanelDebugLogMessage
   | WorkspacePanelFocusSessionMessage
   | WorkspacePanelCloseSessionMessage
   | WorkspacePanelFullReloadSessionMessage
@@ -211,8 +228,9 @@ export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelSetSessionSleepingMessage
   | WorkspacePanelSyncPaneOrderMessage
   | WorkspacePanelSyncSessionOrderMessage
-  | WorkspacePanelDebugLogMessage
-  | WorkspacePanelReloadMessage;
+  | WorkspacePanelReloadMessage
+  | WorkspacePanelReloadT3SessionMessage
+  | WorkspacePanelT3ThreadChangedMessage;
 
 export function stripWorkspacePanelTransientFields(
   message: ExtensionToWorkspacePanelMessage,

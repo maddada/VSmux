@@ -23,6 +23,9 @@ type T3ClipboardPayload = {
 
 declare global {
   interface Window {
+    __VSMUX_T3_ACTIVE_THREAD_ID__?: string;
+    __VSMUX_T3_ACTIVE_THREAD_TITLE__?: string;
+    __VSMUX_T3_COMPOSER_FOCUS_ENABLED__?: boolean;
     __VSMUX_T3_BOOTSTRAP__?: {
       embedMode: "vsmux-mobile";
       httpOrigin: string;
@@ -127,6 +130,8 @@ window.__VSMUX_T3_BOOTSTRAP__ = {
   workspaceRoot: bootstrap.workspaceRoot,
   wsUrl: bootstrap.wsUrl,
 };
+window.__VSMUX_T3_ACTIVE_THREAD_ID__ = bootstrap.threadId;
+window.__VSMUX_T3_COMPOSER_FOCUS_ENABLED__ = false;
 installDesktopBridge();
 
 if (bootstrap.styleHref) {
@@ -141,22 +146,40 @@ if (root) {
   root.id = "root";
 }
 
+reportDebugLog("workspace.t3FrameHostBoot", {
+  hash: window.location.hash,
+  href: window.location.href,
+  pathname: window.location.pathname,
+  threadId: bootstrap.threadId,
+});
+
 window.addEventListener("message", (event) => {
+  if (event.data?.type === "blurComposer") {
+    window.__VSMUX_T3_COMPOSER_FOCUS_ENABLED__ = false;
+    reportDebugLog("workspace.t3FrameHostBlurComposerMessage", {
+      activeElementTag: document.activeElement?.tagName ?? null,
+      currentThreadId: getCurrentThreadId(),
+    });
+    blurComposerEditor();
+    return;
+  }
+
   if (event.data?.type !== "focusComposer") {
     return;
   }
 
+  window.__VSMUX_T3_COMPOSER_FOCUS_ENABLED__ = true;
+  reportDebugLog("workspace.t3FrameHostFocusComposerMessage", {
+    activeElementTag: document.activeElement?.tagName ?? null,
+    currentThreadId: getCurrentThreadId(),
+  });
   focusComposerEditor();
-});
-
-window.addEventListener("focus", () => {
-  notifyParentFocus();
 });
 
 document.addEventListener(
   "pointerdown",
-  () => {
-    notifyParentFocus();
+  (event) => {
+    notifyParentFocus(event);
   },
   true,
 );
@@ -164,6 +187,31 @@ document.addEventListener(
 let nextClipboardRequestId = 0;
 const pendingClipboardReads = new Map<number, (payload: T3ClipboardPayload) => void>();
 let pendingPasteFallbackTimer: number | undefined;
+let currentThreadId = bootstrap.threadId;
+let pendingComposerFocusTimeoutId: number | undefined;
+let composerFocusRequestVersion = 0;
+
+window.addEventListener("beforeunload", () => {
+  reportDebugLog("workspace.t3FrameHostBeforeUnload", {
+    currentThreadId: getCurrentThreadId(),
+    hash: window.location.hash,
+    href: window.location.href,
+  });
+});
+
+window.addEventListener("pagehide", (event) => {
+  reportDebugLog("workspace.t3FrameHostPageHide", {
+    currentThreadId: getCurrentThreadId(),
+    persisted: event.persisted,
+  });
+});
+
+document.addEventListener("visibilitychange", () => {
+  reportDebugLog("workspace.t3FrameHostVisibilityChange", {
+    currentThreadId: getCurrentThreadId(),
+    visibilityState: document.visibilityState,
+  });
+});
 
 window.addEventListener("message", (event) => {
   if (event.data?.type !== "vsmuxT3ClipboardReadResult") {
@@ -304,18 +352,47 @@ function readBootstrap(): T3FrameBootstrap {
 function focusComposerEditor() {
   const maxAttempts = 10;
   let attempt = 0;
+  const requestVersion = ++composerFocusRequestVersion;
+
+  if (pendingComposerFocusTimeoutId !== undefined) {
+    window.clearTimeout(pendingComposerFocusTimeoutId);
+    pendingComposerFocusTimeoutId = undefined;
+  }
+
+  reportDebugLog("workspace.t3FrameHostFocusComposerStart", {
+    requestVersion,
+  });
 
   const tryFocus = () => {
+    if (requestVersion !== composerFocusRequestVersion) {
+      reportDebugLog("workspace.t3FrameHostFocusComposerCancelled", {
+        attempt,
+        requestVersion,
+      });
+      return;
+    }
+
     const composer = document.querySelector(
       '[data-testid="composer-editor"][contenteditable="true"]',
     );
     if (!(composer instanceof HTMLElement)) {
       if (attempt < maxAttempts) {
         attempt += 1;
-        window.setTimeout(tryFocus, 50);
+        reportDebugLog("workspace.t3FrameHostFocusComposerRetry", {
+          attempt,
+          requestVersion,
+        });
+        pendingComposerFocusTimeoutId = window.setTimeout(tryFocus, 50);
+      } else {
+        reportDebugLog("workspace.t3FrameHostFocusComposerMissing", {
+          attempt,
+          requestVersion,
+        });
       }
       return;
     }
+
+    pendingComposerFocusTimeoutId = undefined;
 
     composer.focus();
     const selection = window.getSelection();
@@ -328,19 +405,83 @@ function focusComposerEditor() {
     range.collapse(false);
     selection.removeAllRanges();
     selection.addRange(range);
+    reportDebugLog("workspace.t3FrameHostFocusComposerApplied", {
+      activeElementTag: document.activeElement?.tagName ?? null,
+      requestVersion,
+      selectionRangeCount: selection.rangeCount,
+    });
   };
 
   tryFocus();
 }
 
-function notifyParentFocus() {
+function blurComposerEditor() {
+  const previousRequestVersion = composerFocusRequestVersion;
+  composerFocusRequestVersion += 1;
+  if (pendingComposerFocusTimeoutId !== undefined) {
+    window.clearTimeout(pendingComposerFocusTimeoutId);
+    pendingComposerFocusTimeoutId = undefined;
+  }
+
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement) {
+    activeElement.blur();
+  }
+
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  reportDebugLog("workspace.t3FrameHostBlurComposerApplied", {
+    activeElementTag: document.activeElement?.tagName ?? null,
+    previousRequestVersion,
+    selectionRangeCount: selection?.rangeCount ?? 0,
+  });
+}
+
+function notifyParentFocus(event?: PointerEvent) {
+  const target = event?.target instanceof Element ? event.target : undefined;
   window.parent?.postMessage(
     {
+      payload: {
+        activeElementTag: document.activeElement?.tagName ?? null,
+        button: event?.button ?? null,
+        composerFocusEnabled: window.__VSMUX_T3_COMPOSER_FOCUS_ENABLED__ ?? null,
+        currentThreadId: getCurrentThreadId(),
+        detail: event?.detail ?? null,
+        pointerType: event?.pointerType ?? null,
+        selectionTextLength: window.getSelection()?.toString().length ?? 0,
+        targetRole: target?.getAttribute("role") ?? null,
+        targetTag: target?.tagName ?? null,
+      },
       sessionId: bootstrap.sessionId,
       type: "vsmuxT3Focus",
     },
     "*",
   );
+}
+
+function reportDebugLog(event: string, payload?: Record<string, unknown>) {
+  window.parent?.postMessage(
+    {
+      event,
+      payload,
+      sessionId: bootstrap.sessionId,
+      type: "vsmuxT3DebugLog",
+    },
+    "*",
+  );
+}
+
+function getCurrentThreadId(): string | undefined {
+  return (
+    window.__VSMUX_T3_ACTIVE_THREAD_ID__ ??
+    currentThreadId ??
+    window.__VSMUX_T3_BOOTSTRAP__?.threadId
+  );
+}
+
+function normalizeTitle(value: string | undefined): string | undefined {
+  const normalizedValue = value?.trim();
+  return normalizedValue ? normalizedValue : undefined;
 }
 
 function installDesktopBridge() {
@@ -369,7 +510,7 @@ function installDesktopBridge() {
         lastError: null,
         open: false,
         tabs: [],
-        threadId: input?.threadId ?? bootstrap.threadId,
+        threadId: input?.threadId ?? currentThreadId,
       }),
       goBack: async () => null,
       goForward: async () => null,

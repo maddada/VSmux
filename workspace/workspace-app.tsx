@@ -19,13 +19,11 @@ import type {
   WorkspacePanelSessionStateMessage,
   WorkspacePanelShowToastMessage,
 } from "../shared/workspace-panel-contract";
-import { stripWorkspacePanelTransientFields } from "../shared/workspace-panel-contract";
 import { getVisiblePrimaryTitle, getVisibleTerminalTitle } from "../shared/session-grid-contract";
 import {
   getSidebarAgentIconById,
   shouldPreferTerminalTitleForAgentIcon,
 } from "../shared/sidebar-agents";
-import { logWorkspaceDebug } from "./workspace-debug";
 import { WorkspacePaneCloseButton } from "./workspace-pane-close-button";
 import { WorkspacePaneForkButton } from "./workspace-pane-fork-button";
 import { WorkspacePaneRenameButton } from "./workspace-pane-rename-button";
@@ -37,6 +35,7 @@ import {
   sortPanesBySessionIds,
 } from "./workspace-pane-reorder";
 import { destroyCachedTerminalRuntime, getTerminalRuntimeCacheKey } from "./terminal-runtime-cache";
+import { blurAllCachedT3Runtimes } from "./t3-runtime-cache";
 import { TerminalPane } from "./terminal-pane";
 import { T3Pane } from "./t3-pane";
 import { WorkspaceWelcomeModal } from "./workspace-welcome-modal";
@@ -91,6 +90,7 @@ type WorkspaceCodexSettingConfirmationState = {
 
 const AUTO_FOCUS_ACTIVATION_GUARD_MS = 400;
 const AUTO_RELOAD_ON_LAG = true;
+const T3_TERMINAL_FOCUS_GUARD_MS = 1_000;
 const WORKSPACE_TOAST_CONFIRM_DISPLAY_MS = 2_800;
 const WORKSPACE_TOAST_CONFIRM_FADE_MS = 300;
 let nextWorkspaceBootId = 0;
@@ -127,21 +127,29 @@ const describeActiveElement = () => {
 
 type WorkspaceToastComparable = WorkspacePanelShowToastMessage | WorkspaceToastState | undefined;
 
-const summarizeWorkspaceTerminalPanes = (panes: WorkspacePanelPane[]) =>
-  panes.flatMap((pane) =>
-    pane.kind !== "terminal"
-      ? []
-      : [
-          {
-            isVisible: pane.isVisible,
-            renderNonce: pane.renderNonce,
-            sessionId: pane.sessionId,
-            snapshotAgentName: pane.snapshot?.agentName,
-            snapshotHistoryBytes: pane.snapshot?.history?.length ?? 0,
-            snapshotIsAttached: pane.snapshot?.isAttached,
-            snapshotStatus: pane.snapshot?.status,
-          },
-        ],
+const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
+  panes.map((pane) =>
+    pane.kind === "terminal"
+      ? {
+          activity: pane.activity,
+          isVisible: pane.isVisible,
+          kind: pane.kind,
+          renderNonce: pane.renderNonce,
+          sessionId: pane.sessionId,
+          snapshotAgentName: pane.snapshot?.agentName,
+          snapshotHistoryBytes: pane.snapshot?.history?.length ?? 0,
+          snapshotIsAttached: pane.snapshot?.isAttached,
+          snapshotStatus: pane.snapshot?.status,
+        }
+      : {
+          activity: pane.activity,
+          isVisible: pane.isVisible,
+          kind: pane.kind,
+          renderNonce: pane.renderNonce,
+          sessionId: pane.sessionId,
+          threadId: pane.sessionRecord.t3.threadId,
+          title: pane.sessionRecord.title,
+        },
   );
 
 const isSameWorkspaceToast = (left: WorkspaceToastComparable, right: WorkspaceToastComparable) =>
@@ -175,6 +183,12 @@ const summarizeTerminalLayerState = (
         ],
   );
 
+function getWorkspacePaneHeaderActivity(
+  pane: WorkspacePanelPane,
+): "attention" | "working" | undefined {
+  return pane.activity === "working" || pane.activity === "attention" ? pane.activity : undefined;
+}
+
 export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = window, vscode }) => {
   const workspaceBootIdRef = useRef(++nextWorkspaceBootId);
   const [isWorkspaceFocused, setIsWorkspaceFocused] = useState(
@@ -186,7 +200,6 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const [serverState, setServerState] = useState<ExtensionToWorkspacePanelMessage | undefined>(() =>
     getInitialWorkspaceState(),
   );
-  const [localFocusedSessionId, setLocalFocusedSessionId] = useState<string | undefined>();
   const [localPaneOrder, setLocalPaneOrder] = useState<string[] | undefined>();
   const [draggedPaneId, setDraggedPaneId] = useState<string | undefined>();
   const [dropTargetPaneId, setDropTargetPaneId] = useState<string | undefined>();
@@ -197,27 +210,17 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const [terminalScrollRequest, setTerminalScrollRequest] = useState<
     WorkspaceTerminalScrollRequestState | undefined
   >();
+  const [t3TerminalFocusGuardUntil, setT3TerminalFocusGuardUntil] = useState(0);
   const [codexSettingConfirmation, setCodexSettingConfirmation] = useState<
     WorkspaceCodexSettingConfirmationState | undefined
   >();
-  const focusRequestSequenceRef = useRef(0);
   const debuggingModeRef = useRef<boolean | undefined>(undefined);
   const lagAutoReloadRequestedRef = useRef(false);
   const autoFocusGuardRef = useRef<WorkspaceAutoFocusGuard | undefined>(undefined);
-  const lastAppliedWorkspaceMessageSignatureRef = useRef<string | undefined>(undefined);
-  const lastAppliedAutoFocusRequestIdRef = useRef<number | undefined>(undefined);
   const pointerDragStateRef = useRef<WorkspacePanePointerDragState | undefined>(undefined);
-  const pendingFocusRequestRef = useRef<
-    | {
-        requestId: number;
-        sessionId: string;
-        startedAt: number;
-      }
-    | undefined
-  >(undefined);
-  const pendingFocusedSessionIdRef = useRef<string | undefined>(undefined);
   const workspaceStateRef = useRef<WorkspaceStateMessage | undefined>(undefined);
   const presentedFocusedSessionIdRef = useRef<string | undefined>(undefined);
+  const t3TerminalFocusGuardUntilRef = useRef(0);
   const paneMeasuredBoundsRef = useRef(new Map<string, WorkspacePaneMeasuredBounds>());
   const lastVisibleLayoutBySessionIdRef = useRef(
     new Map<string, { gridColumn: string; gridRow: string; layoutKey: string }>(),
@@ -228,7 +231,14 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   );
   const terminalPortalTargetVersionRef = useRef(0);
   const handleT3IframeFocusRef = useRef<
-    | ((sessionId: string, event: MessageEvent<{ sessionId?: string; type?: string }>) => void)
+    | ((
+        sessionId: string,
+        event: MessageEvent<{
+          payload?: Record<string, unknown>;
+          sessionId?: string;
+          type?: string;
+        }>,
+      ) => void)
     | undefined
   >(undefined);
   const requestPaneReorderRef = useRef<(sourcePaneId: string, targetPaneId: string) => void>(
@@ -243,6 +253,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const isWelcomeModalOpen = welcomeModalMode !== undefined;
   debuggingModeRef.current = workspaceState?.debuggingMode;
   workspaceStateRef.current = workspaceState;
+  t3TerminalFocusGuardUntilRef.current = t3TerminalFocusGuardUntil;
 
   useEffect(() => {
     if (!workspaceState?.shouldShowWelcomeModal) {
@@ -290,7 +301,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
   const postWorkspaceReproLog = (event: string, payload?: Record<string, unknown>) => {
     postToExtension({
-      details: payload ? safeSerializeWorkspaceDebugDetails(payload) : undefined,
+      details: payload,
       event,
       type: "workspaceDebugLog",
     });
@@ -301,13 +312,12 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     event: string,
     payload?: Record<string, unknown>,
   ) => {
-    logWorkspaceDebug(enabled, event, payload);
     if (!enabled) {
       return;
     }
 
     postToExtension({
-      details: payload ? safeSerializeWorkspaceDebugDetails(payload) : undefined,
+      details: payload,
       event,
       type: "workspaceDebugLog",
     });
@@ -372,54 +382,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     const applyWorkspaceStateMessage = (
       message: WorkspacePanelHydrateMessage | WorkspacePanelSessionStateMessage,
     ) => {
-      const signatureStartedAt = performance.now();
-      const stableMessageSignature = JSON.stringify(stripWorkspacePanelTransientFields(message));
-      const signatureDurationMs = performance.now() - signatureStartedAt;
-      const isDuplicateStableState =
-        lastAppliedWorkspaceMessageSignatureRef.current === stableMessageSignature;
-      const shouldApplyAutoFocusRequest =
-        !!message.autoFocusRequest &&
-        lastAppliedAutoFocusRequestIdRef.current !== message.autoFocusRequest.requestId;
-
-      if (isDuplicateStableState && !shouldApplyAutoFocusRequest) {
-        postWorkspaceReproLog("repro.workspace.applyMessageIgnoredDuplicate", {
-          activeGroupId: message.activeGroupId,
-          focusedSessionId: message.focusedSessionId,
-          historyBytesBySessionId: message.panes.flatMap((pane) =>
-            pane.kind !== "terminal"
-              ? []
-              : [{ historyBytes: pane.snapshot?.history?.length ?? 0, sessionId: pane.sessionId }],
-          ),
-          paneIds: message.panes.map((pane) => pane.sessionId),
-          signatureDurationMs: Math.round(signatureDurationMs * 100) / 100,
-          type: message.type,
-        });
-        postWorkspaceDebugLog(message.debuggingMode, "message.ignoredDuplicate", {
-          activeGroupId: message.activeGroupId,
-          bootId: workspaceBootIdRef.current,
-          focusedSessionId: message.focusedSessionId,
-          paneIds: message.panes.map((pane) => pane.sessionId),
-          type: message.type,
-        });
-        return;
-      }
-
       postWorkspaceDebugLog(message.debuggingMode, "message.received", {
         activeGroupId: message.activeGroupId,
         bootId: workspaceBootIdRef.current,
         focusedSessionId: message.focusedSessionId,
         paneIds: message.panes.map((pane) => pane.sessionId),
-        pendingFocusRequest:
-          pendingFocusRequestRef.current &&
-          message.focusedSessionId === pendingFocusRequestRef.current.sessionId
-            ? {
-                durationMs: Math.round(
-                  performance.now() - pendingFocusRequestRef.current.startedAt,
-                ),
-                requestId: pendingFocusRequestRef.current.requestId,
-                sessionId: pendingFocusRequestRef.current.sessionId,
-              }
-            : undefined,
         type: message.type,
       });
       postWorkspaceReproLog("repro.workspace.applyMessageReceived", {
@@ -431,25 +398,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             : [{ historyBytes: pane.snapshot?.history?.length ?? 0, sessionId: pane.sessionId }],
         ),
         paneIds: message.panes.map((pane) => pane.sessionId),
-        signatureDurationMs: Math.round(signatureDurationMs * 100) / 100,
         type: message.type,
       });
-      if (
-        pendingFocusRequestRef.current &&
-        message.focusedSessionId === pendingFocusRequestRef.current.sessionId
-      ) {
-        postWorkspaceReproLog("repro.workspace.pendingFocusMatched", {
-          durationMs: Math.round(performance.now() - pendingFocusRequestRef.current.startedAt),
-          requestId: pendingFocusRequestRef.current.requestId,
-          sessionId: pendingFocusRequestRef.current.sessionId,
-        });
-        postWorkspaceDebugLog(message.debuggingMode, "focus.messageMatchedPendingRequest", {
-          bootId: workspaceBootIdRef.current,
-          durationMs: Math.round(performance.now() - pendingFocusRequestRef.current.startedAt),
-          requestId: pendingFocusRequestRef.current.requestId,
-          sessionId: pendingFocusRequestRef.current.sessionId,
-        });
-      }
       if (message.autoFocusRequest) {
         autoFocusGuardRef.current = {
           expiresAt: performance.now() + AUTO_FOCUS_ACTIVATION_GUARD_MS,
@@ -463,9 +413,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
           sessionId: message.autoFocusRequest.sessionId,
           source: message.autoFocusRequest.source,
         });
-        lastAppliedAutoFocusRequestIdRef.current = message.autoFocusRequest.requestId;
       }
-      lastAppliedWorkspaceMessageSignatureRef.current = stableMessageSignature;
       setServerState(message);
     };
 
@@ -549,7 +497,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         bootId: workspaceBootIdRef.current,
         focusedSessionId: nextMessage.focusedSessionId,
         paneCount: nextMessage.panes.length,
-        panes: summarizeWorkspaceTerminalPanes(nextMessage.panes),
+        panes: summarizeWorkspacePaneState(nextMessage.panes),
         workspaceGroups: nextMessage.workspaceSnapshot.groups.map((group) => ({
           focusedSessionId: group.snapshot.focusedSessionId,
           groupId: group.groupId,
@@ -563,11 +511,22 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       applyWorkspaceStateMessage(nextMessage);
     };
 
-    const handleIframeFocus = (event: MessageEvent<{ sessionId?: string; type?: string }>) => {
+    const handleIframeFocus = (
+      event: MessageEvent<{
+        payload?: Record<string, unknown>;
+        sessionId?: string;
+        type?: string;
+      }>,
+    ) => {
       if (event.data?.type !== "vsmuxT3Focus" || typeof event.data.sessionId !== "string") {
         return;
       }
 
+      postWorkspaceReproLog("repro.workspace.t3IframeFocusMessage", {
+        eventOrigin: event.origin,
+        payload: event.data.payload,
+        sessionId: event.data.sessionId,
+      });
       handleT3IframeFocusRef.current?.(event.data.sessionId, event);
     };
 
@@ -703,7 +662,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
     return nextLayoutBySessionId;
   }, [visiblePanes, workspaceState?.viewMode]);
-  const presentedFocusedSessionId = localFocusedSessionId ?? workspaceState?.focusedSessionId;
+  const presentedFocusedSessionId = workspaceState?.focusedSessionId;
   presentedFocusedSessionIdRef.current = presentedFocusedSessionId;
   const visiblePaneIds = useMemo(() => visiblePanes.map((pane) => pane.sessionId), [visiblePanes]);
   const visiblePaneIdsKey = visiblePaneIds.join("|");
@@ -764,11 +723,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   const hiddenPaneInPlaceStyles = useMemo(() => {
     const nextStyles = new Map<string, CSSProperties>();
     for (const pane of orderedPanes) {
-      if (
-        pane.kind !== "terminal" ||
-        pane.isVisible ||
-        !activeGroupSessionIdSet.has(pane.sessionId)
-      ) {
+      if (pane.isVisible || !activeGroupSessionIdSet.has(pane.sessionId)) {
         continue;
       }
 
@@ -790,9 +745,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   }, [activeGroupLayoutKey, activeGroupSessionIdSet, orderedPanes]);
   const hiddenPaneParkingStyles = useMemo(() => {
     const paneGap = workspaceState?.layoutAppearance.paneGap ?? 12;
-    const hiddenTerminalPanes = orderedPanes.filter(
-      (pane): pane is Extract<WorkspacePanelPane, { kind: "terminal" }> =>
-        pane.kind === "terminal" &&
+    const hiddenPanes = orderedPanes.filter(
+      (pane) =>
         !pane.isVisible &&
         (!activeGroupSessionIdSet.has(pane.sessionId) ||
           lastVisibleLayoutBySessionIdRef.current.get(pane.sessionId)?.layoutKey !==
@@ -800,7 +754,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     );
     const nextStyles = new Map<string, CSSProperties>();
 
-    hiddenTerminalPanes.forEach((pane, index) => {
+    hiddenPanes.forEach((pane, index) => {
       const measuredBounds = paneMeasuredBoundsRef.current.get(pane.sessionId);
       nextStyles.set(pane.sessionId, {
         height: measuredBounds?.height ? `${String(measuredBounds.height)}px` : "1px",
@@ -916,79 +870,39 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   ]);
 
   useEffect(() => {
-    if (!workspaceState) {
-      return;
-    }
-
-    const pendingFocusedSessionId = pendingFocusedSessionIdRef.current;
-    const pendingFocusRequest = pendingFocusRequestRef.current;
-
-    if (pendingFocusedSessionId) {
-      if (workspaceState.focusedSessionId === pendingFocusedSessionId) {
-        pendingFocusedSessionIdRef.current = undefined;
-        pendingFocusRequestRef.current = undefined;
-      } else {
-        postWorkspaceDebugLog(workspaceState.debuggingMode, "focus.pendingRequestSuperseded", {
-          pendingFocusRequest:
-            pendingFocusRequest === undefined
-              ? undefined
-              : {
-                  durationMs: Math.round(performance.now() - pendingFocusRequest.startedAt),
-                  requestId: pendingFocusRequest.requestId,
-                  sessionId: pendingFocusRequest.sessionId,
-                },
-          serverFocusedSessionId: workspaceState.focusedSessionId,
-        });
-        pendingFocusedSessionIdRef.current = undefined;
-        pendingFocusRequestRef.current = undefined;
-      }
-    }
-
-    setLocalFocusedSessionId((previousFocusedSessionId) => {
-      if (previousFocusedSessionId === workspaceState.focusedSessionId) {
-        return previousFocusedSessionId;
-      }
-
-      return workspaceState.focusedSessionId;
-    });
-  }, [workspaceState]);
-
-  useEffect(() => {
     setLocalPaneOrder(undefined);
     setDraggedPaneId(undefined);
     setDropTargetPaneId(undefined);
   }, [workspacePaneIdsKey, workspaceState?.activeGroupId]);
 
   const requestFocusSession = (sessionId: string) => {
-    const requestId = ++focusRequestSequenceRef.current;
-    const startedAt = performance.now();
-    pendingFocusedSessionIdRef.current = sessionId;
-    pendingFocusRequestRef.current = {
-      requestId,
-      sessionId,
-      startedAt,
-    };
     postWorkspaceDebugLog(workspaceState?.debuggingMode, "focus.requested", {
-      requestId,
       sessionId,
     });
     postWorkspaceReproLog("repro.workspace.requestFocusSession", {
-      requestId,
       sessionId,
       visiblePaneIds,
     });
-    setLocalFocusedSessionId(sessionId);
     postToExtension({
       sessionId,
       type: "focusSession",
     });
   };
 
-  const applyLocalFocusVisual = (sessionId: string) => {
-    postWorkspaceDebugLog(workspaceState?.debuggingMode, "focus.localFocusVisual", {
+  const armT3TerminalFocusGuard = (sessionId: string, source: "enter" | "focusin" | "pointer") => {
+    const nextGuardUntil = performance.now() + T3_TERMINAL_FOCUS_GUARD_MS;
+    t3TerminalFocusGuardUntilRef.current = nextGuardUntil;
+    setT3TerminalFocusGuardUntil(nextGuardUntil);
+    postWorkspaceDebugLog(workspaceState?.debuggingMode, "focus.t3TerminalGuardArmed", {
+      durationMs: T3_TERMINAL_FOCUS_GUARD_MS,
       sessionId,
+      source,
     });
-    setLocalFocusedSessionId(sessionId);
+    postWorkspaceReproLog("repro.workspace.t3TerminalGuardArmed", {
+      durationMs: T3_TERMINAL_FOCUS_GUARD_MS,
+      sessionId,
+      source,
+    });
   };
 
   const shouldIgnorePaneActivation = (sessionId: string): boolean => {
@@ -1016,7 +930,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
   const handleT3IframeFocus = (
     sessionId: string,
-    event: MessageEvent<{ sessionId?: string; type?: string }>,
+    event: MessageEvent<{
+      payload?: Record<string, unknown>;
+      sessionId?: string;
+      type?: string;
+    }>,
   ) => {
     const activeWorkspaceState = workspaceStateRef.current;
     const pane = activeWorkspaceState?.panes.find(
@@ -1025,22 +943,42 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     const isVisible = pane?.isVisible === true;
     const isFocused = presentedFocusedSessionIdRef.current === sessionId;
     const ignoredForAutoFocus = shouldIgnorePaneActivation(sessionId);
+    const withinTerminalGuard = performance.now() < t3TerminalFocusGuardUntilRef.current;
 
     postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusReceived", {
       eventOrigin: event.origin,
       ignoredForAutoFocus,
+      ignoredForTerminalGuard: withinTerminalGuard,
       isFocused,
       isVisible,
+      payload: event.data?.payload,
       paneExists: pane !== undefined,
       sessionId,
     });
+    postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.received", {
+      eventOrigin: event.origin,
+      ignoredForAutoFocus,
+      isFocused,
+      isVisible,
+      payload: event.data?.payload,
+      sessionId,
+      withinTerminalGuard,
+    });
 
     if (!pane) {
+      postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.ignored", {
+        reason: "missingPane",
+        sessionId,
+      });
       return;
     }
 
     if (!pane.isVisible) {
       postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
+        reason: "hiddenPane",
+        sessionId,
+      });
+      postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.ignored", {
         reason: "hiddenPane",
         sessionId,
       });
@@ -1052,23 +990,52 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
         reason: "autoFocusGuard",
         sessionId,
       });
+      postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.ignored", {
+        reason: "autoFocusGuard",
+        sessionId,
+      });
       return;
     }
 
-    applyLocalFocusVisual(sessionId);
-    if (!isFocused) {
-      requestFocusSession(sessionId);
+    if (isFocused) {
+      postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
+        reason: "alreadyFocused",
+        sessionId,
+      });
+      postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.ignored", {
+        reason: "alreadyFocused",
+        sessionId,
+      });
       return;
     }
 
-    postWorkspaceDebugLog(activeWorkspaceState?.debuggingMode, "focus.t3IframeFocusIgnored", {
-      reason: "alreadyFocused",
+    postWorkspaceDebugLog(
+      activeWorkspaceState?.debuggingMode,
+      "focus.t3IframeFocusActivatesSession",
+      {
+        sessionId,
+        withinTerminalGuard,
+      },
+    );
+    postWorkspaceReproLog("repro.workspace.handleT3IframeFocus.activatesSession", {
       sessionId,
+      withinTerminalGuard,
     });
+    requestFocusSession(sessionId);
+    postFocusComposerToT3Source(event.source, activeWorkspaceState?.debuggingMode, sessionId);
   };
   handleT3IframeFocusRef.current = handleT3IframeFocus;
 
   const handleTerminalActivate = (sessionId: string, source: WorkspaceTerminalActivationSource) => {
+    blurAllCachedT3Runtimes((event, payload) =>
+      postWorkspaceDebugLog(workspaceState?.debuggingMode, event, {
+        reason: "terminalActivate",
+        source,
+        ...payload,
+      }),
+    );
+    armT3TerminalFocusGuard(sessionId, source);
+
     if (pointerDragStateRef.current) {
       postWorkspaceDebugLog(
         workspaceState?.debuggingMode,
@@ -1086,7 +1053,6 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     postWorkspaceDebugLog(workspaceState?.debuggingMode, "focus.paneActivationReceived", {
       ignored,
       isFocused,
-      localFocusedSessionId: presentedFocusedSessionId,
       serverFocusedSessionId: workspaceState?.focusedSessionId,
       sessionId,
       source,
@@ -1111,12 +1077,33 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
           (group) => group.groupId === workspaceState.activeGroupId,
         )?.snapshot.visibleSessionIds ?? [],
     });
+    postWorkspaceReproLog("repro.workspace.handleTerminalActivate", {
+      ignored,
+      isFocused,
+      presentedFocusedSessionId,
+      serverFocusedSessionId: workspaceState?.focusedSessionId,
+      sessionId,
+      source,
+      visiblePaneIds,
+    });
     if (ignored) {
       return;
     }
 
-    applyLocalFocusVisual(sessionId);
     if (!isFocused) {
+      if (source === "focusin") {
+        postWorkspaceDebugLog(
+          workspaceState?.debuggingMode,
+          "focus.paneActivationIgnoredForFocusIn",
+          {
+            serverFocusedSessionId: workspaceState?.focusedSessionId,
+            sessionId,
+            source,
+          },
+        );
+        return;
+      }
+
       postWorkspaceDebugLog(workspaceState?.debuggingMode, "focus.paneActivationRequestsFocus", {
         sessionId,
         source,
@@ -1129,6 +1116,18 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       sessionId,
       source,
     });
+  };
+
+  const handleTerminalEnter = (sessionId: string) => {
+    blurAllCachedT3Runtimes((event, payload) =>
+      postWorkspaceDebugLog(workspaceState?.debuggingMode, event, {
+        reason: "terminalEnter",
+        source: "enter",
+        ...payload,
+      }),
+    );
+    armT3TerminalFocusGuard(sessionId, "enter");
+    confirmWorkspaceToastForSession(sessionId);
   };
 
   const requestPaneReorder = (sourcePaneId: string, targetPaneId: string) => {
@@ -1184,6 +1183,19 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       return;
     }
 
+    const lagPane = workspaceStateRef.current?.panes.find(
+      (pane) => pane.sessionId === payload.sessionId,
+    );
+    if (!lagPane || lagPane.kind !== "terminal") {
+      postWorkspaceDebugLog(workspaceState?.debuggingMode, "workspace.lagAutoReloadIgnored", {
+        kind: lagPane?.kind,
+        overshootMs: payload.overshootMs,
+        sessionId: payload.sessionId,
+        visibilityState: payload.visibilityState,
+      });
+      return;
+    }
+
     lagAutoReloadRequestedRef.current = true;
     postWorkspaceDebugLog(true, "workspace.lagAutoReload", {
       bootId: workspaceBootIdRef.current,
@@ -1192,6 +1204,20 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
       sessionId: payload.sessionId,
     });
     postToExtension({ sessionId: payload.sessionId, type: "reloadWorkspacePanel" });
+  };
+
+  const handleT3ThreadChanged = (payload: {
+    sessionId: string;
+    threadId: string;
+    title?: string;
+  }) => {
+    postWorkspaceDebugLog(workspaceState?.debuggingMode, "workspace.t3ThreadChanged", payload);
+    postToExtension({
+      sessionId: payload.sessionId,
+      threadId: payload.threadId,
+      title: payload.title,
+      type: "t3ThreadChanged",
+    });
   };
 
   const clearDragState = () => {
@@ -1415,8 +1441,29 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               : (hiddenPaneInPlaceStyles.get(pane.sessionId) ??
                 hiddenPaneParkingStyles.get(pane.sessionId))
           }
+          t3FocusSuppressedUntil={t3TerminalFocusGuardUntil}
           onBoundsMeasured={(bounds) => recordPaneMeasuredBounds(pane.sessionId, bounds)}
-          onLocalFocus={() => applyLocalFocusVisual(pane.sessionId)}
+          onTerminalPointerIntent={
+            pane.kind === "terminal"
+              ? () => {
+                  blurAllCachedT3Runtimes((event, payload) =>
+                    postWorkspaceDebugLog(workspaceState?.debuggingMode, event, {
+                      reason: "terminalPointerIntent",
+                      source: "pointer",
+                      ...payload,
+                    }),
+                  );
+                  armT3TerminalFocusGuard(pane.sessionId, "pointer");
+                  postWorkspaceDebugLog(
+                    workspaceState?.debuggingMode,
+                    "focus.terminalPointerIntent",
+                    {
+                      sessionId: pane.sessionId,
+                    },
+                  );
+                }
+              : undefined
+          }
           onFocus={() => requestFocusSession(pane.sessionId)}
           onClose={() =>
             postToExtension({
@@ -1438,6 +1485,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               type: "forkSession",
             })
           }
+          onT3ThreadChanged={handleT3ThreadChanged}
           onReload={() => {
             if (pane.kind === "terminal") {
               postToExtension({
@@ -1447,9 +1495,12 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               return;
             }
 
+            postWorkspaceDebugLog(workspaceState.debuggingMode, "workspace.t3ReloadRequested", {
+              sessionId: pane.sessionId,
+            });
             postToExtension({
               sessionId: pane.sessionId,
-              type: "reloadWorkspacePanel",
+              type: "reloadT3Session",
             });
           }}
           onToggleSleeping={() =>
@@ -1532,9 +1583,9 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             isVisible={pane.isVisible}
             onLagDetected={handleTerminalLagDetected}
             onActivate={(source) => handleTerminalActivate(pane.sessionId, source)}
+            onTerminalEnter={() => handleTerminalEnter(pane.sessionId)}
             pane={pane}
             refreshRequestId={0}
-            onTerminalEnter={() => confirmWorkspaceToastForSession(pane.sessionId)}
             scrollToBottomRequestId={
               terminalScrollRequest?.sessionId === pane.sessionId
                 ? terminalScrollRequest.requestId
@@ -1573,18 +1624,20 @@ type WorkspacePaneViewProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
   fallbackLayoutStyle?: CSSProperties;
+  t3FocusSuppressedUntil: number;
   isFocused: boolean;
   isWorkspaceFocused: boolean;
   canDrag: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
   layoutStyle?: CSSProperties;
-  onLocalFocus: () => void;
   onFocus: () => void;
+  onTerminalPointerIntent?: () => void;
   onClose: () => void;
   onConfirmToastDismissed: (toast: WorkspacePanelShowToastMessage) => void;
   onConfirmToastShown: (toast: WorkspacePanelShowToastMessage) => void;
   onFork: () => void;
+  onT3ThreadChanged: (payload: { sessionId: string; threadId: string; title?: string }) => void;
   onRename: () => void;
   onReload: () => void;
   onToggleSleeping: () => void;
@@ -1599,18 +1652,20 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   autoFocusRequest,
   debugLog,
   fallbackLayoutStyle,
+  t3FocusSuppressedUntil,
   isFocused,
   isWorkspaceFocused,
   canDrag,
   isDragging,
   isDropTarget,
   layoutStyle,
-  onLocalFocus,
   onFocus,
+  onTerminalPointerIntent,
   onClose,
   onConfirmToastDismissed,
   onConfirmToastShown,
   onFork,
+  onT3ThreadChanged,
   onRename,
   onBoundsMeasured,
   onReload,
@@ -1623,6 +1678,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   const paneViewInstanceIdRef = useRef(`workspace-pane-view-${++nextWorkspacePaneViewInstanceId}`);
   const sectionRef = useRef<HTMLElement | null>(null);
   const primaryTitle = getWorkspacePanePrimaryTitle(pane);
+  const headerActivity = getWorkspacePaneHeaderActivity(pane);
   const canFork = supportsWorkspacePaneFork(pane);
   const canReload = supportsWorkspacePaneFullReload(pane);
 
@@ -1703,7 +1759,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
           renderNonce: pane.kind === "terminal" ? pane.renderNonce : undefined,
           sessionId: pane.sessionId,
         });
-        onLocalFocus();
+        onTerminalPointerIntent?.();
         if (!isFocused) {
           debugLog("focus.mouseDownRequestsFocus", {
             sessionId: pane.sessionId,
@@ -1715,11 +1771,21 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
     >
       <header
         className={`workspace-pane-header ${canDrag ? "workspace-pane-header-draggable" : ""}`}
+        data-activity={headerActivity}
         draggable={false}
         onDragStart={canDrag ? onHeaderNativeDragStart : undefined}
         onPointerDownCapture={canDrag ? onHeaderPointerDown : undefined}
       >
-        <div className="workspace-pane-title">{primaryTitle}</div>
+        <div className="workspace-pane-title">
+          <span className="workspace-pane-title-text">{primaryTitle}</span>
+          {headerActivity ? (
+            <span
+              aria-hidden="true"
+              className="workspace-pane-title-indicator"
+              data-activity={headerActivity}
+            />
+          ) : null}
+        </div>
         {pane.kind === "terminal" || pane.kind === "t3" ? (
           <div className="workspace-pane-header-actions">
             {pane.kind === "terminal" ? <WorkspacePaneRenameButton onRename={onRename} /> : null}
@@ -1749,8 +1815,11 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
         ) : (
           <T3Pane
             autoFocusRequest={autoFocusRequest}
+            debugLog={debugLog}
+            focusSuppressedUntil={t3FocusSuppressedUntil}
             isFocused={isFocused}
             onFocus={onFocus}
+            onThreadChanged={onT3ThreadChanged}
             pane={pane}
           />
         )}
@@ -1759,7 +1828,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   );
 };
 
-function getWorkspacePanePrimaryTitle(pane: WorkspacePanelPane): string {
+export function getWorkspacePanePrimaryTitle(pane: WorkspacePanelPane): string {
   if (pane.kind === "terminal") {
     const terminalTitle = getVisibleTerminalTitle(pane.terminalTitle);
     const agentIcon = getSidebarAgentIconById(pane.snapshot?.agentName);
@@ -1782,7 +1851,6 @@ function getWorkspacePanePrimaryTitle(pane: WorkspacePanelPane): string {
 
   return pane.sessionRecord.alias;
 }
-
 function supportsWorkspacePaneFork(pane: WorkspacePanelPane): boolean {
   if (pane.kind !== "terminal") {
     return false;
@@ -1820,15 +1888,20 @@ function isWorkspacePaneHeaderInteractiveTarget(target: EventTarget | null): boo
   );
 }
 
-function safeSerializeWorkspaceDebugDetails(details: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(details);
-  } catch (error) {
-    return JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-      unserializable: true,
-    });
+function postFocusComposerToT3Source(
+  source: MessageEventSource | null,
+  debuggingMode: boolean | undefined,
+  sessionId: string,
+): void {
+  if (!source || typeof source !== "object" || !("postMessage" in source)) {
+    return;
   }
+
+  window.requestAnimationFrame(() => {
+    void debuggingMode;
+    void sessionId;
+    source.postMessage({ type: "focusComposer" }, "*");
+  });
 }
 
 function getWorkspaceGridTemplateColumns(

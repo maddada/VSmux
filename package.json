@@ -24,24 +24,24 @@
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "build:extension": "vp run sidebar:build && vp run debug-panel:build && vp run workspace:build && pnpm run chat-history:webview:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
+    "build:extension": "pnpm run t3:embed:build && node ./scripts/vp.mjs run sidebar:build && node ./scripts/vp.mjs run debug-panel:build && node ./scripts/vp.mjs run workspace:build && pnpm run chat-history:webview:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "vscode:prepublish": "node ./scripts/vscode-prepublish.mjs",
-    "sidebar:build": "vp build --config vite.sidebar.config.ts",
-    "debug-panel:build": "vp build --config vite.debug-panel.config.ts",
-    "workspace:build": "vp build --config vite.workspace.config.ts",
+    "sidebar:build": "node ./scripts/vp.mjs build --config vite.sidebar.config.ts",
+    "debug-panel:build": "node ./scripts/vp.mjs build --config vite.debug-panel.config.ts",
+    "workspace:build": "node ./scripts/vp.mjs build --config vite.workspace.config.ts",
     "chat-history:webview:build": "bunx --bun @tailwindcss/cli -i ./chat-history/src/webview/index.css -o ./chat-history/dist/webview.css --minify && bun run ./chat-history/esbuild.webview.ts",
-    "storybook": "vp exec storybook dev -p 6006 --no-open",
+    "storybook": "node ./scripts/vp.mjs exec storybook dev -p 6006 --no-open",
     "storybook:live": "pnpm exec tsc -p ./tsconfig.extension.json && node ./scripts/storybook-live.mjs",
-    "storybook:build": "vp exec storybook build",
+    "storybook:build": "node ./scripts/vp.mjs exec storybook build",
     "storybook:test": "node ./scripts/storybook-test.mjs",
     "workspace:reconnect:harness": "node ./scripts/workspace-reconnect-harness.mjs",
     "compile": "pnpm run build:extension",
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "t3:embed:build": "node ./scripts/build-t3-embed.mjs",
-    "lint": "vp lint",
-    "fmt": "vp fmt",
-    "check": "vp check",
-    "prepare": "vp config",
+    "lint": "node ./scripts/vp.mjs lint",
+    "fmt": "node ./scripts/vp.mjs fmt",
+    "check": "node ./scripts/vp.mjs check",
+    "prepare": "node ./scripts/vp.mjs config",
     "vsix:package": "node ./scripts/vsix.mjs package",
     "vsix:package:profile": "node ./scripts/vsix.mjs package --profile-build",
     "install": "node ./scripts/vsix.mjs install",
@@ -325,6 +325,12 @@
           "default": false,
           "description": "When enabled, VS Code startup automatically reveals the VSmux sidebar and reopens the VSmux Sessions view if it is not already open."
         },
+        "VSmux.t3RepoRoot": {
+          "title": "T3 Repo Root",
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the checkout that contains forks/dpcode-embed. Use this when the managed DP Code runtime source lives outside the current VSmux workspace."
+        },
         "VSmux.sidebarTheme": {
           "title": "Sidebar Theme",
           "type": "string",
@@ -381,7 +387,7 @@
         "VSmux.terminalFontFamily": {
           "title": "Terminal Font Family",
           "type": "string",
-          "default": "\"MesloLGL Nerd Font Mono\", Menlo, Monaco, \"Courier New\", monospace",
+          "default": "monospace",
           "description": "Font family used by VSmux workspace terminals."
         },
         "VSmux.terminalFontSize": {
@@ -423,12 +429,6 @@
             "Underline"
           ],
           "description": "Cursor style used by VSmux workspace terminals."
-        },
-        "VSmux.terminalCursorBlink": {
-          "title": "Terminal Cursor Blink",
-          "type": "boolean",
-          "default": true,
-          "description": "Whether the VSmux terminal cursor blinks."
         },
         "VSmux.terminalEngine": {
           "title": "Terminal Engine",

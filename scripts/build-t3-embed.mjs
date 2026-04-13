@@ -6,6 +6,7 @@ const repoRoot = process.cwd();
 const embedRoot = resolve(repoRoot, "forks", "dpcode-embed");
 const vendorWebRoot = resolve(embedRoot, "apps", "web");
 const distRoot = resolve(vendorWebRoot, "dist");
+const packagedDistRoot = resolve(repoRoot, "out", "t3-embed");
 
 if (!existsSync(vendorWebRoot)) {
   throw new Error("Missing forks/dpcode-embed/apps/web. Sync the local DP Code vendor first.");
@@ -20,6 +21,7 @@ run("bun", ["run", "build"], {
   },
 });
 pruneEmbedArtifacts(distRoot);
+syncPackagedEmbedArtifacts(distRoot, packagedDistRoot);
 
 function copyTree(source, destination) {
   cpSync(source, destination, {
@@ -49,8 +51,14 @@ function pruneEmbedArtifacts(root) {
       continue;
     }
 
-    if (entry.endsWith(".map") || entry === "mockServiceWorker.js") {
+    if (entry.endsWith(".map")) {
       rmSync(entryPath, { force: true });
     }
   }
+}
+
+function syncPackagedEmbedArtifacts(sourceRoot, destinationRoot) {
+  rmSync(destinationRoot, { force: true, recursive: true });
+  mkdirSync(destinationRoot, { recursive: true });
+  copyTree(sourceRoot, destinationRoot);
 }

@@ -239,6 +239,29 @@ describe("WorkspacePanelManager", () => {
     manager.dispose();
   });
 
+  test("should forward workspace debug log messages from the workspace webview", async () => {
+    const onMessage = vi.fn();
+    const manager = new WorkspacePanelManager({
+      context: createMockContext(),
+      onMessage,
+    });
+
+    await manager.reveal();
+    createdPanels[0]?.webview.messageListeners[0]?.({
+      details: { sessionId: "session-2" },
+      event: "repro.workspace.handleT3IframeFocus.received",
+      type: "workspaceDebugLog",
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      details: { sessionId: "session-2" },
+      event: "repro.workspace.handleT3IframeFocus.received",
+      type: "workspaceDebugLog",
+    });
+
+    manager.dispose();
+  });
+
   test("should forward full reload session messages from the workspace webview", async () => {
     const onMessage = vi.fn();
     const manager = new WorkspacePanelManager({
@@ -495,7 +518,7 @@ describe("WorkspacePanelManager", () => {
       },
       panes: [],
       terminalAppearance: {
-        cursorBlink: true,
+        cursorBlink: false,
         cursorStyle: "bar",
         fontFamily: "monospace",
         fontSize: 12,
@@ -776,7 +799,7 @@ function createWorkspaceStateMessage() {
       },
     ],
     terminalAppearance: {
-      cursorBlink: true,
+      cursorBlink: false,
       cursorStyle: "bar" as const,
       fontFamily: "monospace",
       fontSize: 12,
