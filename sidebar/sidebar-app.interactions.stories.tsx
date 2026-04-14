@@ -37,6 +37,10 @@ async function hoverSidebarChrome(storyRoot: HTMLElement) {
   fireEvent.mouseEnter(await findRequiredElement(storyRoot, ".stack", "sidebar stack"));
 }
 
+async function unhoverSidebarChrome(storyRoot: HTMLElement) {
+  fireEvent.mouseLeave(await findRequiredElement(storyRoot, ".stack", "sidebar stack"));
+}
+
 export const ToolbarActions: Story = {
   args: {
     highlightedVisibleCount: 2,
@@ -129,6 +133,15 @@ export const ToolbarActions: Story = {
       await userEvent.click(canvas.getByRole("button", { name: "Open sidebar menu" }));
       await waitFor(() => {
         expect(body.queryByRole("menuitem", { name: "Running" })).toBeNull();
+      });
+    });
+
+    await step("hide the top chrome after leaving the sidebar", async () => {
+      await unhoverSidebarChrome(canvasElement.ownerDocument.body);
+      await waitFor(() => {
+        expect(canvas.queryByRole("button", { name: "Search sessions" })).toBeNull();
+        expect(canvas.queryByRole("button", { name: "Show previous sessions" })).toBeNull();
+        expect(canvas.queryByRole("button", { name: "Open sidebar menu" })).toBeNull();
       });
     });
 
@@ -427,6 +440,13 @@ export const InlineSearchFiltersGroupsInPlace: Story = {
       await expect(canvas.getByRole("button", { name: "Create a new group" })).toBeVisible();
       await expectSessionMembership(storyRoot, "group-1", ["session-1", "session-2", "session-3"]);
       await expectSessionMembership(storyRoot, "group-2", ["session-4", "session-5"]);
+    });
+
+    await step("hide the new group button after leaving the sidebar", async () => {
+      await unhoverSidebarChrome(storyRoot);
+      await waitFor(() => {
+        expect(canvas.queryByRole("button", { name: "Create a new group" })).toBeNull();
+      });
     });
   },
 };

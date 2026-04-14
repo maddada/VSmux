@@ -7,6 +7,7 @@ import {
   IconLoader2,
   IconUpload,
 } from "@tabler/icons-react";
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildSidebarGitMenuItems,
@@ -21,8 +22,20 @@ export type GitActionRowProps = {
   vscode: WebviewApi;
 };
 
+type GitMenuPosition = {
+  left: number;
+  top: number;
+  width: number;
+};
+
+const GIT_MENU_MAX_WIDTH_PX = 220;
+const GIT_MENU_MARGIN_PX = 12;
+const GIT_MENU_OFFSET_PX = 8;
+
 export function GitActionRow({ git, vscode }: GitActionRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<GitMenuPosition>();
+  const menuRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const menuItems = useMemo(() => buildSidebarGitMenuItems(git), [git]);
   const primaryAction = useMemo(() => resolveSidebarGitPrimaryActionState(git), [git]);
@@ -34,7 +47,10 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (wrapperRef.current?.contains(event.target as Node)) {
+      if (
+        wrapperRef.current?.contains(event.target as Node) ||
+        menuRef.current?.contains(event.target as Node)
+      ) {
         return;
       }
 
@@ -53,6 +69,48 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setMenuPosition(undefined);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) {
+        return;
+      }
+
+      const wrapperBounds = wrapper.getBoundingClientRect();
+      const menuHeight = menuRef.current?.getBoundingClientRect().height ?? 0;
+      const width = Math.min(GIT_MENU_MAX_WIDTH_PX, Math.max(wrapperBounds.width, 180));
+      const left = Math.max(
+        GIT_MENU_MARGIN_PX,
+        Math.min(wrapperBounds.right - width, window.innerWidth - width - GIT_MENU_MARGIN_PX),
+      );
+      const top = Math.max(
+        GIT_MENU_MARGIN_PX,
+        Math.min(
+          wrapperBounds.bottom + GIT_MENU_OFFSET_PX,
+          window.innerHeight - menuHeight - GIT_MENU_MARGIN_PX,
+        ),
+      );
+
+      setMenuPosition({ left, top, width });
+    };
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    const animationFrameId = window.requestAnimationFrame(updateMenuPosition);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [isMenuOpen, menuItems.length]);
 
   const requestRefresh = () => {
     vscode.postMessage({ type: "refreshGitState" });
@@ -134,92 +192,104 @@ export function GitActionRow({ git, vscode }: GitActionRowProps) {
           <IconChevronDown aria-hidden="true" className="git-action-toggle-icon" size={16} />
         </button>
       </div>
-      {isMenuOpen ? (
-        <div className="git-action-menu" role="menu">
-          {menuItems.map((item) => (
-            <button
-              aria-label={item.disabledReason ?? item.label}
-              className="git-action-menu-item"
-              data-disabled={String(item.disabled)}
-              key={item.action}
-              onClick={() => {
-                setPrimaryAction(item.action);
-                setIsMenuOpen(false);
+      {isMenuOpen && menuPosition
+        ? createPortal(
+            <div
+              className="git-action-menu"
+              ref={menuRef}
+              role="menu"
+              style={{
+                left: `${menuPosition.left}px`,
+                top: `${menuPosition.top}px`,
+                width: `${menuPosition.width}px`,
               }}
-              role="menuitem"
-              title={item.disabledReason ?? item.label}
-              type="button"
             >
-              <GitActionIcon action={item.action} />
-              <span className="git-action-menu-item-label">{item.label}</span>
-              {item.action === "pr" && git.pr?.state === "open" ? (
-                <IconExternalLink
+              {menuItems.map((item) => (
+                <button
+                  aria-label={item.disabledReason ?? item.label}
+                  className="git-action-menu-item"
+                  data-disabled={String(item.disabled)}
+                  key={item.action}
+                  onClick={() => {
+                    setPrimaryAction(item.action);
+                    setIsMenuOpen(false);
+                  }}
+                  role="menuitem"
+                  title={item.disabledReason ?? item.label}
+                  type="button"
+                >
+                  <GitActionIcon action={item.action} />
+                  <span className="git-action-menu-item-label">{item.label}</span>
+                  {item.action === "pr" && git.pr?.state === "open" ? (
+                    <IconExternalLink
+                      aria-hidden="true"
+                      className="git-action-menu-item-trailing-icon"
+                      size={14}
+                    />
+                  ) : null}
+                </button>
+              ))}
+              <div aria-hidden="true" className="git-action-menu-divider" />
+              <button
+                aria-label={
+                  git.confirmSuggestedCommit
+                    ? "Disable suggested commit review"
+                    : "Enable suggested commit review"
+                }
+                className="git-action-menu-item git-action-menu-toggle-item"
+                onClick={() => setCommitConfirmationEnabled(!git.confirmSuggestedCommit)}
+                role="menuitemcheckbox"
+                title={
+                  git.confirmSuggestedCommit
+                    ? "Review suggested commit message before running the git action"
+                    : "Use the suggested commit message immediately without opening the review modal"
+                }
+                type="button"
+              >
+                <span
                   aria-hidden="true"
-                  className="git-action-menu-item-trailing-icon"
-                  size={14}
-                />
-              ) : null}
-            </button>
-          ))}
-          <div aria-hidden="true" className="git-action-menu-divider" />
-          <button
-            aria-label={
-              git.confirmSuggestedCommit
-                ? "Disable suggested commit review"
-                : "Enable suggested commit review"
-            }
-            className="git-action-menu-item git-action-menu-toggle-item"
-            onClick={() => setCommitConfirmationEnabled(!git.confirmSuggestedCommit)}
-            role="menuitemcheckbox"
-            title={
-              git.confirmSuggestedCommit
-                ? "Review suggested commit message before running the git action"
-                : "Use the suggested commit message immediately without opening the review modal"
-            }
-            type="button"
-          >
-            <span
-              aria-hidden="true"
-              className="git-action-menu-toggle-check"
-              data-selected={String(git.confirmSuggestedCommit)}
-            >
-              {git.confirmSuggestedCommit ? <IconCheck size={14} /> : null}
-            </span>
-            <span className="git-action-menu-item-label">Review Commit Title</span>
-            <span className="git-action-menu-toggle-state">
-              {git.confirmSuggestedCommit ? "On" : "Off"}
-            </span>
-          </button>
-          <button
-            aria-label={
-              git.generateCommitBody
-                ? "Disable generated commit body in the review modal"
-                : "Enable generated commit body in the review modal"
-            }
-            className="git-action-menu-item git-action-menu-toggle-item"
-            onClick={() => setGenerateCommitBodyEnabled(!git.generateCommitBody)}
-            role="menuitemcheckbox"
-            title={
-              git.generateCommitBody
-                ? "Include generated bullet points in the suggested commit message"
-                : "Only suggest the commit title without generated bullet points"
-            }
-            type="button"
-          >
-            <span
-              aria-hidden="true"
-              className="git-action-menu-toggle-check"
-              data-selected={String(git.generateCommitBody)}
-            >
-              {git.generateCommitBody ? <IconCheck size={14} /> : null}
-            </span>
-            <span className="git-action-menu-item-label">Generate commit body</span>
-            <span className="git-action-menu-toggle-state">
-              {git.generateCommitBody ? "On" : "Off"}
-            </span>
-          </button>
-        </div>
-      ) : null}
+                  className="git-action-menu-toggle-check"
+                  data-selected={String(git.confirmSuggestedCommit)}
+                >
+                  {git.confirmSuggestedCommit ? <IconCheck size={14} /> : null}
+                </span>
+                <span className="git-action-menu-item-label">Review Commit Title</span>
+                <span className="git-action-menu-toggle-state">
+                  {git.confirmSuggestedCommit ? "On" : "Off"}
+                </span>
+              </button>
+              <button
+                aria-label={
+                  git.generateCommitBody
+                    ? "Disable generated commit body in the review modal"
+                    : "Enable generated commit body in the review modal"
+                }
+                className="git-action-menu-item git-action-menu-toggle-item"
+                onClick={() => setGenerateCommitBodyEnabled(!git.generateCommitBody)}
+                role="menuitemcheckbox"
+                title={
+                  git.generateCommitBody
+                    ? "Include generated bullet points in the suggested commit message"
+                    : "Only suggest the commit title without generated bullet points"
+                }
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  className="git-action-menu-toggle-check"
+                  data-selected={String(git.generateCommitBody)}
+                >
+                  {git.generateCommitBody ? <IconCheck size={14} /> : null}
+                </span>
+                <span className="git-action-menu-item-label">Generate commit body</span>
+                <span className="git-action-menu-toggle-state">
+                  {git.generateCommitBody ? "On" : "Off"}
+                </span>
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

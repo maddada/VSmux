@@ -73,7 +73,13 @@
 
 .section-titlebar-toggle-icon {
   height: 16px;
+  transform: rotate(0deg);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   width: 16px;
+}
+
+.section-titlebar-toggle[data-collapsed="false"] .section-titlebar-toggle-icon {
+  transform: rotate(90deg);
 }
 
 .section-titlebar-label {
@@ -99,6 +105,28 @@
   flex: none;
 }
 
+.sidebar-collapse-shell {
+  margin-top: 0;
+  max-height: var(--sidebar-collapse-content-height);
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    max-height 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    margin-top 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sidebar-collapse-shell[data-collapsed="true"] {
+  margin-top: calc(-10px * var(--sidebar-density-scale));
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-collapse-content {
+  min-height: 0;
+}
+
 .session-groups-content {
   align-content: start;
   align-items: start;
@@ -122,36 +150,63 @@
 }
 
 .session-groups-scroll-glow {
-  height: calc(22px * var(--sidebar-density-scale));
-  left: calc(2px * var(--sidebar-density-scale));
+  border-radius: calc(999px * var(--sidebar-density-scale));
+  height: calc(16px * var(--sidebar-density-scale));
+  left: calc(12px * var(--sidebar-density-scale));
   opacity: 0;
   pointer-events: none;
   position: absolute;
-  right: calc(2px * var(--sidebar-density-scale));
+  right: calc(12px * var(--sidebar-density-scale));
   transition: opacity 150ms ease;
   z-index: 2;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.48) 10%,
+    #000000 22%,
+    #000000 78%,
+    rgba(0, 0, 0, 0.48) 90%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.48) 10%,
+    #000000 22%,
+    #000000 78%,
+    rgba(0, 0, 0, 0.48) 90%,
+    transparent 100%
+  );
 }
 
 .session-groups-scroll-glow-top {
   top: 0;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--app-card) 40%, transparent) 0%,
-    color-mix(in srgb, var(--app-background) 26%, transparent) 54%,
+    color-mix(in srgb, var(--app-background) 94%, transparent) 0%,
+    color-mix(in srgb, var(--app-background) 64%, transparent) 62%,
     transparent 100%
   );
-  box-shadow: inset 0 11px 16px color-mix(in srgb, var(--app-card) 30%, transparent);
+  box-shadow: inset 0 10px 14px color-mix(in srgb, var(--app-background) 48%, transparent);
+  clip-path: inset(
+    0 0 0 0 round 0 0 calc(999px * var(--sidebar-density-scale))
+      calc(999px * var(--sidebar-density-scale))
+  );
 }
 
 .session-groups-scroll-glow-bottom {
   bottom: 0;
   background: linear-gradient(
     0deg,
-    color-mix(in srgb, var(--app-card) 40%, transparent) 0%,
-    color-mix(in srgb, var(--app-background) 26%, transparent) 54%,
+    color-mix(in srgb, var(--app-background) 94%, transparent) 0%,
+    color-mix(in srgb, var(--app-background) 64%, transparent) 62%,
     transparent 100%
   );
-  box-shadow: inset 0 -11px 16px color-mix(in srgb, var(--app-card) 30%, transparent);
+  box-shadow: inset 0 -10px 14px color-mix(in srgb, var(--app-background) 48%, transparent);
+  clip-path: inset(
+    calc(0px * var(--sidebar-density-scale)) 0 0 0 round calc(999px * var(--sidebar-density-scale))
+      calc(999px * var(--sidebar-density-scale)) 0 0
+  );
 }
 
 .session-groups-scroll-shell[data-scroll-glow-top="true"] .session-groups-scroll-glow-top,
@@ -164,7 +219,7 @@
 }
 
 .session-groups-content > .browser-group-list + .workspace-group-list {
-  margin-top: calc(-2px * var(--sidebar-density-scale));
+  margin-top: calc(1px * var(--sidebar-density-scale));
 }
 
 .session-search-toolbar {
@@ -231,7 +286,7 @@
 }
 
 .session-search-previous-group {
-  margin-top: calc(2px * var(--sidebar-density-scale));
+  margin-top: calc(0px * var(--sidebar-density-scale));
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--app-card) 96%, transparent),

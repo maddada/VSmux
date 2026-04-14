@@ -1,4 +1,4 @@
-import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { IconSquareRoundedChevronRightFilled } from "@tabler/icons-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 export type SectionHeaderProps = {
@@ -41,6 +41,7 @@ export function SectionHeader({
           <button
             aria-label={collapseLabel}
             className="section-titlebar-toggle"
+            data-collapsed={String(isCollapsed)}
             data-empty-space-blocking="true"
             onClick={(event) => {
               event.stopPropagation();
@@ -49,11 +50,10 @@ export function SectionHeader({
             title={collapseLabel}
             type="button"
           >
-            {isCollapsed ? (
-              <IconChevronRight aria-hidden="true" className="section-titlebar-toggle-icon" />
-            ) : (
-              <IconChevronDown aria-hidden="true" className="section-titlebar-toggle-icon" />
-            )}
+            <IconSquareRoundedChevronRightFilled
+              aria-hidden="true"
+              className="section-titlebar-toggle-icon"
+            />
           </button>
         ) : null}
         <span className="section-titlebar-label">{title}</span>

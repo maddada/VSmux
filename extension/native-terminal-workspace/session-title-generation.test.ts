@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import {
   GENERATED_SESSION_TITLE_MAX_LENGTH,
+  GENERATED_SESSION_TITLE_SOURCE_MAX_LENGTH,
   SESSION_RENAME_SUMMARY_THRESHOLD,
   resolveSessionRenameTitle,
   shouldSummarizeSessionRenameTitle,
@@ -56,6 +57,28 @@ describe("resolveSessionRenameTitle", () => {
       cwd: "/workspace",
       settings: { customCommand: "", provider: "claude" },
       sourceText: "Paste this whole paragraph about the bug and the intended fix please",
+    });
+  });
+
+  test("should send only the first 250 characters to the generator", async () => {
+    const generateTitle = vi.fn(async () => "Fix sidebar rename");
+    const title = `  ${"x".repeat(GENERATED_SESSION_TITLE_SOURCE_MAX_LENGTH + 25)}  `;
+
+    await expect(
+      resolveSessionRenameTitle(
+        {
+          cwd: "/workspace",
+          settings: { customCommand: "", provider: "claude" },
+          title,
+        },
+        generateTitle,
+      ),
+    ).resolves.toBe("Fix sidebar rename");
+
+    expect(generateTitle).toHaveBeenCalledWith({
+      cwd: "/workspace",
+      settings: { customCommand: "", provider: "claude" },
+      sourceText: "x".repeat(GENERATED_SESSION_TITLE_SOURCE_MAX_LENGTH),
     });
   });
 

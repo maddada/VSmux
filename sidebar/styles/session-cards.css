@@ -2,6 +2,11 @@
   position: relative;
 }
 
+.session-frame[data-group-connector="true"] {
+  margin-left: calc(19px * var(--sidebar-density-scale));
+  z-index: 1;
+}
+
 .session-drop-target-surface {
   inset-inline: 0;
   pointer-events: none;
@@ -294,7 +299,7 @@
 
 .session-history-card {
   cursor: default;
-  padding-left: calc(25px * var(--sidebar-density-scale));
+  padding-left: calc(32px * var(--sidebar-density-scale));
 }
 
 .session-history-card[data-restorable="true"] {
@@ -309,8 +314,14 @@
 .session-history-frame .session-floating-agent-icon,
 .session-history-frame .session-floating-agent-tabler-icon {
   left: calc(10px * var(--sidebar-density-scale));
+  opacity: 0.74;
   top: 50%;
   translate: 0 -50%;
+}
+
+.session-history-frame .session-floating-agent-icon[data-favorite="true"],
+.session-history-frame .session-floating-agent-tabler-icon[data-favorite="true"] {
+  opacity: 1;
 }
 
 .previous-session-delete-button {
@@ -393,6 +404,35 @@
   translate: 6px -50%;
 }
 
+.session-status-dot-anchored {
+  margin-left: -8px;
+  position: absolute;
+  right: auto;
+  translate: 0 -50%;
+  transform: none;
+}
+
+.session-status-dot-anchored[data-activity="working"],
+.session-status-dot-anchored[data-activity="attention"],
+.session-status-dot-anchored[data-lifecycle-state="error"] {
+  opacity: 1;
+}
+
+.session-status-dot-anchored[data-activity="working"] {
+  --session-status-dot-color: #ffb454;
+  animation: session-status-dot-pulse 1.35s ease-in-out infinite;
+}
+
+.session-status-dot-anchored[data-lifecycle-state="error"] {
+  --session-status-dot-color: #ff6b6b;
+}
+
+@supports (position-anchor: --session-status-anchor) {
+  .session-frame[data-group-connector="true"] .session-status-dot-inline {
+    display: none;
+  }
+}
+
 .session-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -422,7 +462,7 @@
 
 .session-floating-agent-icon {
   position: absolute;
-  left: calc(6px * var(--sidebar-density-scale));
+  left: calc(-4px * var(--sidebar-density-scale));
   top: calc(5px * var(--sidebar-density-scale));
   width: calc(15px * var(--sidebar-density-scale));
   height: calc(15px * var(--sidebar-density-scale));
@@ -444,7 +484,7 @@
 
 .session-floating-agent-tabler-icon {
   position: absolute;
-  left: calc(6px * var(--sidebar-density-scale));
+  left: calc(-4px * var(--sidebar-density-scale));
   top: calc(5px * var(--sidebar-density-scale));
   color: var(--session-agent-icon-color, var(--app-foreground));
   opacity: 0;
@@ -547,13 +587,13 @@
   font-family:
     Consolas, "SFMono-Regular", Menlo, Monaco, "Cascadia Mono", "Liberation Mono",
     "DejaVu Sans Mono", "Ubuntu Mono", "Courier New";
-  font-size: calc(12px * var(--sidebar-density-scale));
+  font-size: calc(11px * var(--sidebar-density-scale));
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.25;
   min-width: 0;
-  opacity: 0.5;
+  opacity: 0.35;
   overflow: hidden;
   grid-area: 1 / 1;
   justify-self: end;
@@ -577,7 +617,9 @@
 
 .session-frame:not(.session-history-frame) .session:hover .session-last-interaction-time,
 .session-frame:not(.session-history-frame) .session:focus-visible .session-last-interaction-time,
-.session-frame:not(.session-history-frame) .session:focus-within .session-last-interaction-time {
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-last-interaction-time {
   opacity: 0;
 }
 
@@ -585,8 +627,10 @@
 .session-frame:not(.session-history-frame) .session:hover .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame) .session:focus-visible .session-header-agent-icon,
 .session-frame:not(.session-history-frame) .session:focus-visible .session-header-agent-tabler-icon,
-.session-frame:not(.session-history-frame) .session:focus-within .session-header-agent-icon,
-.session-frame:not(.session-history-frame) .session:focus-within .session-header-agent-tabler-icon {
+.session-frame:not(.session-history-frame) .session:has(:focus-visible) .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-header-agent-tabler-icon {
   opacity: 0.74;
 }
 

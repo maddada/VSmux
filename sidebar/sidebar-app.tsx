@@ -12,6 +12,7 @@ import {
   IconMinus,
   IconPencil,
   IconPlus,
+  IconSquareRoundedPlusFilled,
   IconSearch,
   IconSettings,
   IconWorld,
@@ -184,7 +185,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     agentManagerZoomPercent,
     browserGroupIds,
     collapsedSections,
-    commandCount,
     completionBellEnabled,
     createSessionOnSidebarDoubleClick,
     debuggingMode,
@@ -201,7 +201,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       agentManagerZoomPercent: state.hud.agentManagerZoomPercent,
       browserGroupIds: state.browserGroupIds,
       collapsedSections: state.hud.collapsedSections,
-      commandCount: state.hud.commands.length,
       completionBellEnabled: state.hud.completionBellEnabled,
       createSessionOnSidebarDoubleClick: state.hud.createSessionOnSidebarDoubleClick,
       debuggingMode: state.hud.debuggingMode,
@@ -534,8 +533,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
   const isManualActiveSessionsSort = activeSessionsSortMode === "manual";
   const visibleBrowserGroupIds = sectionVisibility.browsers ? browserGroupIds : [];
-  const shouldShowActionsPanel =
-    sectionVisibility.actions && (sectionVisibility.git || commandCount > 0);
+  const shouldShowActionsPanel = sectionVisibility.actions;
   const shouldShowAgentsPanel = sectionVisibility.agents;
 
   const { groupIds: effectiveGroupIds, sessionIdsByGroup: effectiveSessionIdsByGroup } = useMemo(
@@ -1253,23 +1251,6 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     vscode.postMessage({ type: "moveSidebarToOtherSide" });
   };
 
-  const openAddAgentModal = () => {
-    setIsOverflowMenuOpen(false);
-    setAgentCreateRequestId((previous) => previous + 1);
-  };
-
-  const openAddActionModal = () => {
-    setIsOverflowMenuOpen(false);
-    setCommandCreateActionType("terminal");
-    setCommandCreateRequestId((previous) => previous + 1);
-  };
-
-  const openAddBrowserModal = () => {
-    setIsOverflowMenuOpen(false);
-    setCommandCreateActionType("browser");
-    setCommandCreateRequestId((previous) => previous + 1);
-  };
-
   const openWorkspaceWelcome = () => {
     setIsOverflowMenuOpen(false);
     vscode.postMessage({ type: "openWorkspaceWelcome" });
@@ -1458,28 +1439,40 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 />
               ) : null}
               {!isSessionSearchOpen ? (
-                <div className="group group-create-shell" data-empty-space-blocking="true">
-                  <div className="group-head">
-                    <button
-                      aria-label="Create a new group"
-                      className="group-create-button"
-                      disabled={effectiveGroupIds.length >= MAX_GROUP_COUNT}
-                      onClick={() => {
-                        pendingCreateGroupRef.current = true;
-                        vscode.postMessage({ type: "createGroup" });
-                      }}
-                      type="button"
-                    >
-                      <IconPlus
-                        aria-hidden="true"
-                        className="group-create-button-icon"
-                        size={14}
-                        stroke={2}
-                      />
-                      <span className="group-create-button-label section-titlebar-label">
-                        New Group
-                      </span>
-                    </button>
+                <div className="group-list group-create-list">
+                  <div className="group group-create-shell" data-empty-space-blocking="true">
+                    <div className="group-head">
+                      <button
+                        aria-label="Create a new group"
+                        className="group-create-button"
+                        disabled={effectiveGroupIds.length >= MAX_GROUP_COUNT}
+                        onClick={() => {
+                          pendingCreateGroupRef.current = true;
+                          vscode.postMessage({ type: "createGroup" });
+                        }}
+                        type="button"
+                      >
+                        <span className="group-title-wrap">
+                          <span className="group-title-row">
+                            <span
+                              aria-hidden="true"
+                              className="group-collapse-button section-titlebar-toggle group-create-button-icon-shell"
+                            >
+                              <IconSquareRoundedPlusFilled
+                                aria-hidden="true"
+                                className="group-create-button-icon"
+                                size={14}
+                              />
+                            </span>
+                            <span className="group-title-handle">
+                              <span className="group-title section-titlebar-label group-create-button-label">
+                                New Group
+                              </span>
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}

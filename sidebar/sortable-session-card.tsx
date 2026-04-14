@@ -20,6 +20,7 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -35,6 +36,7 @@ import {
   SessionCardContent,
   SessionFloatingAgentIcon,
 } from "./session-card-content";
+import { getSessionStatusAnchorName } from "./session-status-anchor";
 import {
   createSessionDragData,
   createSessionDropTargetData,
@@ -98,6 +100,7 @@ export type SortableSessionCardProps = {
   isSearchSelected?: boolean;
   onFocusRequested?: (groupId: string, sessionId: string) => void;
   sessionId: string;
+  showGroupConnector?: boolean;
   showDropPositionIndicator?: boolean;
   vscode: WebviewApi;
 };
@@ -132,6 +135,7 @@ export function SortableSessionCard({
   isSearchSelected = false,
   onFocusRequested,
   sessionId,
+  showGroupConnector = false,
   showDropPositionIndicator = true,
   vscode,
 }: SortableSessionCardProps) {
@@ -244,6 +248,9 @@ export function SortableSessionCard({
     showDebugSessionNumbers,
   });
   const lifecycleState = getSidebarSessionLifecycleState(session);
+  const sessionAnchorStyle = {
+    anchorName: getSessionStatusAnchorName(sessionId),
+  } as CSSProperties;
 
   useEffect(() => {
     setContextMenuPosition(undefined);
@@ -591,6 +598,7 @@ export function SortableSessionCard({
           data-drop-position={visibleDropPosition}
           data-drop-target={String(isVisibleDropTarget)}
           data-focused={String(session.isFocused)}
+          data-group-connector={String(showGroupConnector)}
           data-lifecycle-state={lifecycleState}
           data-running={String(lifecycleState === "running")}
           data-sleeping={String(Boolean(session.isSleeping))}
@@ -626,6 +634,7 @@ export function SortableSessionCard({
             data-drop-position={visibleDropPosition}
             data-drop-target={String(isVisibleDropTarget)}
             data-focused={String(session.isFocused)}
+            data-group-connector={String(showGroupConnector)}
             data-lifecycle-state={lifecycleState}
             data-running={String(lifecycleState === "running")}
             data-search-selected={String(isSearchSelected)}
@@ -700,6 +709,7 @@ export function SortableSessionCard({
             onKeyDown={handleKeyDown}
             ref={sortable.sourceRef}
             role="button"
+            style={sessionAnchorStyle}
             tabIndex={0}
           >
             <SessionCardContent
@@ -712,7 +722,7 @@ export function SortableSessionCard({
               showLastInteractionTime={showLastInteractionTime}
             />
           </article>
-          <div aria-hidden className="session-status-dot" />
+          <div aria-hidden className="session-status-dot session-status-dot-inline" />
         </div>
       </OverflowTooltipText>
       {contextMenuPosition

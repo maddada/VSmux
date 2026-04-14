@@ -54,6 +54,24 @@
   z-index: 4;
 }
 
+.group[data-session-connector="true"][data-collapsed="false"] .group-head::after {
+  background: #444c56;
+  border-radius: 999px;
+  bottom: calc(-12px * var(--sidebar-density-scale));
+  content: "";
+  left: calc(8px * var(--sidebar-density-scale));
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% - 1px);
+  width: 1px;
+}
+
+.group:has(.group-session-connector-button:hover) .group-head::after,
+.group:has(.group-session-connector-button:focus-visible) .group-head::after {
+  background: #aeb6c2;
+  width: 2px;
+}
+
 .group-head[data-collapsible="true"] {
   cursor: pointer;
 }
@@ -82,6 +100,7 @@
   height: 16px;
   justify-content: center;
   padding: 3px;
+  transition: color 140ms ease;
   width: 16px;
 }
 
@@ -94,6 +113,12 @@
 .group-collapse-icon {
   display: block;
   flex: none;
+  transform: rotate(0deg);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.group-collapse-button[data-collapsed="false"] .group-collapse-icon {
+  transform: rotate(90deg);
 }
 
 .group-title-handle {
@@ -266,7 +291,7 @@
 
 .group-collapsed-summary .session-status-dot {
   opacity: 1;
-  translate: 0 calc(-50% - 4px);
+  translate: 0 calc(-50% - 6px);
 }
 
 .group-collapsed-summary[data-activity="working"] .session-status-dot {
@@ -381,7 +406,54 @@
 .group-sessions {
   display: grid;
   gap: 0;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
+}
+
+.group-sessions-shell {
+  min-height: 0;
+  overflow: visible;
+  position: relative;
+}
+
+.group-session-connector-rail {
+  background: #444c56;
+  border-radius: 999px;
+  bottom: 0;
+  left: calc(8px * var(--sidebar-density-scale));
+  pointer-events: none;
+  position: absolute;
+  top: calc(-12px * var(--sidebar-density-scale));
+  width: 1px;
+  z-index: 0;
+}
+
+.group:has(.group-session-connector-button:hover) .group-session-connector-rail,
+.group:has(.group-session-connector-button:focus-visible) .group-session-connector-rail {
+  background: #aeb6c2;
+  width: 2px;
+}
+
+.group-session-connector-button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  bottom: 0;
+  cursor: pointer;
+  left: calc(8px * var(--sidebar-density-scale));
+  padding: 0;
+  pointer-events: auto;
+  position: absolute;
+  top: calc(-12px * var(--sidebar-density-scale));
+  transform: translateX(-50%);
+  width: calc(12px * var(--sidebar-density-scale));
+  z-index: 2;
+}
+
+.group-session-connector-button:focus-visible {
+  outline: none;
 }
 
 .group-sessions::before,
@@ -463,6 +535,10 @@
   width: 100%;
 }
 
+.group-create-list {
+  margin-top: calc(3px * var(--sidebar-density-scale));
+}
+
 .group-create-shell {
   gap: 0;
   margin-bottom: calc(10px * var(--sidebar-density-scale));
@@ -493,7 +569,7 @@
 }
 
 .stack:hover .group-create-button,
-.stack:focus-within .group-create-button {
+.stack:has(:focus-visible) .group-create-button {
   opacity: 0.78;
   pointer-events: auto;
   transition-delay: 0s;
@@ -512,7 +588,7 @@
 }
 
 .stack:hover .group-create-button:disabled,
-.stack:focus-within .group-create-button:disabled {
+.stack:has(:focus-visible) .group-create-button:disabled {
   opacity: 0.45;
 }
 
@@ -522,10 +598,10 @@
   flex: none;
 }
 
+.group-create-button-icon-shell {
+  cursor: inherit;
+}
+
 .group-create-button-label {
   color: inherit;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

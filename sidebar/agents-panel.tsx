@@ -14,10 +14,12 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import type { SidebarAgentButton } from "../shared/sidebar-agents";
 import { AGENT_LOGOS } from "./agent-logos";
+import { getSidebarButtonGridColumnCount } from "./button-grid";
 import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { SectionHeader } from "./section-header";
 import { useSidebarStore } from "./sidebar-store";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
+import { useCollapsibleHeight } from "./use-collapsible-height";
 import { AgentConfigModal, type AgentConfigDraft } from "./agent-config-modal";
 import type { WebviewApi } from "./webview-api";
 
@@ -125,6 +127,7 @@ export function AgentsPanel({
   const pendingOrderSyncRef = useRef<PendingOrderSync>();
   const lastLoggedLayoutRef = useRef<string>();
   const lastLoggedOrderStateRef = useRef<string>();
+  const { collapsibleStyle, contentRef } = useCollapsibleHeight<HTMLDivElement>();
 
   useEffect(() => {
     if (!contextMenu) {
@@ -259,7 +262,8 @@ export function AgentsPanel({
       .map((agentId) => agentById.get(agentId))
       .filter((agent): agent is SidebarAgentButton => agent !== undefined);
   }, [agents, draftAgentIds]);
-  const gridColumnCount = Math.min(Math.max(orderedAgents.length, 1), 5);
+  const gridColumnCount = getSidebarButtonGridColumnCount(orderedAgents.length);
+  const shouldShowEmptyState = orderedAgents.length === 0;
 
   useEffect(() => {
     const payload = {
@@ -423,48 +427,75 @@ export function AgentsPanel({
             onToggleCollapsed={() => onToggleCollapsed(!isCollapsed)}
             title="Agents"
           />
-          {!isCollapsed ? (
-            <div className="card commands-panel agents-panel-shell">
-              <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
-                <DragDropProvider onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
-                  <div
-                    className="agents-grid"
-                    ref={gridRef}
-                    style={{ gridTemplateColumns: `repeat(${gridColumnCount}, minmax(0, 1fr))` }}
-                  >
-                    {orderedAgents.map((agent, index) => (
-                      <SortableAgentButton
-                        agent={agent}
-                        index={index}
-                        isLaunching={pendingAgentIds.includes(agent.agentId)}
-                        isContextMenuOpen={contextMenu?.agent.agentId === agent.agentId}
-                        key={agent.agentId}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setContextMenu({
-                            agent,
-                            position: clampContextMenuPosition(event.clientX, event.clientY),
-                          });
-                        }}
-                        onRun={() => {
-                          if (!agent.command) {
-                            openAgentEditor(agent);
-                            return;
-                          }
+          <div
+            aria-hidden={isCollapsed}
+            className="sidebar-collapse-shell"
+            data-collapsed={String(isCollapsed)}
+            style={collapsibleStyle}
+          >
+            <div
+              className="card commands-panel agents-panel-shell sidebar-collapse-content"
+              ref={contentRef}
+            >
+              {shouldShowEmptyState ? (
+                <button
+                  className="sidebar-empty-create-button"
+                  data-empty-space-blocking="true"
+                  onClick={openCreateAgentEditor}
+                  type="button"
+                >
+                  <span aria-hidden="true" className="sidebar-empty-create-button-icon">
+                    <IconPlus size={18} stroke={1.8} />
+                  </span>
+                  <span className="sidebar-empty-create-button-copy">
+                    <span className="sidebar-empty-create-button-label">Create Agent</span>
+                    <span className="sidebar-empty-create-button-description">
+                      Add an agent launcher back to the sidebar.
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
+                  <DragDropProvider onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
+                    <div
+                      className="agents-grid"
+                      ref={gridRef}
+                      style={{ gridTemplateColumns: `repeat(${gridColumnCount}, minmax(0, 1fr))` }}
+                    >
+                      {orderedAgents.map((agent, index) => (
+                        <SortableAgentButton
+                          agent={agent}
+                          index={index}
+                          isLaunching={pendingAgentIds.includes(agent.agentId)}
+                          isContextMenuOpen={contextMenu?.agent.agentId === agent.agentId}
+                          key={agent.agentId}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setContextMenu({
+                              agent,
+                              position: clampContextMenuPosition(event.clientX, event.clientY),
+                            });
+                          }}
+                          onRun={() => {
+                            if (!agent.command) {
+                              openAgentEditor(agent);
+                              return;
+                            }
 
-                          vscode.postMessage({
-                            agentId: agent.agentId,
-                            type: "runSidebarAgent",
-                          });
-                        }}
-                      />
-                    ))}
-                  </div>
-                </DragDropProvider>
-              </Tooltip.Provider>
+                            vscode.postMessage({
+                              agentId: agent.agentId,
+                              type: "runSidebarAgent",
+                            });
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </DragDropProvider>
+                </Tooltip.Provider>
+              )}
             </div>
-          ) : null}
+          </div>
         </section>
       ) : null}
       {contextMenu

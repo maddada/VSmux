@@ -361,7 +361,7 @@ button:disabled {
 }
 
 .stack:hover .sidebar-titlebar-controls,
-.stack:focus-within .sidebar-titlebar-controls,
+.stack:has(:focus-visible) .sidebar-titlebar-controls,
 .sidebar-titlebar-controls[data-controls-visible="true"],
 .sidebar-titlebar-controls[data-menu-open="true"] {
   opacity: 1;

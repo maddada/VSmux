@@ -1,34 +1,34 @@
 # VSmux - T3code & Agent CLIs Manager
 
-Manage all your CLI coding agent sessions without leaving your IDE.
+> Manage all your CLI coding agent sessions without leaving your IDE.
 
-For VS Code: https://marketplace.visualstudio.com/items?itemName=maddada.VSmux
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=maddada.VSmux) [![Open VSX](https://img.shields.io/badge/Open%20VSX-Registry-purple)](https://open-vsx.org/extension/maddada/VSmux)
 
-For Cursor and Others: https://open-vsx.org/extension/maddada/VSmux
+---
 
-## Latest Release: 3.6.0
+### Latest Release: 3.6.0
 
 - Session groups now have collapsible headers so it is easier to tame larger sidebars.
 - The focused session now scrolls into view automatically during sidebar navigation.
 - Session cards, group panels, and agent/command controls have been visually polished for a cleaner sidebar.
 
-Full release notes: [CHANGELOG.md](/Users/madda/dev/_active/agent-tiler/CHANGELOG.md)
+Full release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ---
 
 ## Screenshot
 
-<img width="1000" alt="2026-04-14_fsCode_12-52-3d7@2x" src="https://github.com/user-attachments/assets/556c1190-4e7e-4965-9ff3-2ac2c5daef3a" />
+<img width="1000" alt="VSmux screenshot" src="https://github.com/user-attachments/assets/556c1190-4e7e-4965-9ff3-2ac2c5daef3a" />
 
-<br/><br/><br/>
-
-## Demo video:
+## Demo Video
 
 https://github.com/user-attachments/assets/5b41df9a-bb2e-45f3-b8bd-ed3d6b7e2968
 
 ---
 
-## This extension is for you if:
+## Who Is This For?
+
+This extension is for you if:
 
 - You like to code using multiple agent CLIs in parallel.
 - You don't want to be locked into a tool like conductor or superset or w/e.
@@ -42,28 +42,35 @@ Then this is the extension for you! You get a very nice interface to work with y
 
 ---
 
-List of main features
+## Main Features at a Glance
 
-* Multiplexed Split Views: Split your workspace into multiple panes (e.g., view 2 up to 9 sessions at once) to monitor and interact with several tasks simultaneously, complete with zoom functionality for easier reading.
-* Unified Session Search & History: Quickly search across all your sessions from various tools (WSL, Cloud Code, Codex) in one centralized location, rather than hunting through different tabs.
-* Session Management & Organization: Group, sort manually, or organize your sessions by recent activity to maintain a tidy workspace.
-* Session Resumption: Click on any past session from the history to instantly reload it and pick up exactly where you left off with the original AI agent.
-* Quick Search & Launch: Start typing the name of a closed session to quickly locate and reload it using just your arrow keys and the Enter button.
-* Session Forking: Branch off from an active session to retain its current context, allowing you to explore a new task or idea in a separate pane without altering the original chat.
-* RAM/Resource Saver (Sleep Mode): Put inactive sessions to sleep to instantly free up memory (noted as roughly a 25% drop in RAM usage), ensuring background tasks don't slow down your machine.
-* Customizable AI Agents: Add, configure, and modify distinct profiles for various AI models. You can set up custom paths, run different agents side-by-side, or create specific profiles (like "work" vs. "personal").
-* Cross-Agent Context Handoff: Transfer the context of an active conversation from one AI model (e.g., GPT) directly to another (e.g., Claude) to continue the work seamlessly.
-* Custom Action Buttons: Map any terminal command to a clickable, draggable button. These custom actions can be configured to execute commands automatically, play a notification sound upon completion, or close when finished.
-* Integrated Browser: Open web environments (like your localhost) directly within a VSmux pane. The browser remembers login states and includes a DevTools console, allowing you to select and send specific HTML elements directly to your AI agents.
-* Automated Git Operations: Built-in actions to automatically generate commit messages and push code changes.
-* Code Change Monitoring: Keep an eye on the codebase modifications your agents are making in a dedicated bottom-left panel while simultaneously directing other agents on separate tasks.
-* Customizable Settings: A robust settings menu that allows you to heavily configure the extension to fit your specific workflow preferences.
-
-
+- **Multiplexed Split Views** — Split your workspace into multiple panes (e.g., view 2 up to 9 sessions at once) to monitor and interact with several tasks simultaneously, complete with zoom functionality for easier reading.
+- **Unified Session Search & History** — Quickly search across all your sessions from various tools (WSL, Cloud Code, Codex) in one centralized location, rather than hunting through different tabs.
+- **Session Management & Organization** — Group, sort manually, or organize your sessions by recent activity to maintain a tidy workspace.
+- **Session Resumption** — Click on any past session from the history to instantly reload it and pick up exactly where you left off with the original AI agent.
+- **Quick Search & Launch** — Start typing the name of a closed session to quickly locate and reload it using just your arrow keys and the Enter button.
+- **Session Forking** — Branch off from an active session to retain its current context, allowing you to explore a new task or idea in a separate pane without altering the original chat.
+- **RAM/Resource Saver (Sleep Mode)** — Put inactive sessions to sleep to instantly free up memory (noted as roughly a 25% drop in RAM usage), ensuring background tasks don't slow down your machine.
+- **Customizable AI Agents** — Add, configure, and modify distinct profiles for various AI models. You can set up custom paths, run different agents side-by-side, or create specific profiles (like "work" vs. "personal").
+- **Cross-Agent Context Handoff** — Transfer the context of an active conversation from one AI model (e.g., GPT) directly to another (e.g., Claude) to continue the work seamlessly.
+- **Custom Action Buttons** — Map any terminal command to a clickable, draggable button. These custom actions can be configured to execute commands automatically, play a notification sound upon completion, or close when finished.
+- **Integrated Browser** — Open web environments (like your localhost) directly within a VSmux pane. The browser remembers login states and includes a DevTools console, allowing you to select and send specific HTML elements directly to your AI agents.
+- **Automated Git Operations** — Built-in actions to automatically generate commit messages and push code changes.
+- **Code Change Monitoring** — Keep an eye on the codebase modifications your agents are making in a dedicated bottom-left panel while simultaneously directing other agents on separate tasks.
+- **Customizable Settings** — A robust settings menu that allows you to heavily configure the extension to fit your specific workflow preferences.
 
 ---
 
-## Highly recommended VS Code Setup to work with worktrees and parallel agents
+## Getting Started
+
+1. Open the Command Palette.
+2. Run `VSmux: Open Workspace`.
+3. Create your first session.
+4. Use the sidebar and hotkeys to change the visible split count and jump between sessions and groups.
+
+---
+
+## Recommended VS Code Setup for Worktrees & Parallel Agents
 
 ### 1. Enable Native Tabs
 
@@ -77,7 +84,7 @@ Enable `SCM > Repositories: Explorer`, and make sure `SCM > Repositories: Select
 
 This exposes repository artifacts directly inside the Source Control UI, including branches, stashes, tags, and worktrees. It makes creating and managing Git worktrees much easier from the VS Code UI, without needing to drop into the terminal for every worktree action.
 
-### 3. Set your $Editor in ~/.zshrc to your editor (code/cursor/etc.)
+### 3. Set your `$EDITOR` in `~/.zshrc` to your editor (code/cursor/etc.)
 
 This lets you write your prompt inside your editor instead strugling with the annoying input box that these AI tools provide.
 No more [50 lines pasted] nonsense. Paste all the lines you want and even select parts of them and use inline AI to edit those.
@@ -86,46 +93,18 @@ Gist on how to do this
 
 ---
 
-## Companion App
-
-VSmux works great with my other tool that shows all running agent sessions in a mini floating bar on macOS (with running/waiting/done indicators). Check it out here: https://github.com/maddada/agent-manager-x
-
----
-
-## Contributions welcome 🙏🏻
-
-## Getting Started
-
-1. Open the Command Palette.
-2. Run `VSmux: Open Workspace`.
-3. Create your first session.
-4. Use the sidebar and hotkeys to change the visible split count and jump between sessions and groups.
-
 ## Settings
 
-- `VSmux.backgroundSessionTimeoutMinutes`: controls how long detached background sessions stay alive after the last VSmux window disconnects
-- `VSmux.sidebarTheme`: changes the sidebar theme preset
-- `VSmux.showCloseButtonOnSessionCards`: shows or hides the close button on session cards
-- `VSmux.sendRenameCommandOnSidebarRename`: stages `/rename <new name>` in the terminal when you rename from the sidebar
-
-## Local T3 Embed Setup
-
-The T3 embed frontend is intentionally local-only and gitignored.
-
-Use the dedicated update/setup guide here:
-
-- [docs/2026-04-03-how-to-update-t3-code.md](/Users/madda/dev/_active/agent-tiler/docs/2026-04-03-how-to-update-t3-code.md)
-
-That document is the current source of truth for:
-
-- refreshing the vendored `t3code` version from upstream `main`
-- rebuilding the local embed bundle
-- testing the update safely in a separate worktree
-- avoiding the protocol/runtime issues that broke earlier attempts
+| Setting                                  | Description                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `VSmux.backgroundSessionTimeoutMinutes`  | Controls how long detached background sessions stay alive after the last VSmux window disconnects |
+| `VSmux.sidebarTheme`                     | Changes the sidebar theme preset                                                                  |
+| `VSmux.showCloseButtonOnSessionCards`    | Shows or hides the close button on session cards                                                  |
+| `VSmux.sendRenameCommandOnSidebarRename` | Stages `/rename <new name>` in the terminal when you rename from the sidebar                      |
 
 ---
 
-## Features
+## Detailed Feature Breakdown
 
 ### Session Management
 
@@ -199,3 +178,32 @@ That document is the current source of truth for:
 - **Background session timeout** — configurable timeout for detached background sessions (or keep alive forever)
 - **Debug panel** — inspect terminal workspace state and layout operations in real time
 - **Companion app** — works with [agent-manager-x](https://github.com/maddada/agent-manager-x) for a floating macOS status bar
+
+---
+
+## Local T3 Embed Setup
+
+The T3 embed frontend is intentionally local-only and gitignored.
+
+Use the dedicated update/setup guide here:
+
+- [docs/2026-04-03-how-to-update-t3-code.md](./docs/2026-04-03-how-to-update-t3-code.md)
+
+That document is the current source of truth for:
+
+- refreshing the vendored `t3code` version from upstream `main`
+- rebuilding the local embed bundle
+- testing the update safely in a separate worktree
+- avoiding the protocol/runtime issues that broke earlier attempts
+
+---
+
+## Companion App
+
+VSmux works great with my other tool that shows all running agent sessions in a mini floating bar on macOS (with running/waiting/done indicators). Check it out here: https://github.com/maddada/agent-manager-x
+
+---
+
+## Contributions Welcome
+
+Contributions welcome 🙏🏻
