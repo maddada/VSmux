@@ -3,34 +3,30 @@ import type { SidebarSessionItem } from "../shared/session-grid-contract";
 import { getGroupSessionSummary } from "./group-session-summary";
 
 describe("getGroupSessionSummary", () => {
-  test("should count working sessions as active and attention sessions as done", () => {
+  test("should prefer the green indicator when any attention session exists", () => {
     expect(
       getGroupSessionSummary([
         createSession("session-1", { activity: "working", lifecycleState: "running" }),
-        createSession("session-2", { activity: "working", lifecycleState: "running" }),
-        createSession("session-3", { activity: "attention", lifecycleState: "done" }),
+        createSession("session-2", { activity: "attention", lifecycleState: "done" }),
       ]),
     ).toEqual({
-      activeCount: 2,
-      doneCount: 1,
+      indicatorActivity: "attention",
     });
   });
 
-  test("should ignore lifecycle state when the card activity is idle", () => {
+  test("should show orange only when there are working sessions and no attention sessions", () => {
     expect(
       getGroupSessionSummary([
         createSession("session-1", { activity: "idle", lifecycleState: "running" }),
         createSession("session-2", { activity: "idle", lifecycleState: "done" }),
         createSession("session-3", { activity: "working", lifecycleState: "done" }),
-        createSession("session-4", { activity: "attention", lifecycleState: "running" }),
       ]),
     ).toEqual({
-      activeCount: 1,
-      doneCount: 1,
+      indicatorActivity: "working",
     });
   });
 
-  test("should ignore sleeping and error sessions in the collapsed summary", () => {
+  test("should ignore idle, sleeping, and error sessions", () => {
     expect(
       getGroupSessionSummary([
         createSession("session-1", {
@@ -49,8 +45,7 @@ describe("getGroupSessionSummary", () => {
         createSession("session-4", { activity: "idle", lifecycleState: "error", isRunning: false }),
       ]),
     ).toEqual({
-      activeCount: 0,
-      doneCount: 0,
+      indicatorActivity: undefined,
     });
   });
 });

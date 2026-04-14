@@ -56,6 +56,13 @@ function sortSessionIdsByLastActivity(
   sessionsById: Record<string, SidebarSessionItem>,
 ): string[] {
   return [...sessionIds].sort((leftSessionId, rightSessionId) => {
+    const activityPriorityDelta =
+      getSessionActivitySortPriority(sessionsById[rightSessionId]) -
+      getSessionActivitySortPriority(sessionsById[leftSessionId]);
+    if (activityPriorityDelta !== 0) {
+      return activityPriorityDelta;
+    }
+
     const activityDelta =
       getSessionLastActivityTime(sessionsById[rightSessionId]) -
       getSessionLastActivityTime(sessionsById[leftSessionId]);
@@ -65,6 +72,17 @@ function sortSessionIdsByLastActivity(
 
     return sessionIds.indexOf(leftSessionId) - sessionIds.indexOf(rightSessionId);
   });
+}
+
+function getSessionActivitySortPriority(session: SidebarSessionItem | undefined): number {
+  switch (session?.activity) {
+    case "attention":
+      return 2;
+    case "working":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 function getSessionLastActivityTime(session: SidebarSessionItem | undefined): number {

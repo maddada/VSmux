@@ -26,6 +26,7 @@ import type {
 } from "../shared/sidebar-commands";
 import { getSidebarCommandIconLabel } from "../shared/sidebar-command-icons";
 import { GitActionRow } from "./git-action-row";
+import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { SectionHeader } from "./section-header";
 import { useSidebarStore } from "./sidebar-store";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
@@ -162,6 +163,7 @@ export function CommandsPanel({
   const [editingCommand, setEditingCommand] = useState<CommandConfigDraft>();
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingOrderSyncRef = useRef<PendingOrderSync>();
+  const lastLoggedOrderStateRef = useRef<string>();
 
   useEffect(() => {
     if (!contextMenu) {
@@ -249,8 +251,18 @@ export function CommandsPanel({
   };
 
   useEffect(() => {
-    setDraftCommandIds((previousDraft) => reconcileDraftCommandIds(previousDraft, commands));
-  }, [commands]);
+    setDraftCommandIds((previousDraft) => {
+      const nextDraft = reconcileDraftCommandIds(previousDraft, commands);
+      if (previousDraft || nextDraft) {
+        postSidebarOrderReproLog(vscode, "repro.sidebarOrder.commands.reconcileDraft", {
+          nextDraftCommandIds: nextDraft ?? null,
+          previousDraftCommandIds: previousDraft ?? null,
+          syncedCommandIds: commands.map((command) => command.commandId),
+        });
+      }
+      return nextDraft;
+    });
+  }, [commands, vscode]);
 
   useEffect(
     () => () => {
@@ -273,10 +285,18 @@ export function CommandsPanel({
     clearPendingOrderSync(pendingOrderSync);
     pendingOrderSyncRef.current = undefined;
 
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.commands.syncResult", {
+      draftCommandIds: draftCommandIds ?? null,
+      itemIds: latestCommandOrderSyncResult.itemIds,
+      requestId: latestCommandOrderSyncResult.requestId,
+      status: latestCommandOrderSyncResult.status,
+      syncedCommandIds: commands.map((command) => command.commandId),
+    });
+
     if (latestCommandOrderSyncResult.status === "error") {
       setDraftCommandIds(undefined);
     }
-  }, [latestCommandOrderSyncResult]);
+  }, [commands, draftCommandIds, latestCommandOrderSyncResult, vscode]);
 
   useEffect(() => {
     if (createRequestId === 0) {
@@ -304,6 +324,23 @@ export function CommandsPanel({
   }, [commands, draftCommandIds]);
   const gridColumnCount = Math.min(Math.max(orderedCommands.length, 1), 4);
   const shouldRenderSection = isVisible && (showGitButton || orderedCommands.length > 0);
+
+  useEffect(() => {
+    const payload = {
+      draftCommandIds: draftCommandIds ?? null,
+      orderedCommandIds: orderedCommands.map((command) => command.commandId),
+      pendingRequestId: pendingOrderSyncRef.current?.requestId ?? null,
+      shouldRenderSection,
+      syncedCommandIds: commands.map((command) => command.commandId),
+    };
+    const nextFingerprint = JSON.stringify(payload);
+    if (lastLoggedOrderStateRef.current === nextFingerprint) {
+      return;
+    }
+
+    lastLoggedOrderStateRef.current = nextFingerprint;
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.commands.state", payload);
+  }, [commands, draftCommandIds, orderedCommands, shouldRenderSection, vscode]);
 
   const handleDragEnd = ((event) => {
     if (event.canceled) {
@@ -346,9 +383,22 @@ export function CommandsPanel({
         }
 
         pendingOrderSyncRef.current = undefined;
+        postSidebarOrderReproLog(vscode, "repro.sidebarOrder.commands.syncTimeout", {
+          draftCommandIds: nextCommandIds,
+          requestId,
+          syncedCommandIds: commands.map((command) => command.commandId),
+        });
         setDraftCommandIds(undefined);
       }, REORDER_SYNC_TIMEOUT_MS),
     };
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.commands.dragEnd", {
+      currentOrderedCommandIds: orderedCommands.map((command) => command.commandId),
+      initialIndex,
+      nextCommandIds,
+      requestId,
+      syncedCommandIds: commands.map((command) => command.commandId),
+      targetIndex,
+    });
     setDraftCommandIds(nextCommandIds);
     vscode.postMessage({
       commandIds: nextCommandIds,

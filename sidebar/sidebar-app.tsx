@@ -48,6 +48,7 @@ import {
   type SidebarSessionSearchSelection,
 } from "./sidebar-session-search";
 import { logSidebarDebug } from "./sidebar-debug";
+import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { resetSidebarStore, useSidebarStore } from "./sidebar-store";
 import {
   getClientPoint,
@@ -325,6 +326,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     }
 
     if (event.data.type === "sidebarOrderSyncResult") {
+      postSidebarOrderReproLog(vscode, "repro.sidebarOrder.webview.syncResultReceived", {
+        itemIds: event.data.itemIds,
+        kind: event.data.kind,
+        requestId: event.data.requestId,
+        status: event.data.status,
+      });
       applyOrderSyncResultMessage(event.data);
       return;
     }
@@ -342,6 +349,14 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
       return;
     }
+
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.webview.messageReceived", {
+      agentIds: event.data.hud.agents.map((agent) => agent.agentId),
+      commandIds: event.data.hud.commands.map((command) => command.commandId),
+      groupTitles: event.data.groups.map((group) => group.title),
+      messageType: event.data.type,
+      revision: event.data.revision,
+    });
 
     if (pendingCreateGroupRef.current) {
       const nextGroupId = findCreatedGroupId(

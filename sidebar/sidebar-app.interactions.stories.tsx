@@ -49,12 +49,24 @@ export const ToolbarActions: Story = {
     });
 
     await step("request a new session inside a group", async () => {
+      const groupHeader = await findRequiredElement(
+        canvasElement.ownerDocument.body,
+        '[data-sidebar-group-id="group-4"] .group-head',
+        "group-4 header",
+      );
+      await userEvent.hover(groupHeader);
       await userEvent.click(canvas.getByRole("button", { name: "Create a session in Group 4" }));
       await expectMessage({ groupId: "group-4", type: "createSessionInGroup" });
     });
 
     await step("toggle sessions shown", async () => {
       resetSidebarStoryMessages();
+      const groupHeader = await findRequiredElement(
+        canvasElement.ownerDocument.body,
+        '[data-sidebar-group-id="group-4"] .group-head',
+        "group-4 header",
+      );
+      await userEvent.hover(groupHeader);
       await userEvent.click(canvas.getByRole("button", { name: "Select split count for Group 4" }));
       await userEvent.click(await body.findByRole("menuitem", { name: "Show 2 splits" }));
       await expectMessage({ type: "setVisibleCount", visibleCount: 2 });
@@ -62,6 +74,12 @@ export const ToolbarActions: Story = {
 
     await step("keep the split menu available on right click", async () => {
       resetSidebarStoryMessages();
+      const groupHeader = await findRequiredElement(
+        canvasElement.ownerDocument.body,
+        '[data-sidebar-group-id="group-4"] .group-head',
+        "group-4 header",
+      );
+      await userEvent.hover(groupHeader);
       const splitModeButton = canvas.getByRole("button", {
         name: "Select split count for Group 4",
       });
@@ -122,6 +140,12 @@ export const ToolbarActions: Story = {
 
     await step("still create a session in a group after menu interactions", async () => {
       resetSidebarStoryMessages();
+      const groupHeader = await findRequiredElement(
+        canvasElement.ownerDocument.body,
+        '[data-sidebar-group-id="group-4"] .group-head',
+        "group-4 header",
+      );
+      await userEvent.hover(groupHeader);
       await userEvent.click(canvas.getByRole("button", { name: "Create a session in Group 4" }));
       await expectMessage({ groupId: "group-4", type: "createSessionInGroup" });
     });
@@ -157,7 +181,7 @@ export const GroupCollapse: Story = {
       "group-1 section",
     );
 
-    await step("collapse a group and keep its active and done summary visible", async () => {
+    await step("collapse a group and keep its summary indicator visible", async () => {
       resetSidebarStoryMessages();
       await userEvent.click(
         within(group).getByRole("button", {
@@ -166,8 +190,7 @@ export const GroupCollapse: Story = {
       );
 
       await expectNoMessage({ type: "focusGroup" });
-      await expect(within(group).getByLabelText("1 active")).toBeVisible();
-      await expect(within(group).getByLabelText("1 done")).toBeVisible();
+      await expect(within(group).getByLabelText("Group has completed sessions")).toBeVisible();
       await waitFor(() => {
         expect(group.querySelector('[data-sidebar-session-id="session-1"]')).toBeNull();
       });
@@ -185,8 +208,7 @@ export const GroupCollapse: Story = {
       await waitFor(() => {
         expect(group.querySelector('[data-sidebar-session-id="session-1"]')).not.toBeNull();
       });
-      await expect(within(group).queryByLabelText("1 active")).toBeNull();
-      await expect(within(group).queryByLabelText("1 done")).toBeNull();
+      await expect(within(group).queryByLabelText("Group has completed sessions")).toBeNull();
     });
   },
 };

@@ -218,11 +218,9 @@ export function SessionGroupSection({
   const allSessionsSleeping =
     groupSessions.length > 0 && groupSessions.every((session) => session.isSleeping);
   const canFullReloadGroup = groupSessions.length > 0;
-  const hasCollapsedSummary = sessionSummary.activeCount > 0 || sessionSummary.doneCount > 0;
-  const collapsedSummaryLabel = getCollapsedSummaryLabel(
-    sessionSummary.activeCount,
-    sessionSummary.doneCount,
-  );
+  const collapsedIndicatorActivity = sessionSummary.indicatorActivity;
+  const hasCollapsedSummary = collapsedIndicatorActivity !== undefined;
+  const collapsedSummaryLabel = getCollapsedSummaryLabel(collapsedIndicatorActivity);
   const sessionsRegionId = `${group.groupId}-sessions`;
 
   const isGroupDropTarget =
@@ -552,7 +550,7 @@ export function SessionGroupSection({
                   aria-controls={isCollapsed ? undefined : sessionsRegionId}
                   aria-expanded={!isCollapsed}
                   aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
-                  className="group-collapse-button"
+                  className="group-collapse-button section-titlebar-toggle"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -564,14 +562,14 @@ export function SessionGroupSection({
                   {isCollapsed ? (
                     <IconChevronRight
                       aria-hidden="true"
-                      className="group-collapse-icon"
+                      className="group-collapse-icon section-titlebar-toggle-icon"
                       size={14}
                       stroke={2}
                     />
                   ) : (
                     <IconChevronDown
                       aria-hidden="true"
-                      className="group-collapse-icon"
+                      className="group-collapse-icon section-titlebar-toggle-icon"
                       size={14}
                       stroke={2}
                     />
@@ -595,7 +593,7 @@ export function SessionGroupSection({
                     title={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
                     type="button"
                   >
-                    <span className="group-title">{group.title}</span>
+                    <span className="group-title section-titlebar-label">{group.title}</span>
                   </button>
                 </div>
                 <div
@@ -606,6 +604,27 @@ export function SessionGroupSection({
                     event.stopPropagation();
                   }}
                 >
+                  <button
+                    aria-label={
+                      isBrowserGroup
+                        ? `Open a browser in ${group.title}`
+                        : `Create a session in ${group.title}`
+                    }
+                    className="group-add-button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      requestCreateSession();
+                    }}
+                    title={
+                      isBrowserGroup
+                        ? `Open a browser in ${group.title}`
+                        : `Create a session in ${group.title}`
+                    }
+                    type="button"
+                  >
+                    <IconPlus aria-hidden="true" className="group-add-icon" size={14} stroke={2} />
+                  </button>
                   {group.isActive && !isBrowserGroup ? (
                     <div className="group-layout-controls">
                       <div className="group-control-anchor">
@@ -638,63 +657,20 @@ export function SessionGroupSection({
                       </div>
                     </div>
                   ) : null}
-                  <button
-                    aria-label={
-                      isBrowserGroup
-                        ? `Open a browser in ${group.title}`
-                        : `Create a session in ${group.title}`
-                    }
-                    className="group-add-button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      requestCreateSession();
-                    }}
-                    title={
-                      isBrowserGroup
-                        ? `Open a browser in ${group.title}`
-                        : `Create a session in ${group.title}`
-                    }
-                    type="button"
-                  >
-                    <IconPlus aria-hidden="true" className="group-add-icon" size={14} stroke={2} />
-                  </button>
                 </div>
-                {isCollapsed && hasCollapsedSummary ? (
-                  <div aria-label={collapsedSummaryLabel} className="group-collapsed-summary">
-                    {sessionSummary.activeCount > 0 ? (
-                      <span
-                        aria-label={formatCollapsedSummaryCount(
-                          sessionSummary.activeCount,
-                          "active",
-                        )}
-                        className="group-summary-indicator"
-                        data-activity="working"
-                      >
-                        <span className="group-summary-count">
-                          {String(sessionSummary.activeCount)}
-                        </span>
-                        <span aria-hidden className="session-status-dot" />
-                      </span>
-                    ) : null}
-                    {sessionSummary.doneCount > 0 ? (
-                      <span
-                        aria-label={formatCollapsedSummaryCount(sessionSummary.doneCount, "done")}
-                        className="group-summary-indicator"
-                        data-activity="attention"
-                      >
-                        <span className="group-summary-count">
-                          {String(sessionSummary.doneCount)}
-                        </span>
-                        <span aria-hidden className="session-status-dot" />
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
             )}
           </div>
         </div>
+        {isCollapsed && hasCollapsedSummary ? (
+          <div
+            aria-label={collapsedSummaryLabel}
+            className="group-collapsed-summary"
+            data-activity={collapsedIndicatorActivity}
+          >
+            <div aria-hidden className="session-status-dot" />
+          </div>
+        ) : null}
         {shouldRenderGroupSessions ? (
           <div
             className="group-sessions"
@@ -872,19 +848,16 @@ function createSessionGroupDebugInstanceId(): number {
   return sessionGroupDebugInstanceCounter;
 }
 
-function formatCollapsedSummaryCount(count: number, label: "active" | "done"): string {
-  return `${String(count)} ${label}`;
-}
-
-function getCollapsedSummaryLabel(activeCount: number, doneCount: number): string {
-  const segments: string[] = [];
-
-  if (activeCount > 0) {
-    segments.push(formatCollapsedSummaryCount(activeCount, "active"));
-  }
-  if (doneCount > 0) {
-    segments.push(formatCollapsedSummaryCount(doneCount, "done"));
+function getCollapsedSummaryLabel(
+  indicatorActivity: "attention" | "working" | undefined,
+): string | undefined {
+  if (indicatorActivity === "attention") {
+    return "Group has completed sessions";
   }
 
-  return segments.join(", ");
+  if (indicatorActivity === "working") {
+    return "Group has active sessions";
+  }
+
+  return undefined;
 }

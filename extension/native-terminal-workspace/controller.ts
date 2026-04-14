@@ -124,6 +124,7 @@ import {
   writeCodexWelcomeTerminalTitle,
 } from "../codex-terminal-title-config";
 import { dispatchSidebarMessage } from "./sidebar-message-dispatch";
+import { getVscodeWorkspaceLogLabel } from "../../shared/vscode-workspace-log-context";
 import {
   shouldSkipSessionForGroupFullReload,
   shouldSkipSessionForIndicatorProtectedGroupAction,
@@ -238,6 +239,7 @@ const WORKSPACE_RENAME_TOAST_DURATION_MS = 3_000;
 const SIMPLE_BROWSER_OPEN_COMMAND = "simpleBrowser.api.open";
 const TOGGLE_MAXIMIZE_EDITOR_GROUP_COMMAND = "workbench.action.toggleMaximizeEditorGroup";
 const FULL_RELOAD_SUPPORTED_AGENTS_LABEL = "Codex, Claude, and OpenCode";
+const SIDEBAR_ORDER_REPRO_TAG = "SIDEBAR_ORDER_REPRO";
 
 export { SESSIONS_VIEW_ID } from "./settings";
 
@@ -1965,8 +1967,21 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     itemIds: readonly string[],
     syncPreference: (itemIds: readonly string[]) => Promise<void>,
   ): Promise<void> {
+    this.logSidebarOrderTrace("repro.sidebarOrder.extension.syncStart", {
+      beforeItemIds: this.getSidebarOrderIds(kind),
+      kind,
+      requestId,
+      requestedItemIds: [...itemIds],
+    });
+
     try {
       await syncPreference(itemIds);
+      this.logSidebarOrderTrace("repro.sidebarOrder.extension.syncSuccess", {
+        kind,
+        persistedItemIds: this.getSidebarOrderIds(kind),
+        requestId,
+        requestedItemIds: [...itemIds],
+      });
       await this.postSidebarOrderSyncResult({
         itemIds: [...itemIds],
         kind,
@@ -1975,6 +1990,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         type: "sidebarOrderSyncResult",
       });
     } catch (error) {
+      this.logSidebarOrderTrace("repro.sidebarOrder.extension.syncError", {
+        error: error instanceof Error ? error.message : String(error),
+        kind,
+        requestId,
+        requestedItemIds: [...itemIds],
+      });
       await this.postSidebarOrderSyncResult({
         itemIds: [...itemIds],
         kind,
@@ -1986,6 +2007,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     await this.refreshSidebar("hydrate");
+  }
+
+  private getSidebarOrderIds(kind: SidebarOrderSyncKind): string[] {
+    return kind === "agent"
+      ? getSidebarAgentButtons().map((agent) => agent.agentId)
+      : getSidebarCommandButtons(this.context).map((command) => command.commandId);
+  }
+
+  private logSidebarOrderTrace(event: string, details?: unknown): void {
+    logVSmuxReproTrace(event, enrichSidebarOrderTraceDetails(this.workspaceId, details));
   }
 
   private async postSidebarOrderSyncResult(
@@ -2171,6 +2202,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {
     if (message.type === "sidebarDebugLog") {
       logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
+      if (message.event.startsWith("repro.sidebarOrder.")) {
+        this.logSidebarOrderTrace(`sidebar.webview.${message.event}`, message.details);
+      }
       return;
     }
 
@@ -2441,7 +2475,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     if (type === "sessionState") {
       this.ensureSidebarGitHudStateFresh();
     }
-    return buildSidebarMessage({
+    const message = buildSidebarMessage({
       activeSnapshot,
       browserTabs: browserTabs.map((browserTab) => ({
         detail: browserTab.detail ?? this.browserDetailBySessionId.get(browserTab.sessionId),
@@ -2495,7 +2529,18 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       type,
       workspaceId: this.workspaceId,
       workspaceSnapshot,
+    }) as SidebarHydrateMessage | SidebarSessionStateMessage;
+
+    this.logSidebarOrderTrace("repro.sidebarOrder.extension.messageBuilt", {
+      agentIds: message.hud.agents.map((agent) => agent.agentId),
+      commandIds: message.hud.commands.map((command) => command.commandId),
+      focusedSessionTitle: message.hud.focusedSessionTitle,
+      groupTitles: message.groups.map((group) => group.title),
+      messageType: type,
+      revision,
     });
+
+    return message;
   }
 
   private async createDaemonSessionsMessage(): Promise<ExtensionToSidebarMessage> {
@@ -5094,6 +5139,26 @@ function shouldFocusBeforeLaunchingSidebarAgent(): boolean {
 
 function shouldUseExplicitPowerShellEnter(): boolean {
   return shouldFocusBeforeLaunchingSidebarAgent();
+}
+
+function enrichSidebarOrderTraceDetails(workspaceId: string, details: unknown): unknown {
+  const baseDetails = {
+    projectTitle: getVscodeWorkspaceLogLabel(),
+    tag: SIDEBAR_ORDER_REPRO_TAG,
+    workspaceId,
+  };
+
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return {
+      ...baseDetails,
+      details,
+    };
+  }
+
+  return {
+    ...baseDetails,
+    ...details,
+  };
 }
 
 function sendTerminalText(terminal: vscode.Terminal, data: string, shouldExecute = true): void {

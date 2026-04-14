@@ -1,29 +1,27 @@
 import type { SidebarSessionItem } from "../shared/session-grid-contract";
 
 export type GroupSessionSummary = {
-  activeCount: number;
-  doneCount: number;
+  indicatorActivity: "attention" | "working" | undefined;
 };
 
 export function getGroupSessionSummary(
   sessions: readonly SidebarSessionItem[],
 ): GroupSessionSummary {
-  let activeCount = 0;
-  let doneCount = 0;
+  let hasWorking = false;
+  let hasAttention = false;
 
   for (const session of sessions) {
     if (session.activity === "working") {
-      activeCount += 1;
+      hasWorking = true;
       continue;
     }
 
     if (session.activity === "attention") {
-      doneCount += 1;
+      hasAttention = true;
     }
   }
 
   return {
-    activeCount,
-    doneCount,
+    indicatorActivity: hasAttention ? "attention" : hasWorking ? "working" : undefined,
   };
 }

@@ -42,6 +42,52 @@ describe("createDisplaySessionLayout", () => {
     });
   });
 
+  test("should prioritize attention sessions above working sessions above idle sessions", () => {
+    const layout = createDisplaySessionLayout({
+      sessionIdsByGroup: {
+        "group-1": ["session-1", "session-2", "session-3", "session-4"],
+      },
+      sessionsById: {
+        "session-1": createSession("session-1", "2026-04-07T12:00:00.000Z", "idle"),
+        "session-2": createSession("session-2", "2026-04-07T09:00:00.000Z", "attention"),
+        "session-3": createSession("session-3", "2026-04-07T08:00:00.000Z", "working"),
+        "session-4": createSession("session-4", "2026-04-07T11:00:00.000Z", "idle"),
+      },
+      sortMode: "lastActivity",
+      workspaceGroupIds: ["group-1"],
+    });
+
+    expect(layout.sessionIdsByGroup["group-1"]).toEqual([
+      "session-2",
+      "session-3",
+      "session-1",
+      "session-4",
+    ]);
+  });
+
+  test("should sort sessions by last activity within the same activity priority", () => {
+    const layout = createDisplaySessionLayout({
+      sessionIdsByGroup: {
+        "group-1": ["session-1", "session-2", "session-3", "session-4"],
+      },
+      sessionsById: {
+        "session-1": createSession("session-1", "2026-04-07T09:00:00.000Z", "attention"),
+        "session-2": createSession("session-2", "2026-04-07T10:00:00.000Z", "attention"),
+        "session-3": createSession("session-3", "2026-04-07T11:00:00.000Z", "working"),
+        "session-4": createSession("session-4", "2026-04-07T12:00:00.000Z", "working"),
+      },
+      sortMode: "lastActivity",
+      workspaceGroupIds: ["group-1"],
+    });
+
+    expect(layout.sessionIdsByGroup["group-1"]).toEqual([
+      "session-2",
+      "session-1",
+      "session-4",
+      "session-3",
+    ]);
+  });
+
   test("should flatten sessions in the same order shown in the sidebar", () => {
     expect(
       getDisplaySessionIdsInOrder({
@@ -81,9 +127,10 @@ function createSessionsById(): Record<string, SidebarSessionItem> {
 function createSession(
   sessionId: string,
   lastInteractionAt: string | undefined,
+  activity: SidebarSessionItem["activity"] = "idle",
 ): SidebarSessionItem {
   return {
-    activity: "idle",
+    activity,
     activityLabel: undefined,
     alias: sessionId,
     column: 0,

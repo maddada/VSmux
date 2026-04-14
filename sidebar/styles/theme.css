@@ -307,7 +307,7 @@ button:disabled {
 
 .sidebar-top-panels {
   display: grid;
-  gap: calc(10px * var(--sidebar-density-scale));
+  gap: calc(30px * var(--sidebar-density-scale));
 }
 
 .stack[data-dimmed="true"] {

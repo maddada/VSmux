@@ -14,6 +14,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import type { SidebarAgentButton } from "../shared/sidebar-agents";
 import { AGENT_LOGOS } from "./agent-logos";
+import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { SectionHeader } from "./section-header";
 import { useSidebarStore } from "./sidebar-store";
 import { TOOLTIP_DELAY_MS } from "./tooltip-delay";
@@ -121,6 +122,7 @@ export function AgentsPanel({
   const [editingAgent, setEditingAgent] = useState<AgentConfigDraft>();
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingOrderSyncRef = useRef<PendingOrderSync>();
+  const lastLoggedOrderStateRef = useRef<string>();
 
   useEffect(() => {
     if (!contextMenu) {
@@ -184,8 +186,18 @@ export function AgentsPanel({
   };
 
   useEffect(() => {
-    setDraftAgentIds((previousDraft) => reconcileDraftAgentIds(previousDraft, agents));
-  }, [agents]);
+    setDraftAgentIds((previousDraft) => {
+      const nextDraft = reconcileDraftAgentIds(previousDraft, agents);
+      if (previousDraft || nextDraft) {
+        postSidebarOrderReproLog(vscode, "repro.sidebarOrder.agents.reconcileDraft", {
+          nextDraftAgentIds: nextDraft ?? null,
+          previousDraftAgentIds: previousDraft ?? null,
+          syncedAgentIds: agents.map((agent) => agent.agentId),
+        });
+      }
+      return nextDraft;
+    });
+  }, [agents, vscode]);
 
   useEffect(
     () => () => {
@@ -208,10 +220,18 @@ export function AgentsPanel({
     clearPendingOrderSync(pendingOrderSync);
     pendingOrderSyncRef.current = undefined;
 
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.agents.syncResult", {
+      draftAgentIds: draftAgentIds ?? null,
+      itemIds: latestAgentOrderSyncResult.itemIds,
+      requestId: latestAgentOrderSyncResult.requestId,
+      status: latestAgentOrderSyncResult.status,
+      syncedAgentIds: agents.map((agent) => agent.agentId),
+    });
+
     if (latestAgentOrderSyncResult.status === "error") {
       setDraftAgentIds(undefined);
     }
-  }, [latestAgentOrderSyncResult]);
+  }, [agents, draftAgentIds, latestAgentOrderSyncResult, vscode]);
 
   useEffect(() => {
     if (createRequestId === 0) {
@@ -238,6 +258,22 @@ export function AgentsPanel({
       .filter((agent): agent is SidebarAgentButton => agent !== undefined);
   }, [agents, draftAgentIds]);
   const gridColumnCount = Math.min(Math.max(orderedAgents.length, 1), 5);
+
+  useEffect(() => {
+    const payload = {
+      draftAgentIds: draftAgentIds ?? null,
+      orderedAgentIds: orderedAgents.map((agent) => agent.agentId),
+      pendingRequestId: pendingOrderSyncRef.current?.requestId ?? null,
+      syncedAgentIds: agents.map((agent) => agent.agentId),
+    };
+    const nextFingerprint = JSON.stringify(payload);
+    if (lastLoggedOrderStateRef.current === nextFingerprint) {
+      return;
+    }
+
+    lastLoggedOrderStateRef.current = nextFingerprint;
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.agents.state", payload);
+  }, [agents, draftAgentIds, orderedAgents, vscode]);
 
   const handleDragEnd = ((event) => {
     if (event.canceled) {
@@ -280,9 +316,22 @@ export function AgentsPanel({
         }
 
         pendingOrderSyncRef.current = undefined;
+        postSidebarOrderReproLog(vscode, "repro.sidebarOrder.agents.syncTimeout", {
+          draftAgentIds: nextAgentIds,
+          requestId,
+          syncedAgentIds: agents.map((agent) => agent.agentId),
+        });
         setDraftAgentIds(undefined);
       }, REORDER_SYNC_TIMEOUT_MS),
     };
+    postSidebarOrderReproLog(vscode, "repro.sidebarOrder.agents.dragEnd", {
+      currentOrderedAgentIds: orderedAgents.map((agent) => agent.agentId),
+      initialIndex,
+      nextAgentIds,
+      requestId,
+      syncedAgentIds: agents.map((agent) => agent.agentId),
+      targetIndex,
+    });
     setDraftAgentIds(nextAgentIds);
     vscode.postMessage({
       agentIds: nextAgentIds,
