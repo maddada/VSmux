@@ -6,11 +6,11 @@
 
 ---
 
-### Latest Release: 3.6.0
+### Latest Release: 3.7.0
 
-- Session groups now have collapsible headers so it is easier to tame larger sidebars.
-- The focused session now scrolls into view automatically during sidebar navigation.
-- Session cards, group panels, and agent/command controls have been visually polished for a cleaner sidebar.
+- The sidebar has a broader visual refresh with cleaner group panels and more polished session cards.
+- Agent and command sections behave better now in denser layouts.
+- Grouped sessions are easier to scan with clearer connectors and smoother expand/collapse behavior.
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md)
 

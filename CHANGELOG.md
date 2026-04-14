@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
+## 3.7.0 - 2026-04-14
+
+- The sidebar has a broader visual refresh now, with cleaner group panels, more polished session cards, and a more cohesive overall layout.
+- Agent and command sections behave better in dense layouts, with improved button-grid behavior and steadier hover and drag interactions.
+- Grouped sessions are easier to scan, thanks to clearer connectors, refined status anchoring, and smoother expand/collapse behavior.
+- Session title handling is a bit smarter now, so generated titles line up more cleanly with the refreshed sidebar presentation.
+
 ## 3.6.0 - 2026-04-14
 
 - Session groups are easier to manage now, with collapsible group headers so you can fold sections down and keep larger sidebars under control.
