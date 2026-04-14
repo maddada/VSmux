@@ -1,4 +1,4 @@
-import { IconSquareRoundedChevronRightFilled } from "@tabler/icons-react";
+import { IconChevronRight } from "@tabler/icons-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 export type SectionHeaderProps = {
@@ -50,10 +50,7 @@ export function SectionHeader({
             title={collapseLabel}
             type="button"
           >
-            <IconSquareRoundedChevronRightFilled
-              aria-hidden="true"
-              className="section-titlebar-toggle-icon"
-            />
+            <IconChevronRight aria-hidden="true" className="section-titlebar-toggle-icon" />
           </button>
         ) : null}
         <span className="section-titlebar-label">{title}</span>

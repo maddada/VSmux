@@ -12,7 +12,7 @@ import {
   IconMinus,
   IconPencil,
   IconPlus,
-  IconSquareRoundedPlusFilled,
+  IconPlusFilled,
   IconSearch,
   IconSettings,
   IconWorld,
@@ -20,6 +20,7 @@ import {
 import {
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -61,6 +62,10 @@ import {
   getSidebarSessionDropTargetAtPoint,
   moveSessionIdsByDropTarget,
 } from "./sidebar-dnd";
+import {
+  getBrowserSessionCountsByGroup,
+  reconcileCollapsedGroupsById,
+} from "./browser-group-collapse";
 import { SessionGroupSection } from "./session-group-section";
 import {
   applyTextEditingKey,
@@ -160,6 +165,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const groupIdsRef = useRef<string[]>([]);
   const sessionIdsByGroupRef = useRef<SessionIdsByGroup>({});
+  const previousBrowserSessionCountsByGroupRef = useRef<Record<string, number>>({});
   const previousNormalizedSessionSearchQueryRef = useRef("");
   const pointerDownSessionTargetRef = useRef<SidebarPointerDownSessionTarget>();
   const sessionPointerDragStateRef = useRef<SidebarSessionPointerDragState>();
@@ -216,24 +222,23 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const gitCommitDraft = useSidebarStore((state) => state.gitCommitDraft);
   const authoritativeSessionIdsByGroup = useSidebarStore((state) => state.sessionIdsByGroup);
 
-  useEffect(() => {
-    setCollapsedGroupsById((previous) => {
-      const validGroupIds = new Set(groupOrder);
-      let changed = false;
-      const next: Record<string, true> = {};
-
-      for (const [groupId, collapsed] of Object.entries(previous)) {
-        if (!validGroupIds.has(groupId)) {
-          changed = true;
-          continue;
-        }
-
-        next[groupId] = collapsed;
-      }
-
-      return changed ? next : previous;
+  useLayoutEffect(() => {
+    const nextBrowserSessionCountsByGroup = getBrowserSessionCountsByGroup({
+      browserGroupIds,
+      sessionIdsByGroup: authoritativeSessionIdsByGroup,
     });
-  }, [groupOrder]);
+
+    setCollapsedGroupsById((previous) =>
+      reconcileCollapsedGroupsById({
+        browserGroupIds,
+        groupIds: groupOrder,
+        previousBrowserSessionCountsByGroup: previousBrowserSessionCountsByGroupRef.current,
+        previousCollapsedGroupsById: previous,
+        sessionIdsByGroup: authoritativeSessionIdsByGroup,
+      }),
+    );
+    previousBrowserSessionCountsByGroupRef.current = nextBrowserSessionCountsByGroup;
+  }, [authoritativeSessionIdsByGroup, browserGroupIds, groupOrder]);
 
   const isSidebarInteractionBlocked = isStartupInteractionBlocked;
 
@@ -1458,7 +1463,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                               aria-hidden="true"
                               className="group-collapse-button section-titlebar-toggle group-create-button-icon-shell"
                             >
-                              <IconSquareRoundedPlusFilled
+                              <IconPlusFilled
                                 aria-hidden="true"
                                 className="group-create-button-icon"
                                 size={14}

@@ -4,7 +4,7 @@ import {
   IconPlayerPlay,
   IconPlus,
   IconRefresh,
-  IconSquareRoundedChevronRightFilled,
+  IconChevronRight,
   IconX,
 } from "@tabler/icons-react";
 import { CollisionPriority } from "@dnd-kit/abstract";
@@ -35,7 +35,7 @@ import {
 } from "./sidebar-dnd";
 import { getGroupSessionSummary } from "./group-session-summary";
 import { shouldShowSessionGroupConnector } from "./session-group-connector";
-import { getSessionStatusAnchorName } from "./session-status-anchor";
+import { getGroupStatusAnchorName, getSessionStatusAnchorName } from "./session-status-anchor";
 import { useSidebarStore } from "./sidebar-store";
 import { SortableSessionCard } from "./sortable-session-card";
 import { useCollapsibleHeight } from "./use-collapsible-height";
@@ -56,6 +56,14 @@ function getAnchoredSessionStatusStyle(sessionId: string): CSSProperties {
   return {
     left: "anchor(right)",
     positionAnchor: getSessionStatusAnchorName(sessionId),
+    top: "anchor(center)",
+  } as CSSProperties;
+}
+
+function getCollapsedGroupStatusStyle(groupId: string): CSSProperties {
+  return {
+    left: "anchor(right)",
+    positionAnchor: getGroupStatusAnchorName(groupId),
     top: "anchor(center)",
   } as CSSProperties;
 }
@@ -237,16 +245,19 @@ export function SessionGroupSection({
   const hasCollapsedSummary = collapsedIndicatorActivity !== undefined;
   const collapsedSummaryLabel = getCollapsedSummaryLabel(collapsedIndicatorActivity);
   const sessionsRegionId = `${group.groupId}-sessions`;
+  const groupHeaderAnchorStyle = {
+    anchorName: getGroupStatusAnchorName(group.groupId),
+  } as CSSProperties;
 
   const isGroupDropTarget =
     sortable.isDropTarget ||
     emptyGroupDropTarget.isDropTarget ||
     sessionDropIndicatorGroupId === groupId;
-  const canRenderGroupSessions = !isBrowserGroup || orderedSessionIds.length > 0;
   const showSessionGroupConnector = shouldShowSessionGroupConnector({
     groupKind: group.kind,
     sessions: groupSessions,
   });
+  const emptyStateLabel = isBrowserGroup ? "No browsers" : "No sessions";
 
   useEffect(() => {
     postGroupDebugLog("group.sectionMounted", {
@@ -565,7 +576,12 @@ export function SessionGroupSection({
         }}
         ref={sortable.ref}
       >
-        <div className="group-head" data-collapsible="true" onClick={handleGroupHeaderClick}>
+        <div
+          className="group-head"
+          data-collapsible="true"
+          onClick={handleGroupHeaderClick}
+          style={groupHeaderAnchorStyle}
+        >
           <div className="group-title-wrap">
             {isEditing ? (
               <input
@@ -593,7 +609,7 @@ export function SessionGroupSection({
                   title={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
                   type="button"
                 >
-                  <IconSquareRoundedChevronRightFilled
+                  <IconChevronRight
                     aria-hidden="true"
                     className="group-collapse-icon section-titlebar-toggle-icon"
                     size={14}
@@ -691,81 +707,78 @@ export function SessionGroupSection({
             aria-label={collapsedSummaryLabel}
             className="group-collapsed-summary"
             data-activity={collapsedIndicatorActivity}
+            style={getCollapsedGroupStatusStyle(group.groupId)}
           >
             <div aria-hidden className="session-status-dot" />
           </div>
         ) : null}
-        {canRenderGroupSessions ? (
+        <div
+          aria-hidden={isCollapsed}
+          className="group-sessions-shell sidebar-collapse-shell"
+          data-collapsed={String(isCollapsed)}
+          style={collapsibleStyle}
+        >
           <div
-            aria-hidden={isCollapsed}
-            className="group-sessions-shell sidebar-collapse-shell"
-            data-collapsed={String(isCollapsed)}
-            style={collapsibleStyle}
+            className="group-sessions sidebar-collapse-content"
+            data-drop-target={String(isGroupDropTarget)}
+            id={sessionsRegionId}
+            ref={contentRef}
           >
-            <div
-              className="group-sessions sidebar-collapse-content"
-              data-drop-target={String(isGroupDropTarget)}
-              id={sessionsRegionId}
-              ref={contentRef}
-            >
-              {showSessionGroupConnector ? (
-                <>
-                  <div aria-hidden className="group-session-connector-rail" />
-                  <button
-                    aria-label={`Collapse ${group.title}`}
-                    className="group-session-connector-button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      toggleCollapsed();
-                    }}
-                    type="button"
-                  />
-                </>
-              ) : null}
-              {orderedSessionIds.length > 0 ? (
-                orderedSessionIds.map((sessionId, sessionIndex) => (
-                  <SortableSessionCard
-                    completionFlashNonce={completionFlashNonceBySessionId?.[sessionId] ?? 0}
-                    dragDisabled={draggingDisabled}
-                    groupId={group.groupId}
-                    index={sessionIndex}
-                    isSearchSelected={selectedSearchSessionId === sessionId}
-                    key={sessionId}
-                    onFocusRequested={onFocusRequested}
-                    sessionId={sessionId}
-                    showGroupConnector={showSessionGroupConnector}
-                    showDropPositionIndicator={showSessionDropPositionIndicators}
-                    vscode={vscode}
-                  />
-                ))
-              ) : (
-                <div
-                  className="group-empty-drop-target"
-                  data-drop-position={emptyGroupDropTarget.isDropTarget ? "start" : undefined}
-                  data-drop-target={String(isGroupDropTarget)}
-                  ref={emptyGroupDropTarget.ref}
-                >
-                  <div className="group-empty-state">No sessions</div>
-                </div>
-              )}
-            </div>
-            {showSessionGroupConnector
-              ? groupSessions.map((session) => (
-                  <div
-                    aria-hidden
-                    className="session-status-dot session-status-dot-anchored"
-                    data-activity={session.activity}
-                    data-lifecycle-state={getSidebarSessionLifecycleState(session)}
-                    key={`status-${session.sessionId}`}
-                    style={getAnchoredSessionStatusStyle(session.sessionId)}
-                  />
-                ))
-              : null}
+            {showSessionGroupConnector ? (
+              <>
+                <div aria-hidden className="group-session-connector-rail" />
+                <button
+                  aria-label={`Collapse ${group.title}`}
+                  className="group-session-connector-button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleCollapsed();
+                  }}
+                  type="button"
+                />
+              </>
+            ) : null}
+            {orderedSessionIds.length > 0 ? (
+              orderedSessionIds.map((sessionId, sessionIndex) => (
+                <SortableSessionCard
+                  completionFlashNonce={completionFlashNonceBySessionId?.[sessionId] ?? 0}
+                  dragDisabled={draggingDisabled}
+                  groupId={group.groupId}
+                  index={sessionIndex}
+                  isSearchSelected={selectedSearchSessionId === sessionId}
+                  key={sessionId}
+                  onFocusRequested={onFocusRequested}
+                  sessionId={sessionId}
+                  showGroupConnector={showSessionGroupConnector}
+                  showDropPositionIndicator={showSessionDropPositionIndicators}
+                  vscode={vscode}
+                />
+              ))
+            ) : (
+              <div
+                className="group-empty-drop-target"
+                data-drop-position={emptyGroupDropTarget.isDropTarget ? "start" : undefined}
+                data-drop-target={String(isGroupDropTarget)}
+                ref={emptyGroupDropTarget.ref}
+              >
+                <div className="group-empty-state">{emptyStateLabel}</div>
+              </div>
+            )}
           </div>
-        ) : (
-          <>{/* We may want to restore the empty browser placeholder later. */}</>
-        )}
+          {showSessionGroupConnector
+            ? groupSessions.map((session) => (
+                <div
+                  aria-hidden
+                  className="session-status-dot session-status-dot-anchored"
+                  data-activity={session.activity}
+                  data-lifecycle-state={getSidebarSessionLifecycleState(session)}
+                  key={`status-${session.sessionId}`}
+                  style={getAnchoredSessionStatusStyle(session.sessionId)}
+                />
+              ))
+            : null}
+        </div>
       </section>
       {!isBrowserGroup && contextMenuPosition
         ? createPortal(

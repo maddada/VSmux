@@ -287,11 +287,18 @@
 
 .group-collapsed-summary {
   pointer-events: none;
+  margin-left: -4px;
+  position: absolute;
+  right: auto;
+  top: 0;
+  translate: 0 -50%;
+  z-index: 5;
 }
 
 .group-collapsed-summary .session-status-dot {
   opacity: 1;
-  translate: 0 calc(-50% - 6px);
+  position: static;
+  translate: 0 0;
 }
 
 .group-collapsed-summary[data-activity="working"] .session-status-dot {
