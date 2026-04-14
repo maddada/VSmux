@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
+## 3.6.0 - 2026-04-14
+
+- Session groups are easier to manage now, with collapsible group headers so you can fold sections down and keep larger sidebars under control.
+- Sidebar navigation feels smoother because the focused session scrolls into view automatically when focus changes.
+- Session cards and group panels have been visually refined with cleaner spacing, hover states, and clearer controls for a more polished browsing experience.
+- Agent and command buttons feel more reliable during drag, reorder, and hover interactions, especially in denser sidebar layouts.
+
 ## 3.5.0 - 2026-04-14
 
 - Runtime setup and daemon transport are more resilient now, so VSmux should recover and connect more reliably when the embedded runtime needs to install or restart.
