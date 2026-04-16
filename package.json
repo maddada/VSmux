@@ -45,6 +45,7 @@
   "main": "./out/extension/extension.js",
   "scripts": {
     "build:extension": "pnpm exec concurrently --kill-others-on-fail --prefix none \"pnpm run t3:embed:build\" \"pnpm run sidebar:build\" \"pnpm run debug-panel:build\" \"pnpm run workspace:build\" \"pnpm run chat-history:webview:build\" && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
+    "build:extension:rollback": "pnpm exec concurrently --kill-others-on-fail --prefix none \"pnpm run t3:embed:build:rollback\" \"pnpm run sidebar:build\" \"pnpm run debug-panel:build\" \"pnpm run workspace:build\" \"pnpm run chat-history:webview:build\" && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "build:extension:original": "pnpm run t3:embed:build && pnpm run sidebar:build && pnpm run debug-panel:build && pnpm run workspace:build && pnpm run chat-history:webview:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
     "build:extension:minimal": "pnpm run sidebar:build && pnpm run workspace:build",
     "vscode:prepublish": "node ./scripts/vscode-prepublish.mjs",
@@ -61,6 +62,7 @@
     "watch": "tsc -w -p ./tsconfig.extension.json",
     "typecheck:all": "sh -c 'pnpm exec tsc -p ./tsconfig.extension.json --noEmit --pretty false; s1=$?; pnpm exec tsc -p ./chat-history/tsconfig.json --noEmit --pretty false; s2=$?; pnpm exec tsc -p ./tsconfig.frontend.json --noEmit --pretty false; s3=$?; if [ \"$s1\" -ne 0 ] || [ \"$s2\" -ne 0 ] || [ \"$s3\" -ne 0 ]; then exit 1; fi'",
     "t3:embed:build": "node ./scripts/build-t3-embed.mjs",
+    "t3:embed:build:rollback": "node ./scripts/build-t3-embed.rollback.mjs",
     "lint": "node ./scripts/vp.mjs lint",
     "fmt": "node ./scripts/vp.mjs fmt",
     "check": "node ./scripts/vp.mjs check",
@@ -68,9 +70,11 @@
     "vsix:package": "node ./scripts/vsix.mjs package",
     "vsix:package:profile": "node ./scripts/vsix.mjs package --profile-build",
     "install": "node ./scripts/vsix.mjs install",
+    "install:rollback": "node ./scripts/vsix.mjs install --build-script build:extension:rollback",
     "install:minimal": "node ./scripts/vsix.mjs install --build-script build:extension:minimal",
     "install:original": "node ./scripts/vsix.mjs install --build-script build:extension:original",
     "install:profile": "node ./scripts/vsix.mjs install --profile-build",
+    "vsix:package:rollback": "node ./scripts/vsix.mjs package --build-script build:extension:rollback",
     "vsix:publish": "node ./scripts/publish-extension.mjs"
   },
   "dependencies": {
