@@ -16,7 +16,7 @@ function getRelativeTimeDiffMs(isoDate: string): number {
 }
 
 function formatCompactRelativeUnit(value: number, unit: string): string {
-  return `${String(value).padStart(2, "0")}${unit}`;
+  return `${value}${unit}`;
 }
 
 function buildForegroundMixedGreen(greenWeight: number): string {

@@ -22,7 +22,7 @@ describe("formatRelativeTime", () => {
       }),
     ).toEqual({
       suffix: "ago",
-      value: "00s",
+      value: "0s",
     });
   });
 
@@ -31,16 +31,16 @@ describe("formatRelativeTime", () => {
     vi.setSystemTime(new Date("2026-04-06T12:00:00.000Z"));
 
     expect(formatRelativeTimeLabel("2026-04-06T11:59:40.000Z")).toBe("20s ago");
-    expect(formatRelativeTimeLabel("2026-04-06T11:55:00.000Z")).toBe("05m ago");
-    expect(formatRelativeTimeLabel("2026-04-06T10:00:00.000Z")).toBe("02h ago");
-    expect(formatRelativeTimeLabel("2026-04-04T12:00:00.000Z")).toBe("02d ago");
+    expect(formatRelativeTimeLabel("2026-04-06T11:55:00.000Z")).toBe("5m ago");
+    expect(formatRelativeTimeLabel("2026-04-06T10:00:00.000Z")).toBe("2h ago");
+    expect(formatRelativeTimeLabel("2026-04-04T12:00:00.000Z")).toBe("2d ago");
   });
 
-  test("should zero-pad single-digit seconds too", () => {
+  test("should keep single-digit units unpadded", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T12:00:00.000Z"));
 
-    expect(formatRelativeTimeLabel("2026-04-06T11:59:51.000Z")).toBe("09s ago");
+    expect(formatRelativeTimeLabel("2026-04-06T11:59:51.000Z")).toBe("9s ago");
   });
 
   test("should clamp future timestamps to just now", () => {
@@ -58,7 +58,7 @@ describe("formatRelativeTime", () => {
       formatRelativeTimeLabel("2026-04-06T12:00:05.000Z", {
         allowJustNow: false,
       }),
-    ).toBe("00s ago");
+    ).toBe("0s ago");
   });
 });
 

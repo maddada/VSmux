@@ -7,11 +7,14 @@ import {
 } from "./sidebar-story-workspace";
 
 const DEFAULT_STORY_ARGS: SidebarStoryArgs = {
+  createSessionOnSidebarDoubleClick: false,
+  debuggingMode: false,
   fixture: "default",
   highlightedVisibleCount: 1,
   isFocusModeActive: false,
   showCloseButtonOnSessionCards: false,
   showHotkeysOnSessionCards: false,
+  showLastInteractionTimeOnSessionCards: false,
   theme: "dark-blue",
   viewMode: "grid",
   visibleCount: 1,

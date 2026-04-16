@@ -99,7 +99,7 @@ describe("getSessionCardTitleTooltip", () => {
           detail: "OpenAI Codex / repo sweep",
           isPrimaryTitleTerminalTitle: false,
           primaryTitle: "A very long session title",
-          sessionNumber: 3,
+          sessionNumber: "3",
           terminalTitle: undefined,
         },
         showDebugSessionNumbers: true,
@@ -130,6 +130,30 @@ describe("getSessionCardTitleTooltip", () => {
       headingText: "A very long session title",
       tooltip: undefined,
       tooltipWhen: "overflow",
+    });
+  });
+
+  test("should keep browser titles unmarked in the browser area", () => {
+    expect(
+      getSessionCardTitleTooltip({
+        session: {
+          activityLabel: undefined,
+          agentIcon: "browser",
+          alias: "Docs",
+          detail: "https://example.com",
+          kind: "browser",
+          isPrimaryTitleTerminalTitle: false,
+          primaryTitle: "Project docs",
+          sessionKind: "browser",
+          sessionNumber: undefined,
+          terminalTitle: undefined,
+        },
+        showDebugSessionNumbers: false,
+      }),
+    ).toEqual({
+      headingText: "Project docs",
+      tooltip: "Project docs\nhttps://example.com",
+      tooltipWhen: "always",
     });
   });
 });
@@ -176,6 +200,19 @@ describe("formatSessionHeadingText", () => {
         primaryTitle: "Bug Fix",
       }),
     ).toBe("∗ Bug Fix (Unsynced title)");
+  });
+
+  test("should not append the unsynced marker for browser sessions", () => {
+    expect(
+      formatSessionHeadingText({
+        agentIcon: "browser",
+        alias: "Docs",
+        kind: "browser",
+        isPrimaryTitleTerminalTitle: false,
+        primaryTitle: "Project docs",
+        sessionKind: "browser",
+      }),
+    ).toBe("Project docs");
   });
 });
 

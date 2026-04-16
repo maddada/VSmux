@@ -226,23 +226,11 @@
   opacity: 1;
 }
 
-.session:is(
-  :hover,
-  :focus-visible,
-  :focus-within,
-  [data-focused="true"],
-  [data-search-selected="true"]
-) {
+.session:is(:hover, :focus-visible, [data-focused="true"], [data-search-selected="true"]) {
   border-color: var(--app-border);
 }
 
-.session:is(
-    :hover,
-    :focus-visible,
-    :focus-within,
-    [data-focused="true"],
-    [data-search-selected="true"]
-  )::after {
+.session:is(:hover, :focus-visible, [data-focused="true"], [data-search-selected="true"])::after {
   opacity: 1;
 }
 
@@ -258,7 +246,6 @@
 .session[data-visible="true"]:is(
     :hover,
     :focus-visible,
-    :focus-within,
     [data-focused="true"],
     [data-search-selected="true"]
   ) {
@@ -271,7 +258,6 @@
 .session[data-visible="true"]:is(
     :hover,
     :focus-visible,
-    :focus-within,
     [data-focused="true"],
     [data-search-selected="true"]
   )::before {
@@ -460,6 +446,19 @@
   min-width: 0;
 }
 
+.session-head-trailing[data-default-trailing-display="time"] .session-last-interaction-time {
+  opacity: 1;
+}
+
+.session-head-trailing[data-default-trailing-display="icon"] .session-last-interaction-time {
+  opacity: 0;
+}
+
+.session-head-trailing[data-default-trailing-display="icon"] .session-header-agent-icon,
+.session-head-trailing[data-default-trailing-display="icon"] .session-header-agent-tabler-icon {
+  opacity: 0.5;
+}
+
 .session-floating-agent-icon {
   position: absolute;
   left: calc(-4px * var(--sidebar-density-scale));
@@ -610,47 +609,94 @@
 }
 
 .session:hover .session-last-interaction-time,
-.session:focus-visible .session-last-interaction-time,
-.session:focus-within .session-last-interaction-time {
+.session:focus-visible .session-last-interaction-time {
   opacity: 1;
 }
 
-.session-frame:not(.session-history-frame) .session:hover .session-last-interaction-time,
-.session-frame:not(.session-history-frame) .session:focus-visible .session-last-interaction-time,
+.session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-last-interaction-time,
+.session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-last-interaction-time,
 .session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-last-interaction-time {
   opacity: 0;
 }
 
-.session-frame:not(.session-history-frame) .session:hover .session-header-agent-icon,
-.session-frame:not(.session-history-frame) .session:hover .session-header-agent-tabler-icon,
-.session-frame:not(.session-history-frame) .session:focus-visible .session-header-agent-icon,
-.session-frame:not(.session-history-frame) .session:focus-visible .session-header-agent-tabler-icon,
-.session-frame:not(.session-history-frame) .session:has(:focus-visible) .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-tabler-icon,
+.session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-agent-tabler-icon {
+  opacity: 0;
+}
+
+.session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-agent-tabler-icon,
+.session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-agent-tabler-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-agent-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-tabler-icon {
   opacity: 0.74;
 }
 
 .session-frame:not(.session-history-frame)
   .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-icon[data-favorite="true"],
 .session-frame:not(.session-history-frame)
   .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-tabler-icon[data-favorite="true"],
 .session-frame:not(.session-history-frame)
   .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-icon[data-favorite="true"],
 .session-frame:not(.session-history-frame)
   .session:focus-visible
-  .session-header-agent-tabler-icon[data-favorite="true"],
-.session-frame:not(.session-history-frame)
-  .session:focus-within
-  .session-header-agent-icon[data-favorite="true"],
-.session-frame:not(.session-history-frame)
-  .session:focus-within
+  .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-tabler-icon[data-favorite="true"] {
   opacity: 1;
 }

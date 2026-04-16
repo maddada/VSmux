@@ -12,7 +12,7 @@
   box-shadow: none;
   cursor: pointer;
   display: grid;
-  gap: calc(10px * var(--sidebar-density-scale));
+  gap: calc(5px * var(--sidebar-density-scale));
   justify-self: center;
   max-width: calc(100% - var(--sidebar-session-column-offset));
   overflow: visible;

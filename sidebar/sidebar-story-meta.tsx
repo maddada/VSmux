@@ -11,7 +11,7 @@ export const DEFAULT_SIDEBAR_STORY_ARGS: SidebarStoryArgs = {
   isFocusModeActive: false,
   showCloseButtonOnSessionCards: false,
   showHotkeysOnSessionCards: false,
-  showLastInteractionTimeOnSessionCards: true,
+  showLastInteractionTimeOnSessionCards: false,
   theme: "dark-blue",
   viewMode: "grid",
   visibleCount: 1,

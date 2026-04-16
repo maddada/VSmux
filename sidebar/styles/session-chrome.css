@@ -144,8 +144,7 @@
 }
 
 .session:hover .close-button,
-.session:focus-visible .close-button,
-.session:focus-within .close-button {
+.session:focus-visible .close-button {
   opacity: 1;
   pointer-events: auto;
 }

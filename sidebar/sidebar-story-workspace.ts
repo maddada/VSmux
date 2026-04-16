@@ -229,6 +229,16 @@ export function reduceSidebarStoryWorkspace(
         },
       };
 
+    case "toggleShowLastInteractionTimeOnSessionCards":
+      return {
+        ...workspace,
+        options: {
+          ...workspace.options,
+          showLastInteractionTimeOnSessionCards:
+            !workspace.options.showLastInteractionTimeOnSessionCards,
+        },
+      };
+
     case "toggleFullscreenSession":
       return {
         ...workspace,

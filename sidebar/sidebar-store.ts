@@ -80,7 +80,7 @@ export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
       createSessionOnSidebarDoubleClick: false,
       showCloseButtonOnSessionCards: false,
       showHotkeysOnSessionCards: false,
-      showLastInteractionTimeOnSessionCards: true,
+      showLastInteractionTimeOnSessionCards: false,
       theme: getInitialSidebarTheme(),
       viewMode: "grid",
       visibleCount: 1,

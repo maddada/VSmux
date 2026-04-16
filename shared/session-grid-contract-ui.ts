@@ -37,7 +37,7 @@ export function createSidebarHudState(
   agentManagerZoomPercent = DEFAULT_AGENT_MANAGER_ZOOM_PERCENT,
   showCloseButtonOnSessionCards = false,
   showHotkeysOnSessionCards = false,
-  showLastInteractionTimeOnSessionCards = true,
+  showLastInteractionTimeOnSessionCards = false,
   debuggingMode = false,
   completionBellEnabled = false,
   completionSound: CompletionSoundSetting = DEFAULT_COMPLETION_SOUND,

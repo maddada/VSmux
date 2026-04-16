@@ -53,8 +53,8 @@ export function SessionCardContent({
     session,
     showDebugSessionNumbers,
   });
-  const hasLastInteractionTime = showLastInteractionTime && Boolean(session.lastInteractionAt);
-  const showHeaderAgentIcon = showLastInteractionTime && Boolean(session.agentIcon);
+  const hasLastInteractionTime = Boolean(session.lastInteractionAt);
+  const hasHeaderAgentIcon = Boolean(session.agentIcon);
   useRelativeTimeTick(hasLastInteractionTime);
   const lastInteractionLabel =
     hasLastInteractionTime && session.lastInteractionAt
@@ -66,7 +66,21 @@ export function SessionCardContent({
     hasLastInteractionTime && session.lastInteractionAt
       ? { color: getRelativeTimeColor(session.lastInteractionAt) }
       : undefined;
-  const hasSessionHeadTrailing = Boolean(lastInteractionLabel) || showHeaderAgentIcon;
+  const defaultTrailingDisplay =
+    !showLastInteractionTime && hasHeaderAgentIcon
+      ? "icon"
+      : lastInteractionLabel
+        ? "time"
+        : "icon";
+  const hoverTrailingDisplay =
+    defaultTrailingDisplay === "icon"
+      ? lastInteractionLabel
+        ? "time"
+        : "icon"
+      : hasHeaderAgentIcon
+        ? "icon"
+        : "time";
+  const hasSessionHeadTrailing = Boolean(lastInteractionLabel) || hasHeaderAgentIcon;
 
   return (
     <>
@@ -75,13 +89,17 @@ export function SessionCardContent({
           {headingText}
         </div>
         {hasSessionHeadTrailing ? (
-          <div className="session-head-trailing">
+          <div
+            className="session-head-trailing"
+            data-default-trailing-display={defaultTrailingDisplay}
+            data-hover-trailing-display={hoverTrailingDisplay}
+          >
             {lastInteractionLabel ? (
               <div className="session-last-interaction-time" style={lastInteractionStyle}>
                 {lastInteractionLabel}
               </div>
             ) : null}
-            {showHeaderAgentIcon ? (
+            {hasHeaderAgentIcon ? (
               <SessionHeaderAgentIcon
                 agentIcon={session.agentIcon}
                 isFavorite={session.isFavorite}
@@ -127,8 +145,10 @@ export function getSessionCardTitleTooltip({
     | "agentIcon"
     | "alias"
     | "detail"
+    | "kind"
     | "isPrimaryTitleTerminalTitle"
     | "primaryTitle"
+    | "sessionKind"
     | "sessionNumber"
     | "terminalTitle"
   >;
@@ -141,16 +161,20 @@ export function getSessionCardTitleTooltip({
   const headingText = formatSessionHeadingText({
     agentIcon: session.agentIcon,
     includeUnsyncedTitleLabel: false,
+    kind: session.kind,
     isPrimaryTitleTerminalTitle: session.isPrimaryTitleTerminalTitle,
     primaryTitle: session.primaryTitle,
+    sessionKind: session.sessionKind,
     terminalTitle: session.terminalTitle,
     alias: session.alias,
   });
   const tooltipHeadingText = formatSessionHeadingText({
     agentIcon: session.agentIcon,
     includeUnsyncedTitleLabel: true,
+    kind: session.kind,
     isPrimaryTitleTerminalTitle: session.isPrimaryTitleTerminalTitle,
     primaryTitle: session.primaryTitle,
+    sessionKind: session.sessionKind,
     terminalTitle: session.terminalTitle,
     alias: session.alias,
   });
@@ -180,19 +204,29 @@ export function formatSessionHeadingText({
   agentIcon,
   alias,
   includeUnsyncedTitleLabel = false,
+  kind,
   isPrimaryTitleTerminalTitle,
   primaryTitle,
+  sessionKind,
   terminalTitle,
 }: Pick<
   SidebarSessionItem,
-  "agentIcon" | "alias" | "isPrimaryTitleTerminalTitle" | "primaryTitle" | "terminalTitle"
+  | "agentIcon"
+  | "alias"
+  | "kind"
+  | "isPrimaryTitleTerminalTitle"
+  | "primaryTitle"
+  | "sessionKind"
+  | "terminalTitle"
 > & {
   includeUnsyncedTitleLabel?: boolean;
 }): string {
   const normalizedPrimaryTitle = primaryTitle?.trim();
   const normalizedTerminalTitle = terminalTitle?.trim();
   const baseHeadingText = normalizedPrimaryTitle || alias;
+  const isBrowserSession = kind === "browser" || sessionKind === "browser";
   if (
+    isBrowserSession ||
     agentIcon === "t3" ||
     isPrimaryTitleTerminalTitle ||
     !normalizedPrimaryTitle ||
@@ -347,29 +381,6 @@ function SessionHeaderAgentIcon({ agentIcon, isFavorite = false }: SessionAgentI
   );
 }
 
-function getAgentSecondaryText(
-  value: string | undefined,
-  agentIcon: SidebarSessionItem["agentIcon"],
-): string | undefined {
-  const normalizedValue = value?.trim();
-  if (!normalizedValue) {
-    return undefined;
-  }
-
-  if (!agentIcon) {
-    return normalizedValue;
-  }
-
-  const matchingGenericLabel = AGENT_SECONDARY_LABELS[agentIcon].includes(
-    normalizedValue.toLowerCase(),
-  );
-  if (matchingGenericLabel) {
-    return getSidebarAgentNameByIcon(agentIcon);
-  }
-
-  return normalizedValue;
-}
-
 function stripAgentTooltipText(
   value: string | undefined,
   agentIcon: SidebarSessionItem["agentIcon"],
@@ -386,6 +397,7 @@ function stripAgentTooltipText(
   const normalizedAgentLabels = Array.from(
     new Set([getSidebarAgentNameByIcon(agentIcon), ...AGENT_SECONDARY_LABELS[agentIcon]]),
   )
+    .filter((label): label is string => typeof label === "string")
     .map((label) => label.trim())
     .filter((label) => label.length > 0)
     .sort((left, right) => right.length - left.length);
