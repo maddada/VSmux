@@ -657,6 +657,10 @@
   gap: 12px;
 }
 
+.pinned-prompt-editor-textarea {
+  min-height: 450px;
+}
+
 .pinned-prompts-list {
   display: grid;
   gap: 10px;

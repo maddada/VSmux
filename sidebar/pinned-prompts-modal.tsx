@@ -269,7 +269,7 @@ function PinnedPromptEditorModal({ draft, isOpen, onClose, onSave }: PinnedPromp
           </div>
           <textarea
             aria-label="Pinned prompt"
-            className="scratch-pad-textarea"
+            className="scratch-pad-textarea pinned-prompt-editor-textarea"
             onChange={(event) => {
               setDraftContent(event.target.value);
             }}
