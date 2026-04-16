@@ -14,6 +14,7 @@ import {
   type SessionGroupRecord,
   type SessionRecord,
   type SidebarHydrateMessage,
+  type SidebarPinnedPrompt,
   type SidebarPreviousSessionItem,
   type SidebarSessionGroup,
   type SidebarSessionStateMessage,
@@ -74,6 +75,7 @@ type BuildSidebarMessageOptions = {
     derivedAgentName: string | undefined,
   ) => SidebarAgentIcon | undefined;
   hud: SidebarHydrateMessage["hud"];
+  pinnedPrompts: SidebarPinnedPrompt[];
   platform: "default" | "mac";
   previousSessions: SidebarPreviousSessionItem[];
   revision: number;
@@ -134,6 +136,7 @@ export function buildSidebarMessage(
   return {
     hud: options.hud,
     groups: [browserGroup, ...workspaceGroups],
+    pinnedPrompts: options.pinnedPrompts,
     previousSessions: options.previousSessions,
     revision: options.revision,
     scratchPadContent: options.scratchPadContent,

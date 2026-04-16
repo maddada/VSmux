@@ -7,6 +7,7 @@ import type {
   SidebarCommandRunMode,
 } from "./sidebar-commands";
 import type { SidebarGitAction, SidebarGitState } from "./sidebar-git";
+import type { SidebarPinnedPrompt } from "./sidebar-pinned-prompts";
 import type {
   SessionLifecycleState,
   SessionGridSnapshot,
@@ -143,6 +144,7 @@ export type SidebarHudState = {
 
 export type SidebarHydrateMessage = {
   groups: SidebarSessionGroup[];
+  pinnedPrompts: SidebarPinnedPrompt[];
   previousSessions: SidebarPreviousSessionItem[];
   revision: number;
   scratchPadContent: string;
@@ -152,6 +154,7 @@ export type SidebarHydrateMessage = {
 
 export type SidebarSessionStateMessage = {
   groups: SidebarSessionGroup[];
+  pinnedPrompts: SidebarPinnedPrompt[];
   previousSessions: SidebarPreviousSessionItem[];
   revision: number;
   scratchPadContent: string;
@@ -387,6 +390,12 @@ export type SidebarToExtensionMessage =
   | {
       content: string;
       type: "saveScratchPad";
+    }
+  | {
+      content: string;
+      promptId?: string;
+      title: string;
+      type: "savePinnedPrompt";
     }
   | {
       collapsed: boolean;

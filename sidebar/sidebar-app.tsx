@@ -6,6 +6,7 @@ import {
   IconBell,
   IconBellOff,
   IconArrowsSort,
+  IconBookmark,
   IconEye,
   IconHelpCircle,
   IconHistory,
@@ -35,6 +36,7 @@ import { AgentsPanel } from "./agents-panel";
 import { CommandsPanel } from "./commands-panel";
 import { DaemonSessionsModal } from "./daemon-sessions-modal";
 import { GitCommitModal } from "./git-commit-modal";
+import { PinnedPromptsModal } from "./pinned-prompts-modal";
 import { PreviousSessionsModal } from "./previous-sessions-modal";
 import { ScratchPadModal } from "./scratch-pad-modal";
 import { T3BrowserAccessModal } from "./t3-browser-access-modal";
@@ -144,6 +146,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const [commandCreateRequestId, setCommandCreateRequestId] = useState(0);
   const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
   const [isDaemonSessionsOpen, setIsDaemonSessionsOpen] = useState(false);
+  const [isPinnedPromptsOpen, setIsPinnedPromptsOpen] = useState(false);
   const [isPreviousSessionsOpen, setIsPreviousSessionsOpen] = useState(false);
   const [isScratchPadOpen, setIsScratchPadOpen] = useState(false);
   const [isSessionSearchOpen, setIsSessionSearchOpen] = useState(false);
@@ -1009,6 +1012,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const openScratchPad = () => {
     setIsOverflowMenuOpen(false);
     setIsDaemonSessionsOpen(false);
+    setIsPinnedPromptsOpen(false);
     setIsPreviousSessionsOpen(false);
     setIsSessionSearchSelectionVisible(false);
     setIsSessionSearchOpen(false);
@@ -1018,6 +1022,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
   const openRunningSessions = () => {
     setIsOverflowMenuOpen(false);
+    setIsPinnedPromptsOpen(false);
     setIsPreviousSessionsOpen(false);
     setIsScratchPadOpen(false);
     setIsSessionSearchSelectionVisible(false);
@@ -1029,6 +1034,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
   const openSidebarSettings = () => {
     setIsOverflowMenuOpen(false);
+    setIsPinnedPromptsOpen(false);
     vscode.postMessage({ type: "openSettings" });
   };
 
@@ -1054,6 +1060,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       return true;
     }
 
+    if (isPinnedPromptsOpen) {
+      setIsPinnedPromptsOpen(false);
+      return true;
+    }
+
     if (isScratchPadOpen) {
       setIsScratchPadOpen(false);
       return true;
@@ -1074,6 +1085,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
   const toggleSessionSearch = () => {
     setIsDaemonSessionsOpen(false);
+    setIsPinnedPromptsOpen(false);
     setIsPreviousSessionsOpen(false);
     setIsScratchPadOpen(false);
     setIsSessionSearchOpen((previous) => {
@@ -1300,6 +1312,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     onOpenSettings: openSidebarSettings,
     onShowRunning: openRunningSessions,
     onTogglePreviousSessions: () => {
+      setIsPinnedPromptsOpen(false);
       setIsDaemonSessionsOpen(false);
       setIsScratchPadOpen(false);
       setIsSessionSearchSelectionVisible(false);
@@ -1331,7 +1344,12 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             createActionType={commandCreateActionType}
             createRequestId={commandCreateRequestId}
             titlebarActions={
-              shouldShowActionsPanel ? renderSidebarTopControls(topControlOptions) : undefined
+              shouldShowActionsPanel
+                ? renderSidebarTopControls({
+                    ...topControlOptions,
+                    showSearch: !shouldShowAgentsPanel,
+                  })
+                : undefined
             }
             isCollapsed={collapsedSections.actions}
             isVisible={shouldShowActionsPanel}
@@ -1350,8 +1368,19 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             createRequestId={agentCreateRequestId}
             titlebarActions={
               shouldShowAgentsPanel
-                ? renderSidebarTopControls({
+                ? renderAgentsHeaderControls({
                     ...topControlOptions,
+                    isPinnedPromptsOpen,
+                    onTogglePinnedPrompts: () => {
+                      setIsOverflowMenuOpen(false);
+                      setIsDaemonSessionsOpen(false);
+                      setIsPreviousSessionsOpen(false);
+                      setIsScratchPadOpen(false);
+                      setIsSessionSearchSelectionVisible(false);
+                      setIsSessionSearchOpen(false);
+                      setSessionSearchQuery("");
+                      setIsPinnedPromptsOpen((previous) => !previous);
+                    },
                     showMenu: !shouldShowActionsPanel,
                   })
                 : undefined
@@ -1532,6 +1561,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         <PreviousSessionsModal
           isOpen={isPreviousSessionsOpen}
           onClose={() => setIsPreviousSessionsOpen(false)}
+          vscode={vscode}
+        />
+        <PinnedPromptsModal
+          isOpen={isPinnedPromptsOpen}
+          onClose={() => setIsPinnedPromptsOpen(false)}
           vscode={vscode}
         />
         <DaemonSessionsModal
@@ -1770,32 +1804,18 @@ type RenderSidebarTopControlsOptions = {
   overflowMenuRef: RefObject<HTMLDivElement | null>;
   showLastInteractionTimeOnSessionCards: boolean;
   showMenu?: boolean;
+  showSearch?: boolean;
+};
+
+type RenderAgentsHeaderControlsOptions = RenderSidebarTopControlsOptions & {
+  isPinnedPromptsOpen: boolean;
+  onTogglePinnedPrompts: () => void;
 };
 
 function renderSidebarTopControls({
-  completionBellEnabled,
-  browserAccessSessionId,
-  isManualActiveSessionsSort,
-  isOverflowMenuOpen,
-  isPreviousSessionsOpen,
-  isScratchPadOpen,
-  isSessionSearchOpen,
-  onAccessT3FromBrowser,
-  onMoveSidebar: _onMoveSidebar,
-  onOpenHelp,
-  onOpenSettings,
-  onShowRunning,
-  onTogglePreviousSessions,
-  onToggleSessionSearch,
-  onToggleActiveSessionsSortMode,
-  onToggleBell,
-  onToggleShowLastInteractionTimeOnSessionCards,
-  onToggleMenu,
-  onToggleScratchPad,
-  overflowMenuPosition,
-  overflowMenuRef,
-  showLastInteractionTimeOnSessionCards,
   showMenu = true,
+  showSearch = true,
+  ...options
 }: RenderSidebarTopControlsOptions) {
   if (!showMenu) {
     return undefined;
@@ -1805,23 +1825,98 @@ function renderSidebarTopControls({
     <div
       className="sidebar-titlebar-controls"
       data-controls-visible={String(
-        isOverflowMenuOpen || isPreviousSessionsOpen || isSessionSearchOpen,
+        options.isOverflowMenuOpen || options.isPreviousSessionsOpen || options.isSessionSearchOpen,
       )}
       data-empty-space-blocking="true"
-      data-menu-open={String(isOverflowMenuOpen)}
+      data-menu-open={String(options.isOverflowMenuOpen)}
+    >
+      {showSearch ? renderSearchToolbarButton(options) : null}
+      {renderSidebarTopControlButtons(options)}
+    </div>
+  );
+}
+
+function renderAgentsHeaderControls({
+  isPinnedPromptsOpen,
+  onTogglePinnedPrompts,
+  showMenu = true,
+  ...options
+}: RenderAgentsHeaderControlsOptions) {
+  return (
+    <div
+      className="sidebar-titlebar-controls"
+      data-controls-visible={String(
+        isPinnedPromptsOpen ||
+          options.isOverflowMenuOpen ||
+          options.isPreviousSessionsOpen ||
+          options.isSessionSearchOpen,
+      )}
+      data-empty-space-blocking="true"
+      data-menu-open={String(options.isOverflowMenuOpen)}
     >
       <ToolbarIconButton
-        ariaExpanded={isSessionSearchOpen}
-        ariaLabel="Search sessions"
+        ariaExpanded={isPinnedPromptsOpen}
+        ariaHasPopup="dialog"
+        ariaLabel="Show pinned prompts"
         className="floating-toolbar-button section-titlebar-action-button"
-        isSelected={isSessionSearchOpen}
+        isSelected={isPinnedPromptsOpen}
         onClick={() => {
-          onToggleSessionSearch();
+          onTogglePinnedPrompts();
         }}
-        tooltip="Search"
+        tooltip="Pinned Prompts"
       >
-        <IconSearch aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+        <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
       </ToolbarIconButton>
+      {renderSearchToolbarButton(options)}
+      {showMenu ? renderSidebarTopControlButtons(options) : null}
+    </div>
+  );
+}
+
+function renderSearchToolbarButton({
+  isSessionSearchOpen,
+  onToggleSessionSearch,
+}: Pick<RenderSidebarTopControlsOptions, "isSessionSearchOpen" | "onToggleSessionSearch">) {
+  return (
+    <ToolbarIconButton
+      ariaExpanded={isSessionSearchOpen}
+      ariaLabel="Search sessions"
+      className="floating-toolbar-button section-titlebar-action-button"
+      isSelected={isSessionSearchOpen}
+      onClick={() => {
+        onToggleSessionSearch();
+      }}
+      tooltip="Search"
+    >
+      <IconSearch aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+    </ToolbarIconButton>
+  );
+}
+
+function renderSidebarTopControlButtons({
+  completionBellEnabled,
+  browserAccessSessionId,
+  isManualActiveSessionsSort,
+  isOverflowMenuOpen,
+  isPreviousSessionsOpen,
+  isScratchPadOpen,
+  onAccessT3FromBrowser,
+  onMoveSidebar: _onMoveSidebar,
+  onOpenHelp,
+  onOpenSettings,
+  onShowRunning,
+  onTogglePreviousSessions,
+  onToggleActiveSessionsSortMode,
+  onToggleBell,
+  onToggleShowLastInteractionTimeOnSessionCards,
+  onToggleMenu,
+  onToggleScratchPad,
+  overflowMenuPosition,
+  overflowMenuRef,
+  showLastInteractionTimeOnSessionCards,
+}: RenderSidebarTopControlsOptions) {
+  return (
+    <>
       <ToolbarIconButton
         ariaExpanded={isPreviousSessionsOpen}
         ariaHasPopup="dialog"
@@ -1984,7 +2079,7 @@ function renderSidebarTopControls({
             document.body,
           )
         : null}
-    </div>
+    </>
   );
 }
 

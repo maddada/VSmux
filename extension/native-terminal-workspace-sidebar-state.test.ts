@@ -795,6 +795,7 @@ function createBuildSidebarMessageOptions(
     }),
     getTerminalTitle: () => undefined,
     hud: createSidebarHudState(),
+    pinnedPrompts: [],
     platform: "default",
     previousSessions: [],
     revision: 1,

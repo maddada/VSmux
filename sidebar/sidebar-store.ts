@@ -13,6 +13,7 @@ import type {
   SidebarHydrateMessage,
   SidebarHudState,
   SidebarOrderSyncResultMessage,
+  SidebarPinnedPrompt,
   SidebarPreviousSessionItem,
   SidebarPromptGitCommitMessage,
   SidebarSessionGroup,
@@ -33,6 +34,7 @@ type SidebarStoreDataState = {
   latestAgentOrderSyncResult: SidebarOrderSyncResultMessage | undefined;
   latestCommandOrderSyncResult: SidebarOrderSyncResultMessage | undefined;
   pendingFocusedSessionId: string | undefined;
+  pinnedPrompts: SidebarPinnedPrompt[];
   previousSessions: SidebarPreviousSessionItem[];
   revision: number;
   scratchPadContent: string;
@@ -89,6 +91,7 @@ export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
     latestAgentOrderSyncResult: undefined,
     latestCommandOrderSyncResult: undefined,
     pendingFocusedSessionId: undefined,
+    pinnedPrompts: [],
     previousSessions: [],
     revision: 0,
     scratchPadContent: "",
@@ -178,6 +181,7 @@ function applySidebarMessageState(
     groupsById: normalizedGroups.groupsById,
     hud: message.hud,
     pendingFocusedSessionId: reconciledGroups.pendingFocusedSessionId,
+    pinnedPrompts: message.pinnedPrompts,
     previousSessions: message.previousSessions,
     revision: message.revision,
     scratchPadContent: message.scratchPadContent,

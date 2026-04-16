@@ -55,6 +55,7 @@ type SidebarSessionDecoration = Pick<
 
 export type SidebarStoryWorkspace = {
   options: SidebarStoryWorkspaceOptions;
+  pinnedPrompts: SidebarHydrateMessage["pinnedPrompts"];
   previousSessions: SidebarHydrateMessage["previousSessions"];
   sessionDecorationsById: Readonly<Record<string, SidebarSessionDecoration>>;
   snapshot: GroupedSessionWorkspaceSnapshot;
@@ -76,6 +77,7 @@ export function createSidebarStoryWorkspace(message: SidebarHydrateMessage): Sid
       showLastInteractionTimeOnSessionCards: message.hud.showLastInteractionTimeOnSessionCards,
       theme: message.hud.theme,
     },
+    pinnedPrompts: message.pinnedPrompts.map((prompt) => ({ ...prompt })),
     previousSessions: message.previousSessions.map((session) => ({ ...session })),
     sessionDecorationsById: Object.fromEntries(
       message.groups.flatMap((group) =>
@@ -158,6 +160,7 @@ export function createSidebarStoryMessage(
       undefined,
       workspace.options.activeSessionsSortMode,
     ),
+    pinnedPrompts: workspace.pinnedPrompts.map((prompt) => ({ ...prompt })),
     previousSessions: workspace.previousSessions.map((session) => ({ ...session })),
     revision: 1,
     scratchPadContent: workspace.options.scratchPadContent,
@@ -253,6 +256,29 @@ export function reduceSidebarStoryWorkspace(
           scratchPadContent: message.content,
         },
       };
+
+    case "savePinnedPrompt": {
+      const now = new Date().toISOString();
+      const promptId = message.promptId ?? `story-prompt-${workspace.pinnedPrompts.length}`;
+      const existingPrompt = workspace.pinnedPrompts.find((prompt) => prompt.promptId === promptId);
+      const nextPrompt = {
+        content: message.content,
+        createdAt: existingPrompt?.createdAt ?? now,
+        promptId,
+        title: message.title.trim(),
+        updatedAt: now,
+      };
+      const nextPinnedPrompts = existingPrompt
+        ? workspace.pinnedPrompts.map((prompt) =>
+            prompt.promptId === promptId ? nextPrompt : prompt,
+          )
+        : [nextPrompt, ...workspace.pinnedPrompts];
+
+      return {
+        ...workspace,
+        pinnedPrompts: nextPinnedPrompts,
+      };
+    }
 
     case "deletePreviousSession":
       return {

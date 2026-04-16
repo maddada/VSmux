@@ -104,6 +104,16 @@
   width: min(280px, 100%);
 }
 
+.pinned-prompts-modal,
+.pinned-prompt-editor-modal {
+  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: 80vh;
+  max-width: min(280px, 100%);
+  overflow: hidden;
+  width: min(280px, 100%);
+}
+
 .daemon-sessions-modal {
   gap: 14px;
   max-height: calc(100vh - 24px);
@@ -636,6 +646,104 @@
   text-align: center;
 }
 
+.pinned-prompts-modal-body,
+.pinned-prompt-editor-body {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pinned-prompt-editor-body {
+  gap: 12px;
+}
+
+.pinned-prompts-list {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.pinned-prompt-card {
+  background: color-mix(in srgb, var(--app-card-active) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border) 90%, transparent);
+  border-radius: 16px;
+  display: grid;
+  min-width: 0;
+  padding: 14px 12px;
+  position: relative;
+}
+
+.pinned-prompt-card-actions {
+  display: inline-flex;
+  gap: 6px;
+  justify-self: end;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  transform: translateY(-2px);
+}
+
+.pinned-prompt-card:hover .pinned-prompt-card-actions,
+.pinned-prompt-card:focus-within .pinned-prompt-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.pinned-prompt-card-action {
+  align-items: center;
+  background: color-mix(in srgb, var(--app-card) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border) 92%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--app-muted) 34%, var(--app-foreground) 66%);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.pinned-prompt-card-action:hover,
+.pinned-prompt-card-action:focus-visible {
+  background: color-mix(in srgb, var(--app-button-background) 12%, var(--app-card-active) 88%);
+  border-color: color-mix(in srgb, var(--app-button-background) 56%, var(--app-border));
+  color: var(--app-foreground);
+  outline: none;
+}
+
+.pinned-prompt-card-title {
+  box-sizing: border-box;
+  color: inherit;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  margin: 0;
+  max-height: calc(1.45em * 2);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  width: 100%;
+  word-break: break-word;
+}
+
 .scratch-pad-modal {
   gap: 14px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -872,6 +980,10 @@
   flex: 1 1 112px;
   max-width: 100%;
   min-width: 112px;
+}
+
+.confirm-modal-root-nested {
+  z-index: 1210;
 }
 
 @media (max-width: 280px) {

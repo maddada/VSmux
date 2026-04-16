@@ -321,6 +321,13 @@ export function isSidebarMessage(candidate: unknown): candidate is SidebarToExte
     case "saveScratchPad":
       return typeof message.content === "string";
 
+    case "savePinnedPrompt":
+      return (
+        typeof message.content === "string" &&
+        typeof message.title === "string" &&
+        (message.promptId === undefined || typeof message.promptId === "string")
+      );
+
     case "setSidebarSectionCollapsed":
       return (
         (message.section === "actions" || message.section === "agents") &&

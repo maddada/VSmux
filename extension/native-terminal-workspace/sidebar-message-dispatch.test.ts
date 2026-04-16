@@ -42,6 +42,7 @@ function createHandlers(): SidebarMessageHandlers {
     runSidebarAgent: vi.fn(async () => undefined),
     runSidebarCommand: vi.fn(async () => undefined),
     runSidebarGitAction: vi.fn(async () => undefined),
+    savePinnedPrompt: vi.fn(async () => undefined),
     saveScratchPad: vi.fn(async () => undefined),
     saveSidebarAgent: vi.fn(async () => undefined),
     saveSidebarCommand: vi.fn(async () => undefined),
@@ -192,6 +193,27 @@ describe("dispatchSidebarMessage", () => {
 
     expect(handlers.clearStartupSidebarRefreshes).toHaveBeenCalledTimes(1);
     expect(handlers.setGroupSleeping).toHaveBeenCalledWith("group-2", true);
+  });
+
+  test("should route savePinnedPrompt to the matching handler", async () => {
+    const handlers = createHandlers();
+
+    await dispatchSidebarMessage(
+      {
+        content: "Remember the release checklist.\nKeep it brief.",
+        promptId: "prompt-1",
+        title: "Release checklist",
+        type: "savePinnedPrompt",
+      },
+      handlers,
+    );
+
+    expect(handlers.clearStartupSidebarRefreshes).toHaveBeenCalledTimes(1);
+    expect(handlers.savePinnedPrompt).toHaveBeenCalledWith(
+      "prompt-1",
+      "Release checklist",
+      "Remember the release checklist.\nKeep it brief.",
+    );
   });
 
   test("should route fullReloadGroup to the matching handler", async () => {

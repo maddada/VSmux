@@ -95,6 +95,7 @@ function createHydrateMessage(groups: SidebarSessionGroup[]): SidebarHydrateMess
   return {
     groups,
     hud: createInitialSidebarStoreDataState().hud,
+    pinnedPrompts: [],
     previousSessions: [],
     revision: 1,
     scratchPadContent: "",

@@ -83,6 +83,7 @@ import {
   saveSidebarAgentPreference,
   syncSidebarAgentOrderPreference,
 } from "../sidebar-agent-preferences";
+import { getSidebarPinnedPrompts, saveSidebarPinnedPrompt } from "../sidebar-pinned-prompts";
 import {
   deleteSidebarCommandPreference,
   getSidebarCommandButtonById,
@@ -354,7 +355,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     });
     this.workspaceAssetServer = new WorkspaceAssetServer(context);
     this.workspaceAssetServer.setT3BrowserAccessDocumentResolver(async (input) =>
-      this.createT3BrowserAccessDocument(input.sessionId, input.requestOrigin),
+      this.createT3BrowserAccessDocument(input.requestOrigin, input.sessionId),
     );
     this.workspacePanel = new WorkspacePanelManager({
       context,
@@ -1897,6 +1898,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
   }
 
+  public async savePinnedPrompt(
+    promptId: string | undefined,
+    title: string,
+    content: string,
+  ): Promise<void> {
+    await saveSidebarPinnedPrompt(this.context, { content, promptId, title });
+    await this.refreshSidebar();
+  }
+
   public async setSidebarSectionCollapsed(
     section: SidebarCollapsibleSection,
     collapsed: boolean,
@@ -2275,6 +2285,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       runSidebarAgent: async (agentId) => this.runSidebarAgent(agentId),
       runSidebarCommand: async (commandId, runMode) => this.runSidebarCommand(commandId, runMode),
       runSidebarGitAction: async (action) => this.runSidebarGitAction(action),
+      savePinnedPrompt: async (promptId, title, content) =>
+        this.savePinnedPrompt(promptId, title, content),
       saveScratchPad: async (content) => this.saveScratchPad(content),
       setSidebarSectionCollapsed: async (section, collapsed) =>
         this.setSidebarSectionCollapsed(section, collapsed),
@@ -2538,6 +2550,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getCreateSessionOnSidebarDoubleClick(),
       ),
       platform: SHORTCUT_LABEL_PLATFORM,
+      pinnedPrompts: getSidebarPinnedPrompts(this.context),
       previousSessions: this.previousSessionHistory.getItems(),
       revision,
       scratchPadContent: this.getScratchPadContent(),
@@ -3058,7 +3071,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
   }
 
-  private async createT3Session(startupCommand: string): Promise<void> {
+  private async createT3Session(startupCommand: string): Promise<T3SessionRecord | undefined> {
     const runtime = this.getOrCreateT3Runtime();
     const sessionRecord = await this.store.createSession({
       kind: "t3",
@@ -3066,7 +3079,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       title: "T3 Code",
     });
     if (!sessionRecord) {
-      return;
+      return undefined;
     }
 
     this.sidebarAgentIconBySessionId.set(sessionRecord.sessionId, "t3");
@@ -3075,6 +3088,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.enqueueWorkspaceAutoFocus(sessionRecord.sessionId, "sidebar");
     await this.afterStateChange();
     void this.finishCreatingT3Session(sessionRecord.sessionId, startupCommand);
+    return isT3Session(sessionRecord) ? sessionRecord : undefined;
   }
 
   private async createTerminalSession(options?: {
@@ -4697,15 +4711,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async requestT3SessionBrowserAccess(sessionId: string): Promise<void> {
-    const sessionRecord = this.resolveBrowserAccessT3Session(sessionId);
+    const sessionRecord = await this.resolveOrCreateBrowserAccessT3Session(sessionId);
     if (!sessionRecord) {
-      void vscode.window.showErrorMessage(
-        "Open a T3 Code session first before trying to access it from a browser or phone.",
-      );
+      void vscode.window.showErrorMessage("Could not start T3 Code for remote access.");
       return;
     }
 
-    const accessLink = await this.getT3SessionBrowserAccessLink(sessionRecord);
+    const accessLink = await this.getT3SessionBrowserAccessLink();
     await this.sidebarProvider.postMessage({
       endpointUrl: accessLink.endpointUrl,
       localUrl: accessLink.localUrl,
@@ -4722,14 +4734,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await vscode.env.openExternal(vscode.Uri.parse(url));
   }
 
-  private async getT3SessionBrowserAccessLink(sessionRecord: T3SessionRecord) {
-    const localUrl = await this.workspaceAssetServer.getT3BrowserAccessUrl(sessionRecord.sessionId);
+  private async getT3SessionBrowserAccessLink() {
+    const localUrl = await this.workspaceAssetServer.getT3BrowserAccessUrl();
     return resolveT3BrowserAccessLink(localUrl);
   }
 
-  private resolveBrowserAccessT3Session(preferredSessionId: string): T3SessionRecord | undefined {
+  private resolveBrowserAccessT3Session(preferredSessionId?: string): T3SessionRecord | undefined {
     const candidateSessionIds = new Set<string>();
-    candidateSessionIds.add(preferredSessionId);
+    if (preferredSessionId) {
+      candidateSessionIds.add(preferredSessionId);
+    }
     const focusedSessionId = this.getActiveSnapshot().focusedSessionId;
     if (focusedSessionId) {
       candidateSessionIds.add(focusedSessionId);
@@ -4747,18 +4761,35 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     );
   }
 
+  private async resolveOrCreateBrowserAccessT3Session(
+    preferredSessionId?: string,
+  ): Promise<T3SessionRecord | undefined> {
+    const existingSession = this.resolveBrowserAccessT3Session(preferredSessionId);
+    if (existingSession) {
+      return existingSession;
+    }
+
+    const startupCommand = getSidebarAgentButtonById("t3")?.command?.trim() ?? "npx --yes t3";
+    const createdSession = await this.createT3Session(startupCommand);
+    if (createdSession) {
+      return createdSession;
+    }
+
+    return this.resolveBrowserAccessT3Session(preferredSessionId);
+  }
+
   private async createT3BrowserAccessDocument(
-    sessionId: string,
     requestOrigin: string,
+    preferredSessionId?: string,
   ): Promise<string | undefined> {
-    const sessionRecord = this.store.getSession(sessionId);
-    if (!sessionRecord || !isT3Session(sessionRecord)) {
+    const sessionRecord = await this.resolveOrCreateBrowserAccessT3Session(preferredSessionId);
+    if (!sessionRecord) {
       return undefined;
     }
 
     await this.ensureT3Ready(sessionRecord);
     const runtime = this.getOrCreateT3Runtime();
-    const resolvedSessionRecord = this.store.getSession(sessionId);
+    const resolvedSessionRecord = this.store.getSession(sessionRecord.sessionId);
     if (!resolvedSessionRecord || !isT3Session(resolvedSessionRecord)) {
       return undefined;
     }

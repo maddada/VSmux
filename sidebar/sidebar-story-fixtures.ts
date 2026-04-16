@@ -108,6 +108,7 @@ export function createSidebarStoryMessage(args: SidebarStoryArgs): SidebarHydrat
   return {
     groups,
     hud,
+    pinnedPrompts: [],
     previousSessions: (PREVIOUS_SESSIONS_BY_FIXTURE[args.fixture] ?? []).map((session) => ({
       ...session,
     })),

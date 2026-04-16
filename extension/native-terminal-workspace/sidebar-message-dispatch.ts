@@ -57,6 +57,7 @@ export type SidebarMessageHandlers = {
   runSidebarGitAction: (action: SidebarGitAction) => Promise<void>;
   setSidebarGitCommitConfirmationEnabled: (enabled: boolean) => Promise<void>;
   setSidebarGitGenerateCommitBodyEnabled: (enabled: boolean) => Promise<void>;
+  savePinnedPrompt: (promptId: string | undefined, title: string, content: string) => Promise<void>;
   saveScratchPad: (content: string) => Promise<void>;
   setSidebarSectionCollapsed: (
     section: SidebarCollapsibleSection,
@@ -292,6 +293,9 @@ export async function dispatchSidebarMessage(
       return;
     case "saveScratchPad":
       await handlers.saveScratchPad(message.content);
+      return;
+    case "savePinnedPrompt":
+      await handlers.savePinnedPrompt(message.promptId, message.title, message.content);
       return;
     case "setSidebarSectionCollapsed":
       await handlers.setSidebarSectionCollapsed(message.section, message.collapsed);

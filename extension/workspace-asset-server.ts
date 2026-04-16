@@ -18,11 +18,12 @@ type AssetScope = "workspace" | "t3-embed";
 type AssetServerKind = "local" | "shared";
 type T3BrowserAccessDocumentResolver = (input: {
   requestOrigin: string;
-  sessionId: string;
+  sessionId?: string;
 }) => Promise<string | undefined>;
 
 const T3_PROXY_HOST = "127.0.0.1";
 const T3_PROXY_PORT = 3774;
+const T3_SHARED_ACCESS_PORT = 45438;
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -77,9 +78,9 @@ export class WorkspaceAssetServer implements vscode.Disposable {
     return `http://127.0.0.1:${String(port)}/${scope}`;
   }
 
-  public async getT3BrowserAccessUrl(sessionId: string): Promise<string> {
+  public async getT3BrowserAccessUrl(): Promise<string> {
     const port = await this.ensureListening("shared");
-    return `http://127.0.0.1:${String(port)}/t3-share/${encodeURIComponent(sessionId)}`;
+    return `http://127.0.0.1:${String(port)}/t3-share`;
   }
 
   public setT3ProxyAuthorizationToken(token: string | undefined): void {
@@ -115,21 +116,38 @@ export class WorkspaceAssetServer implements vscode.Disposable {
 
     const nextPromise = new Promise<number>((resolve, reject) => {
       const server = kind === "local" ? this.localServer : this.sharedServer;
-      server.once("error", reject);
-      server.listen(0, kind === "local" ? "127.0.0.1" : "0.0.0.0", () => {
-        const address = server.address();
-        if (!address || typeof address === "string") {
-          reject(new Error("Workspace asset server failed to bind to a port."));
+      server.once("error", (error) => {
+        if (kind === "shared") {
+          reject(
+            new Error(
+              `T3 browser access server failed to bind to port ${String(T3_SHARED_ACCESS_PORT)}.`,
+              {
+                cause: error,
+              },
+            ),
+          );
           return;
         }
-
-        if (kind === "local") {
-          this.localPort = address.port;
-        } else {
-          this.sharedPort = address.port;
-        }
-        resolve(address.port);
+        reject(error);
       });
+      server.listen(
+        kind === "local" ? 0 : T3_SHARED_ACCESS_PORT,
+        kind === "local" ? "127.0.0.1" : "0.0.0.0",
+        () => {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            reject(new Error("Workspace asset server failed to bind to a port."));
+            return;
+          }
+
+          if (kind === "local") {
+            this.localPort = address.port;
+          } else {
+            this.sharedPort = address.port;
+          }
+          resolve(address.port);
+        },
+      );
     });
 
     if (kind === "local") {
@@ -159,11 +177,11 @@ export class WorkspaceAssetServer implements vscode.Disposable {
         return;
       }
 
-      const t3ShareSessionId = resolveT3ShareSessionId(url.pathname);
-      if (t3ShareSessionId) {
+      const t3ShareRequest = resolveT3ShareRequest(url.pathname);
+      if (t3ShareRequest) {
         const html = await this.t3BrowserAccessDocumentResolver?.({
           requestOrigin: getRequestOrigin(request),
-          sessionId: t3ShareSessionId,
+          sessionId: t3ShareRequest.sessionId,
         });
         if (!html) {
           respondNotFound(request, response);
@@ -292,14 +310,20 @@ function normalizeRelativePath(relativePath: string): string {
   return normalized;
 }
 
-function resolveT3ShareSessionId(pathname: string): string | undefined {
+function resolveT3ShareRequest(pathname: string): { sessionId?: string } | undefined {
+  if (pathname === "/t3-share") {
+    return {};
+  }
+
   const match = pathname.match(/^\/t3-share\/([^/]+)$/u);
   if (!match?.[1]) {
     return undefined;
   }
 
   try {
-    return decodeURIComponent(match[1]);
+    return {
+      sessionId: decodeURIComponent(match[1]),
+    };
   } catch {
     return undefined;
   }
