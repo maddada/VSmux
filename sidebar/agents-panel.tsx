@@ -3,10 +3,10 @@ import { DragDropProvider, type DragDropEventHandlers } from "@dnd-kit/react";
 import { isSortableOperation, useSortable } from "@dnd-kit/react/sortable";
 import {
   IconCodeDots,
+  IconFlare,
   IconLoader2,
   IconPencil,
   IconPlus,
-  IconSparkles2,
   IconTrash,
 } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
@@ -429,7 +429,7 @@ export function AgentsPanel({
         <section className="commands-section commands-section-agents">
           <SectionHeader
             actions={titlebarActions}
-            idleIcon={<IconSparkles2 size={18} stroke={1.8} />}
+            idleIcon={<IconFlare size={18} stroke={1.8} />}
             isCollapsed={isCollapsed}
             isCollapsible
             onToggleCollapsed={() => onToggleCollapsed(!isCollapsed)}

@@ -49,7 +49,6 @@ import {
   IconTool,
   IconUpload,
   IconWorld,
-  IconWorldFilled,
 } from "@tabler/icons-react";
 import {
   getSidebarCommandIconLabel,
@@ -98,7 +97,7 @@ const ICON_COMPONENT_BY_ID: Record<SidebarCommandIcon, ComponentType<TablerIconP
   testPipe: IconTestPipe,
   tool: IconTool,
   upload: IconUpload,
-  world: IconWorldFilled,
+  world: IconWorld,
 };
 
 export const SIDEBAR_COMMAND_ICON_OPTIONS = SIDEBAR_COMMAND_ICON_IDS.map((icon) => ({

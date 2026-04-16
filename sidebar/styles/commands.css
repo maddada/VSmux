@@ -5,7 +5,7 @@
 
 .commands-section {
   display: grid;
-  gap: calc(10px * var(--sidebar-density-scale));
+  gap: calc((10px * var(--sidebar-density-scale)) + 3px);
   --sidebar-tile-background: color-mix(in srgb, var(--app-card-active) 90%, transparent);
   --sidebar-tile-border: color-mix(in srgb, var(--app-border) 92%, transparent);
   --sidebar-tile-foreground: color-mix(in srgb, var(--app-foreground) 90%, var(--app-muted) 10%);

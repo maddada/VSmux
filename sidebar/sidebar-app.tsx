@@ -1357,6 +1357,17 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
               shouldShowActionsPanel
                 ? renderSidebarTopControls({
                     ...topControlOptions,
+                    isPinnedPromptsOpen,
+                    onTogglePinnedPrompts: () => {
+                      setIsOverflowMenuOpen(false);
+                      setIsDaemonSessionsOpen(false);
+                      setIsPreviousSessionsOpen(false);
+                      setIsScratchPadOpen(false);
+                      setIsSessionSearchSelectionVisible(false);
+                      setIsSessionSearchOpen(false);
+                      setSessionSearchQuery("");
+                      setIsPinnedPromptsOpen((previous) => !previous);
+                    },
                     showSearch: !shouldShowAgentsPanel,
                   })
                 : undefined
@@ -1827,10 +1838,12 @@ type RenderAgentsHeaderControlsOptions = RenderSidebarTopControlsOptions & {
 };
 
 function renderSidebarTopControls({
+  isPinnedPromptsOpen,
+  onTogglePinnedPrompts,
   showMenu = true,
   showSearch = true,
   ...options
-}: RenderSidebarTopControlsOptions) {
+}: RenderAgentsHeaderControlsOptions) {
   if (!showMenu) {
     return undefined;
   }
@@ -1839,13 +1852,30 @@ function renderSidebarTopControls({
     <div
       className="sidebar-titlebar-controls"
       data-controls-visible={String(
-        options.isOverflowMenuOpen || options.isPreviousSessionsOpen || options.isSessionSearchOpen,
+        isPinnedPromptsOpen ||
+          options.isOverflowMenuOpen ||
+          options.isPreviousSessionsOpen ||
+          options.isSessionSearchOpen,
       )}
       data-empty-space-blocking="true"
       data-menu-open={String(options.isOverflowMenuOpen)}
     >
       {showSearch ? renderSearchToolbarButton(options) : null}
-      {renderSidebarTopControlButtons(options)}
+      {showSearch ? renderPreviousSessionsToolbarButton(options) : null}
+      <ToolbarIconButton
+        ariaExpanded={isPinnedPromptsOpen}
+        ariaHasPopup="dialog"
+        ariaLabel="Show pinned prompts"
+        className="floating-toolbar-button section-titlebar-action-button"
+        isSelected={isPinnedPromptsOpen}
+        onClick={() => {
+          onTogglePinnedPrompts();
+        }}
+        tooltip="Pinned Prompts"
+      >
+        <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+      </ToolbarIconButton>
+      {renderOverflowMenuToolbarButton(options)}
     </div>
   );
 }
@@ -1868,21 +1898,26 @@ function renderAgentsHeaderControls({
       data-empty-space-blocking="true"
       data-menu-open={String(options.isOverflowMenuOpen)}
     >
-      <ToolbarIconButton
-        ariaExpanded={isPinnedPromptsOpen}
-        ariaHasPopup="dialog"
-        ariaLabel="Show pinned prompts"
-        className="floating-toolbar-button section-titlebar-action-button"
-        isSelected={isPinnedPromptsOpen}
-        onClick={() => {
-          onTogglePinnedPrompts();
-        }}
-        tooltip="Pinned Prompts"
-      >
-        <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
-      </ToolbarIconButton>
+      {renderPreviousSessionsToolbarButton(options)}
       {renderSearchToolbarButton(options)}
-      {showMenu ? renderSidebarTopControlButtons(options) : null}
+      {showMenu ? (
+        <>
+          <ToolbarIconButton
+            ariaExpanded={isPinnedPromptsOpen}
+            ariaHasPopup="dialog"
+            ariaLabel="Show pinned prompts"
+            className="floating-toolbar-button section-titlebar-action-button"
+            isSelected={isPinnedPromptsOpen}
+            onClick={() => {
+              onTogglePinnedPrompts();
+            }}
+            tooltip="Pinned Prompts"
+          >
+            <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+          </ToolbarIconButton>
+          {renderOverflowMenuToolbarButton(options)}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1907,19 +1942,38 @@ function renderSearchToolbarButton({
   );
 }
 
-function renderSidebarTopControlButtons({
+function renderPreviousSessionsToolbarButton({
+  isPreviousSessionsOpen,
+  onTogglePreviousSessions,
+}: Pick<RenderSidebarTopControlsOptions, "isPreviousSessionsOpen" | "onTogglePreviousSessions">) {
+  return (
+    <ToolbarIconButton
+      ariaExpanded={isPreviousSessionsOpen}
+      ariaHasPopup="dialog"
+      ariaLabel="Show previous sessions"
+      className="floating-toolbar-button section-titlebar-action-button"
+      isSelected={isPreviousSessionsOpen}
+      onClick={() => {
+        onTogglePreviousSessions();
+      }}
+      tooltip="Previous Sessions"
+    >
+      <IconHistory aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+    </ToolbarIconButton>
+  );
+}
+
+function renderOverflowMenuToolbarButton({
   completionBellEnabled,
   browserAccessSessionId,
   isManualActiveSessionsSort,
   isOverflowMenuOpen,
-  isPreviousSessionsOpen,
   isScratchPadOpen,
   onAccessT3FromBrowser,
   onMoveSidebar: _onMoveSidebar,
   onOpenHelp,
   onOpenSettings,
   onShowRunning,
-  onTogglePreviousSessions,
   onToggleActiveSessionsSortMode,
   onToggleBell,
   onToggleShowLastInteractionTimeOnSessionCards,
@@ -1931,19 +1985,6 @@ function renderSidebarTopControlButtons({
 }: RenderSidebarTopControlsOptions) {
   return (
     <>
-      <ToolbarIconButton
-        ariaExpanded={isPreviousSessionsOpen}
-        ariaHasPopup="dialog"
-        ariaLabel="Show previous sessions"
-        className="floating-toolbar-button section-titlebar-action-button"
-        isSelected={isPreviousSessionsOpen}
-        onClick={() => {
-          onTogglePreviousSessions();
-        }}
-        tooltip="Previous Sessions"
-      >
-        <IconHistory aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
-      </ToolbarIconButton>
       <ToolbarIconButton
         ariaControls="sidebar-overflow-menu"
         ariaExpanded={isOverflowMenuOpen}

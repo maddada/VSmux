@@ -36,19 +36,32 @@
 
 .section-titlebar {
   align-items: center;
+  border-radius: calc(10px * var(--sidebar-density-scale));
   display: flex;
   gap: calc(10px * var(--sidebar-density-scale));
   justify-content: space-between;
+  margin-left: calc(2px * var(--sidebar-density-scale));
   min-width: 0;
+  padding-bottom: calc(2px * var(--sidebar-density-scale));
+  padding-top: calc(2px * var(--sidebar-density-scale));
+  position: relative;
+  transition: background-color 120ms ease;
+  z-index: 4;
 }
 
 .section-titlebar[data-collapsible="true"] {
   cursor: pointer;
 }
 
+.section-titlebar[data-collapsible="true"]:hover,
+.section-titlebar[data-collapsible="true"]:has(:focus-visible) {
+  background: color-mix(in srgb, var(--app-foreground) 6%, transparent);
+}
+
 .section-titlebar-main {
   align-items: center;
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
   gap: calc(8px * var(--sidebar-density-scale));
   min-width: 0;
 }
@@ -130,21 +143,37 @@
 
 .section-titlebar-label {
   color: color-mix(in srgb, var(--app-foreground) 74%, var(--app-muted) 26%);
-  flex: none;
-  font-size: calc(13px * var(--sidebar-density-scale));
+  display: block;
+  flex: 1 1 auto;
+  font-size: calc(12px * var(--sidebar-density-scale));
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
+  min-width: 0;
+  overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .section-titlebar-actions {
   align-items: center;
   display: inline-flex;
+  flex: none;
   gap: calc(6px * var(--sidebar-density-scale));
   margin-left: auto;
+  max-width: 0;
   min-width: 0;
+  overflow: hidden;
+  transition: max-width 160ms ease;
+}
+
+.stack:hover .section-titlebar-actions:has(.sidebar-titlebar-controls),
+.stack:has(:focus-visible) .section-titlebar-actions:has(.sidebar-titlebar-controls),
+.section-titlebar-actions:has(.sidebar-titlebar-controls[data-controls-visible="true"]),
+.section-titlebar-actions:has(.sidebar-titlebar-controls[data-menu-open="true"]) {
+  max-width: calc(140px * var(--sidebar-density-scale));
 }
 
 .section-titlebar-action-button {

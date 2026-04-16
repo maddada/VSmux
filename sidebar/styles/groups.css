@@ -170,7 +170,7 @@
 
 .group-title-handle {
   display: flex;
-  flex: none;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: min(100%, 220px);
 }
@@ -198,10 +198,11 @@
   color: inherit;
   cursor: pointer;
   display: inline-flex;
+  flex: 1 1 auto;
   min-width: 0;
   padding: 0;
   text-align: left;
-  width: auto;
+  width: 100%;
   max-width: 100%;
 }
 
@@ -216,7 +217,7 @@
 
 .group-title,
 .group-title-input {
-  font-size: calc(13px * var(--sidebar-density-scale));
+  font-size: calc(12px * var(--sidebar-density-scale));
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -236,10 +237,18 @@
   align-items: center;
   display: inline-flex;
   flex: none;
-  gap: calc(8px * var(--sidebar-density-scale));
-  margin-left: calc(10px * var(--sidebar-density-scale));
+  gap: 0;
+  margin-left: 0;
+  max-width: 0;
   opacity: 0;
+  overflow: hidden;
   pointer-events: none;
+  transition:
+    gap 120ms ease,
+    margin-left 120ms ease,
+    max-width 160ms ease,
+    opacity 160ms ease,
+    visibility 0s linear 160ms;
   visibility: hidden;
 }
 
@@ -454,6 +463,7 @@
 }
 
 .group[data-collapsed="true"] {
+  cursor: default;
   gap: calc(6px * var(--sidebar-density-scale));
 }
 
@@ -462,8 +472,12 @@
 .group-header-actions[data-open="true"],
 .group[data-active="true"] .group-meta,
 .group:hover .group-meta {
+  gap: calc(6px * var(--sidebar-density-scale));
+  margin-left: calc(6px * var(--sidebar-density-scale));
+  max-width: calc(56px * var(--sidebar-density-scale));
   opacity: 1;
   pointer-events: auto;
+  transition-delay: 0s;
   visibility: visible;
 }
 

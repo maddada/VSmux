@@ -2,11 +2,11 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { DragDropProvider, type DragDropEventHandlers } from "@dnd-kit/react";
 import { isSortableOperation, useSortable } from "@dnd-kit/react/sortable";
 import {
+  IconBox,
   IconBug,
   IconPencil,
   IconPlayerPlayFilled,
   IconPlus,
-  IconTerminal2,
   IconTrash,
   IconWorldFilled,
 } from "@tabler/icons-react";
@@ -498,7 +498,7 @@ export function CommandsPanel({
         <section className="commands-section">
           <SectionHeader
             actions={titlebarActions}
-            idleIcon={<IconTerminal2 size={18} stroke={1.8} />}
+            idleIcon={<IconBox size={18} stroke={1.8} />}
             isCollapsed={isCollapsed}
             isCollapsible
             onToggleCollapsed={() => onToggleCollapsed(!isCollapsed)}

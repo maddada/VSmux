@@ -566,9 +566,11 @@ export function SessionGroupSection({
         data-session-connector={String(showSessionGroupConnector)}
         data-sidebar-group-id={group.groupId}
         onClick={() => {
-          if (!isBrowserGroup) {
-            requestFocusGroup();
+          if (isBrowserGroup || isCollapsed) {
+            return;
           }
+
+          requestFocusGroup();
         }}
         onContextMenu={(event: ReactMouseEvent<HTMLElement>) => {
           if (isBrowserGroup) {
@@ -672,27 +674,6 @@ export function SessionGroupSection({
                     event.stopPropagation();
                   }}
                 >
-                  <button
-                    aria-label={
-                      isBrowserGroup
-                        ? `Open a browser in ${group.title}`
-                        : `Create a session in ${group.title}`
-                    }
-                    className="group-add-button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      requestCreateSession();
-                    }}
-                    title={
-                      isBrowserGroup
-                        ? `Open a browser in ${group.title}`
-                        : `Create a session in ${group.title}`
-                    }
-                    type="button"
-                  >
-                    <IconPlus aria-hidden="true" className="group-add-icon" size={14} stroke={2} />
-                  </button>
                   {group.isActive && !isBrowserGroup ? (
                     <div className="group-layout-controls">
                       <div className="group-control-anchor">
@@ -725,6 +706,27 @@ export function SessionGroupSection({
                       </div>
                     </div>
                   ) : null}
+                  <button
+                    aria-label={
+                      isBrowserGroup
+                        ? `Open a browser in ${group.title}`
+                        : `Create a session in ${group.title}`
+                    }
+                    className="group-add-button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      requestCreateSession();
+                    }}
+                    title={
+                      isBrowserGroup
+                        ? `Open a browser in ${group.title}`
+                        : `Create a session in ${group.title}`
+                    }
+                    type="button"
+                  >
+                    <IconPlus aria-hidden="true" className="group-add-icon" size={14} stroke={2} />
+                  </button>
                 </div>
               </div>
             )}
