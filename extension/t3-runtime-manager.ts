@@ -69,6 +69,12 @@ type SupervisorState = {
   startedAt: string;
 };
 
+export type ManagedT3RuntimeState = {
+  pid: number;
+  port: number;
+  startedAt?: string;
+};
+
 type T3Snapshot = {
   projects: Array<{
     createdAt: string;
@@ -168,6 +174,44 @@ export class T3RuntimeManager implements vscode.Disposable {
     }
 
     await this.stopLeaseHeartbeat(true);
+  }
+
+  public async getManagedRuntimeState(): Promise<ManagedT3RuntimeState | undefined> {
+    const state = await this.readSupervisorState();
+    if (
+      state &&
+      isProcessAlive(state.pid) &&
+      state.port === T3_PORT &&
+      (await isOriginResponsive(getT3Origin()))
+    ) {
+      return {
+        pid: state.pid,
+        port: state.port,
+        startedAt: state.startedAt,
+      };
+    }
+
+    const listeningPid = getListeningProcessId(T3_PORT);
+    if (listeningPid !== undefined && (await isOriginResponsive(getT3Origin()))) {
+      return {
+        pid: listeningPid,
+        port: T3_PORT,
+      };
+    }
+
+    return undefined;
+  }
+
+  public async shutdownManagedRuntime(): Promise<boolean> {
+    const state = await this.readSupervisorState();
+    const hadRuntime = Boolean(state) || getListeningProcessId(T3_PORT) !== undefined;
+    this.ensureRunningPromise = undefined;
+    this.connectPromise = undefined;
+    this.socket?.close();
+    this.socket = undefined;
+    await this.stopLeaseHeartbeat(true);
+    await this.stopStaleManagedRuntime(state);
+    return hadRuntime;
   }
 
   public async createThreadSession(

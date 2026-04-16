@@ -210,6 +210,7 @@ export function isSidebarMessage(candidate: unknown): candidate is SidebarToExte
     case "promptFindPreviousSession":
     case "refreshDaemonSessions":
     case "killTerminalDaemon":
+    case "killT3RuntimeServer":
     case "moveSidebarToOtherSide":
     case "createSession":
     case "openBrowser":
@@ -225,6 +226,8 @@ export function isSidebarMessage(candidate: unknown): candidate is SidebarToExte
         typeof message.workspaceId === "string" &&
         message.workspaceId.length > 0
       );
+    case "killT3RuntimeSession":
+      return typeof message.sessionId === "string" && message.sessionId.length > 0;
     case "toggleFullscreenSession":
       return true;
 

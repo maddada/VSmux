@@ -230,7 +230,7 @@ function getWorkspaceHtml(
     "default-src 'none'",
     `style-src ${webview.cspSource} 'unsafe-inline' http://127.0.0.1:*`,
     `script-src ${webview.cspSource} 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' http://127.0.0.1:*`,
-    `img-src ${webview.cspSource} data: http://127.0.0.1:*`,
+    `img-src ${webview.cspSource} data: blob: http://127.0.0.1:*`,
     `font-src ${webview.cspSource} data: http://127.0.0.1:*`,
     `worker-src ${webview.cspSource} blob: http://127.0.0.1:*`,
     `connect-src ${webview.cspSource} ws://127.0.0.1:* http://127.0.0.1:*`,
@@ -336,6 +336,9 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
     );
   }
   if (message.type === "adjustTerminalFontSize") {
+    return message.delta === -1 || message.delta === 1;
+  }
+  if (message.type === "adjustT3ZoomPercent") {
     return message.delta === -1 || message.delta === 1;
   }
   if (message.type === "syncPaneOrder" || message.type === "syncSessionOrder") {

@@ -83,6 +83,10 @@ export class WorkspaceAssetServer implements vscode.Disposable {
     return `http://127.0.0.1:${String(port)}/t3-share`;
   }
 
+  public async ensureT3BrowserAccessListening(): Promise<void> {
+    await this.ensureListening("shared");
+  }
+
   public setT3ProxyAuthorizationToken(token: string | undefined): void {
     this.t3ProxyAuthorizationToken = token?.trim() ? token : undefined;
   }

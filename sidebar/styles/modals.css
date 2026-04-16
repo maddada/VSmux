@@ -319,6 +319,26 @@
   padding: 12px;
 }
 
+.daemon-sessions-section {
+  display: grid;
+  gap: 12px;
+}
+
+.daemon-sessions-section-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.daemon-sessions-section-title {
+  color: color-mix(in srgb, var(--app-foreground) 84%, var(--app-muted) 16%);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .daemon-sessions-summary-row {
   align-items: baseline;
   column-gap: 10px;
@@ -367,6 +387,10 @@
 .daemon-session-card[data-current-workspace="true"] {
   border-color: color-mix(in srgb, var(--app-button-background) 52%, var(--app-border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-button-background) 12%, transparent);
+}
+
+.daemon-session-card-t3-server {
+  background: color-mix(in srgb, var(--app-button-background) 8%, var(--app-card-active) 92%);
 }
 
 .daemon-session-card-header {
@@ -491,6 +515,10 @@
   min-height: 112px;
   padding: 12px;
   text-align: center;
+}
+
+.daemon-sessions-t3-empty {
+  min-height: 84px;
 }
 
 .previous-sessions-toolbar {
@@ -681,10 +709,13 @@
 }
 
 .pinned-prompt-card-actions {
+  background: color-mix(in srgb, var(--app-card) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border) 92%, transparent);
+  border-radius: 999px;
   display: inline-flex;
-  gap: 6px;
   justify-self: end;
   opacity: 0;
+  overflow: hidden;
   pointer-events: none;
   position: absolute;
   right: 10px;
@@ -704,27 +735,29 @@
 
 .pinned-prompt-card-action {
   align-items: center;
-  background: color-mix(in srgb, var(--app-card) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--app-border) 92%, transparent);
-  border-radius: 999px;
+  background: transparent;
+  border: 0;
   color: color-mix(in srgb, var(--app-muted) 34%, var(--app-foreground) 66%);
   cursor: pointer;
   display: inline-flex;
   font-size: 10px;
   font-weight: 700;
-  gap: 4px;
   height: 24px;
-  padding: 0 8px;
+  justify-content: center;
+  min-width: 26px;
+  padding: 0 6px;
   transition:
     background-color 120ms ease,
-    border-color 120ms ease,
     color 120ms ease;
+}
+
+.pinned-prompt-card-action + .pinned-prompt-card-action {
+  border-left: 1px solid color-mix(in srgb, var(--app-border) 92%, transparent);
 }
 
 .pinned-prompt-card-action:hover,
 .pinned-prompt-card-action:focus-visible {
   background: color-mix(in srgb, var(--app-button-background) 12%, var(--app-card-active) 88%);
-  border-color: color-mix(in srgb, var(--app-button-background) 56%, var(--app-border));
   color: var(--app-foreground);
   outline: none;
 }

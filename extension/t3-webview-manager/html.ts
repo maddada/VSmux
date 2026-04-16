@@ -149,7 +149,7 @@ function createT3IframeHtml(payload: T3IframeBootstrapPayload): string {
     "default-src 'none'",
     "script-src http:",
     "style-src 'unsafe-inline' http:",
-    "img-src http: https: data:",
+    "img-src http: https: data: blob:",
     "font-src http: https: data:",
     `connect-src ${payload.serverOrigin} ${wsConnectOrigin}`,
     "worker-src http: blob:",

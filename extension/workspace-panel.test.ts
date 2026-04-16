@@ -554,6 +554,9 @@ describe("WorkspacePanelManager", () => {
         scrollToBottomWhenTyping: false,
         xtermFrontendScrollback: 75_000,
       },
+      t3Appearance: {
+        zoomPercent: 100,
+      },
       type: "sessionState",
       viewMode: "grid",
       visibleCount: 1,
@@ -835,6 +838,9 @@ function createWorkspaceStateMessage() {
       lineHeight: 1,
       scrollToBottomWhenTyping: false,
       xtermFrontendScrollback: 75_000,
+    },
+    t3Appearance: {
+      zoomPercent: 100,
     },
     type: "sessionState" as const,
     viewMode: "grid" as const,

@@ -15,6 +15,7 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
   const state = useSidebarStore((storeState) => storeState.daemonSessionsState);
   const [searchQuery, setSearchQuery] = useState("");
   const [isKillDaemonConfirmOpen, setIsKillDaemonConfirmOpen] = useState(false);
+  const [isKillT3ServerConfirmOpen, setIsKillT3ServerConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -23,6 +24,10 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (isKillT3ServerConfirmOpen) {
+          setIsKillT3ServerConfirmOpen(false);
+          return;
+        }
         if (isKillDaemonConfirmOpen) {
           setIsKillDaemonConfirmOpen(false);
           return;
@@ -35,12 +40,13 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isKillDaemonConfirmOpen, isOpen, onClose]);
+  }, [isKillDaemonConfirmOpen, isKillT3ServerConfirmOpen, isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery("");
       setIsKillDaemonConfirmOpen(false);
+      setIsKillT3ServerConfirmOpen(false);
     }
   }, [isOpen]);
 
@@ -65,6 +71,27 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
         .some((value) => value.toLowerCase().includes(normalizedQuery)),
     );
   }, [searchQuery, state?.sessions]);
+
+  const filteredT3Sessions = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return state?.t3Sessions ?? [];
+    }
+
+    return (state?.t3Sessions ?? []).filter((session) =>
+      [
+        session.detail,
+        session.lastInteractionAt,
+        session.sessionId,
+        session.threadId,
+        session.title,
+        session.workspaceId,
+        session.workspaceRoot,
+      ]
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .some((value) => value.toLowerCase().includes(normalizedQuery)),
+    );
+  }, [searchQuery, state?.t3Sessions]);
 
   if (!isOpen) {
     return null;
@@ -157,9 +184,136 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
                   <div className="daemon-sessions-summary-row">
                     <span className="daemon-sessions-summary-label">Visible rows</span>
                     <span className="daemon-sessions-summary-value">
-                      {String(filteredSessions.length)} of {String(state.sessions.length)}
+                      {String(filteredT3Sessions.length + filteredSessions.length)} of{" "}
+                      {String((state.t3Sessions?.length ?? 0) + state.sessions.length)}
                     </span>
                   </div>
+                </section>
+                <section className="daemon-sessions-section">
+                  <div className="daemon-sessions-section-header">
+                    <div className="daemon-sessions-section-title">Shared T3 Code</div>
+                    <button
+                      className="secondary daemon-sessions-toolbar-button daemon-sessions-toolbar-button-danger"
+                      disabled={!state.t3Server}
+                      onClick={() => {
+                        setIsKillT3ServerConfirmOpen(true);
+                      }}
+                      type="button"
+                    >
+                      Kill Server
+                    </button>
+                  </div>
+                  <article
+                    className="daemon-session-card daemon-session-card-t3-server"
+                    data-current-workspace="true"
+                  >
+                    <div className="daemon-session-card-header">
+                      <div className="daemon-session-card-title-wrap">
+                        <div className="daemon-session-card-title">Managed T3 runtime</div>
+                        <div className="daemon-session-card-subtitle">
+                          Share route is served by VS Code. The runtime on port 3774 starts on
+                          demand.
+                        </div>
+                      </div>
+                      <div className="daemon-session-card-badges">
+                        <span className="daemon-session-badge">
+                          {state.t3Server ? "runtime running" : "runtime stopped"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="daemon-session-card-details">
+                      <Detail label="Share URL Port">45438</Detail>
+                      <Detail label="Runtime Port">
+                        {state.t3Server ? String(state.t3Server.port) : "3774"}
+                      </Detail>
+                      <Detail label="PID">
+                        {state.t3Server
+                          ? String(state.t3Server.pid)
+                          : state.t3Sessions.length > 0
+                            ? "Starts on demand"
+                            : "N/A"}
+                      </Detail>
+                      <Detail label="Started">
+                        {state.t3Server?.startedAt
+                          ? formatTimestamp(state.t3Server.startedAt)
+                          : state.t3Server
+                            ? "Detected from live port"
+                            : "Not running"}
+                      </Detail>
+                      <Detail label="Sessions">{String(state.t3Sessions.length)}</Detail>
+                    </div>
+                  </article>
+                  {filteredT3Sessions.length > 0 ? (
+                    <div className="daemon-sessions-list">
+                      {filteredT3Sessions.map((session) => (
+                        <article
+                          className="daemon-session-card"
+                          data-current-workspace={String(session.isCurrentWorkspace)}
+                          key={`t3:${session.sessionId}`}
+                        >
+                          <div className="daemon-session-card-header">
+                            <div className="daemon-session-card-title-wrap">
+                              <div className="daemon-session-card-title">
+                                {session.title?.trim() || session.sessionId}
+                              </div>
+                              <div className="daemon-session-card-subtitle">
+                                {session.sessionId}
+                              </div>
+                            </div>
+                            <div className="daemon-session-card-badges">
+                              {session.isFocused ? (
+                                <span className="daemon-session-badge daemon-session-badge-current">
+                                  Focused
+                                </span>
+                              ) : null}
+                              <span className="daemon-session-badge">
+                                {session.isSleeping
+                                  ? "sleeping"
+                                  : session.isRunning
+                                    ? "running"
+                                    : "stopped"}
+                              </span>
+                              <span className="daemon-session-badge">{session.activity}</span>
+                            </div>
+                          </div>
+                          <div className="daemon-session-card-details">
+                            <Detail label="Workspace">{session.workspaceId}</Detail>
+                            <Detail label="Root">{session.workspaceRoot ?? "Pending"}</Detail>
+                            <Detail label="Thread">{session.threadId ?? "Pending"}</Detail>
+                            <Detail label="Last Active">
+                              {session.lastInteractionAt
+                                ? formatTimestamp(session.lastInteractionAt)
+                                : "N/A"}
+                            </Detail>
+                            <Detail label="Title">{session.title?.trim() || "N/A"}</Detail>
+                            <Detail label="Detail">{session.detail ?? "N/A"}</Detail>
+                          </div>
+                          <div className="daemon-session-card-actions">
+                            <button
+                              className="secondary daemon-session-action-button daemon-session-action-button-danger"
+                              onClick={() => {
+                                vscode.postMessage({
+                                  sessionId: session.sessionId,
+                                  type: "killT3RuntimeSession",
+                                });
+                              }}
+                              type="button"
+                            >
+                              Kill Session
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="group-empty-state daemon-sessions-empty-state daemon-sessions-t3-empty">
+                      {searchQuery.trim()
+                        ? "No T3 sessions match that search."
+                        : state.t3Server
+                          ? "No T3 sessions are currently open in this workspace."
+                          : "No shared T3 server is currently running."}
+                    </div>
+                  )}
                 </section>
                 {state.errorMessage ? (
                   <div className="daemon-sessions-error-banner">{state.errorMessage}</div>
@@ -254,6 +408,17 @@ export function DaemonSessionsModal({ isOpen, onClose, vscode }: DaemonSessionsM
           vscode.postMessage({ type: "killTerminalDaemon" });
         }}
         title="Kill Shared Daemon"
+      />
+      <ConfirmationModal
+        confirmLabel="Kill Server"
+        description="This will stop the shared T3 Code server for this VS Code window. Existing T3 sessions will remain listed in VSmux and can be started again later."
+        isOpen={isKillT3ServerConfirmOpen}
+        onCancel={() => setIsKillT3ServerConfirmOpen(false)}
+        onConfirm={() => {
+          setIsKillT3ServerConfirmOpen(false);
+          vscode.postMessage({ type: "killT3RuntimeServer" });
+        }}
+        title="Kill Shared T3 Server"
       />
     </>,
     document.body,

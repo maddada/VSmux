@@ -32,6 +32,17 @@ export function hasReachedLastActivityThreshold(
   );
 }
 
+export function getDisplayedLastInteractionIso(args: {
+  fallbackInteractionAt: string | undefined;
+  overrideActivityAt: number | undefined;
+}): string | undefined {
+  if (args.overrideActivityAt === undefined) {
+    return args.fallbackInteractionAt;
+  }
+
+  return new Date(args.overrideActivityAt).toISOString();
+}
+
 export function shouldRefreshLastActivityOnTransition(
   previousActivity: TerminalAgentStatus | undefined,
   nextActivity: TerminalAgentStatus,

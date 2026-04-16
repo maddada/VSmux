@@ -21,6 +21,9 @@ type T3ClipboardPayload = {
   text: string;
 };
 
+const VSMUX_PASTE_TRACE_TAG = "[VSMUX_PASTE_TRACE]";
+const MAX_PASTE_TRACE_TEXT_LENGTH = 180;
+
 declare global {
   interface Window {
     __VSMUX_T3_ACTIVE_THREAD_ID__?: string;
@@ -229,6 +232,13 @@ window.addEventListener("message", (event) => {
   }
 
   pendingClipboardReads.delete(requestId);
+  logPasteTrace("host.clipboard.readResult", {
+    ...summarizeClipboardPayload({
+      files: Array.isArray(event.data.files) ? event.data.files : [],
+      text: typeof event.data.text === "string" ? event.data.text : "",
+    }),
+    requestId,
+  });
   resolver({
     files: Array.isArray(event.data.files)
       ? event.data.files.filter((entry): entry is T3ClipboardFilePayload => {
@@ -277,6 +287,10 @@ document.addEventListener(
     }
 
     if (key === "v" && isEditableTarget(document.activeElement)) {
+      logPasteTrace("host.keydown.pasteShortcut", {
+        activeTarget: summarizeEditableTarget(document.activeElement),
+        currentThreadId: getCurrentThreadId(),
+      });
       schedulePasteFallback();
     }
   },
@@ -313,7 +327,17 @@ document.addEventListener(
 document.addEventListener(
   "paste",
   (event) => {
+    const clipboardSummary = summarizeClipboardData(event.clipboardData);
+    logPasteTrace("host.paste.capture", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+      clipboard: clipboardSummary,
+      currentThreadId: getCurrentThreadId(),
+    });
+
     if (!isEditableTarget(document.activeElement)) {
+      logPasteTrace("host.paste.ignored.nonEditableTarget", {
+        activeTarget: summarizeEditableTarget(document.activeElement),
+      });
       return;
     }
 
@@ -321,14 +345,20 @@ document.addEventListener(
 
     const clipboardData = event.clipboardData;
     if (clipboardData?.files.length) {
+      logPasteTrace("host.paste.nativeFiles", clipboardSummary);
       return;
     }
 
     if ((clipboardData?.getData("text/plain") ?? "").length > 0) {
+      logPasteTrace("host.paste.nativeText", clipboardSummary);
       return;
     }
 
     event.preventDefault();
+    logPasteTrace("host.paste.preventDefaultForBridge", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+      clipboard: clipboardSummary,
+    });
     void pasteFromClipboardBridge();
   },
   true,
@@ -598,8 +628,14 @@ function readSelectedText(): string {
 
 function schedulePasteFallback() {
   clearPasteFallback();
+  logPasteTrace("host.paste.fallbackScheduled", {
+    activeTarget: summarizeEditableTarget(document.activeElement),
+  });
   pendingPasteFallbackTimer = window.setTimeout(() => {
     pendingPasteFallbackTimer = undefined;
+    logPasteTrace("host.paste.fallbackTriggered", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+    });
     void pasteFromClipboardBridge();
   }, 75);
 }
@@ -615,12 +651,25 @@ function clearPasteFallback() {
 
 async function pasteFromClipboardBridge() {
   if (!isEditableTarget(document.activeElement)) {
+    logPasteTrace("host.paste.bridge.aborted.nonEditableTarget", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+    });
     return;
   }
 
+  logPasteTrace("host.paste.bridge.start", {
+    activeTarget: summarizeEditableTarget(document.activeElement),
+  });
   const payload = await readClipboard();
-  const activeElement = document.activeElement;
-  if (activeElement instanceof HTMLElement && activeElement.isContentEditable) {
+  logPasteTrace("host.paste.bridge.payload", {
+    activeTarget: summarizeEditableTarget(document.activeElement),
+    payload: summarizeClipboardPayload(payload),
+  });
+  if (payload.files.length > 0) {
+    logPasteTrace("host.paste.bridge.postPayload", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+      payload: summarizeClipboardPayload(payload),
+    });
     window.postMessage(
       {
         files: payload.files,
@@ -632,6 +681,11 @@ async function pasteFromClipboardBridge() {
     return;
   }
 
+  logPasteTrace("host.paste.bridge.insertText", {
+    activeTarget: summarizeEditableTarget(document.activeElement),
+    looksLikeFilePath: looksLikeFilesystemPath(payload.text),
+    payload: summarizeClipboardPayload(payload),
+  });
   insertTextIntoActiveTarget(payload.text);
 }
 
@@ -647,11 +701,20 @@ function isEditableTarget(
 
 function insertTextIntoActiveTarget(text: string) {
   if (!text) {
+    logPasteTrace("host.insertText.skipped.emptyText", {
+      activeTarget: summarizeEditableTarget(document.activeElement),
+    });
     return;
   }
 
   const activeElement = document.activeElement;
   if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+    logPasteTrace("host.insertText.input", {
+      activeTarget: summarizeEditableTarget(activeElement),
+      looksLikeFilePath: looksLikeFilesystemPath(text),
+      textSnippet: summarizeTextSnippet(text),
+      textLength: text.length,
+    });
     const start = activeElement.selectionStart ?? activeElement.value.length;
     const end = activeElement.selectionEnd ?? start;
     activeElement.setRangeText(text, start, end, "end");
@@ -666,6 +729,12 @@ function insertTextIntoActiveTarget(text: string) {
   }
 
   if (activeElement instanceof HTMLElement && activeElement.isContentEditable) {
+    logPasteTrace("host.insertText.contentEditable", {
+      activeTarget: summarizeEditableTarget(activeElement),
+      looksLikeFilePath: looksLikeFilesystemPath(text),
+      textSnippet: summarizeTextSnippet(text),
+      textLength: text.length,
+    });
     activeElement.focus();
     if (
       typeof document.execCommand === "function" &&
@@ -703,6 +772,82 @@ function insertTextIntoActiveTarget(text: string) {
       }),
     );
   }
+}
+
+function logPasteTrace(event: string, payload?: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  const serializedPayload = payload ? JSON.stringify(payload) : "{}";
+  console.info(`${VSMUX_PASTE_TRACE_TAG} ${timestamp} ${event} ${serializedPayload}`);
+}
+
+function summarizeClipboardData(data: DataTransfer | null): Record<string, unknown> {
+  return {
+    files: summarizeFileLikeEntries(data?.files ?? []),
+    textLength: data?.getData("text/plain").length ?? 0,
+    textSnippet: summarizeTextSnippet(data?.getData("text/plain") ?? ""),
+    types: data ? [...data.types] : [],
+  };
+}
+
+function summarizeClipboardPayload(payload: T3ClipboardPayload): Record<string, unknown> {
+  return {
+    files: summarizeFileLikeEntries(payload.files),
+    textLength: payload.text.length,
+    textSnippet: summarizeTextSnippet(payload.text),
+  };
+}
+
+function summarizeFileLikeEntries(
+  entries: ArrayLike<{ name?: string; type?: string; size?: number }>,
+): Array<Record<string, unknown>> {
+  return Array.from(entries).map((entry) => ({
+    name: entry.name ?? "",
+    size: typeof entry.size === "number" ? entry.size : undefined,
+    type: entry.type ?? "",
+  }));
+}
+
+function summarizeEditableTarget(target: Element | null): Record<string, unknown> {
+  if (!target) {
+    return { kind: "none" };
+  }
+
+  return {
+    ariaLabel: target.getAttribute("aria-label"),
+    contentEditable: target instanceof HTMLElement ? target.isContentEditable : false,
+    kind:
+      target instanceof HTMLInputElement
+        ? "input"
+        : target instanceof HTMLTextAreaElement
+          ? "textarea"
+          : target instanceof HTMLElement && target.isContentEditable
+            ? "contenteditable"
+            : target.tagName.toLowerCase(),
+    role: target.getAttribute("role"),
+    tagName: target.tagName.toLowerCase(),
+  };
+}
+
+function summarizeTextSnippet(text: string): string | undefined {
+  const trimmedText = text.trim();
+  if (!trimmedText) {
+    return undefined;
+  }
+
+  return trimmedText.slice(0, MAX_PASTE_TRACE_TEXT_LENGTH);
+}
+
+function looksLikeFilesystemPath(text: string): boolean {
+  const trimmedText = text.trim();
+  if (!trimmedText) {
+    return false;
+  }
+
+  return (
+    trimmedText.startsWith("/") ||
+    trimmedText.startsWith("file://") ||
+    /^[A-Za-z]:[\\/]/.test(trimmedText)
+  );
 }
 
 function deleteSelectionFromActiveTarget() {

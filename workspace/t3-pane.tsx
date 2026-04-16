@@ -16,6 +16,9 @@ type T3ClipboardFilePayload = {
   type: string;
 };
 
+const VSMUX_PASTE_TRACE_TAG = "[VSMUX_PASTE_TRACE]";
+const MAX_PASTE_TRACE_TEXT_LENGTH = 180;
+
 export type T3PaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
   debugLog?: (event: string, payload?: Record<string, unknown>) => void;
@@ -24,7 +27,49 @@ export type T3PaneProps = {
   onFocus: () => void;
   onThreadChanged: (payload: { sessionId: string; threadId: string; title?: string }) => void;
   pane: WorkspacePanelT3Pane;
+  zoomPercent: number;
 };
+
+function logPasteTrace(event: string, payload?: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  const serializedPayload = payload ? JSON.stringify(payload) : "{}";
+  console.info(`${VSMUX_PASTE_TRACE_TAG} ${timestamp} ${event} ${serializedPayload}`);
+}
+
+function summarizePasteTraceFiles(
+  files: ReadonlyArray<{ name?: string; size?: number; type?: string }>,
+): Array<Record<string, unknown>> {
+  return files.map((file) => ({
+    name: file.name ?? "",
+    size: typeof file.size === "number" ? file.size : undefined,
+    type: file.type ?? "",
+  }));
+}
+
+function summarizePasteTraceText(text: string): { textLength: number; textSnippet?: string } {
+  const trimmedText = text.trim();
+  return trimmedText
+    ? {
+        textLength: text.length,
+        textSnippet: trimmedText.slice(0, MAX_PASTE_TRACE_TEXT_LENGTH),
+      }
+    : {
+        textLength: text.length,
+      };
+}
+
+function looksLikePasteTraceFilesystemPath(text: string): boolean {
+  const trimmedText = text.trim();
+  if (!trimmedText) {
+    return false;
+  }
+
+  return (
+    trimmedText.startsWith("/") ||
+    trimmedText.startsWith("file://") ||
+    /^[A-Za-z]:[\\/]/.test(trimmedText)
+  );
+}
 
 export const T3Pane: React.FC<T3PaneProps> = ({
   autoFocusRequest,
@@ -34,6 +79,7 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   onFocus,
   onThreadChanged,
   pane,
+  zoomPercent,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -51,6 +97,21 @@ export const T3Pane: React.FC<T3PaneProps> = ({
       onThreadChanged(payload);
     },
   );
+  const applyZoomPercent = useEffectEvent((reason: string) => {
+    const iframe = iframeRef.current;
+    const documentElement = iframe?.contentDocument?.documentElement;
+    if (!iframe || !documentElement) {
+      return;
+    }
+
+    documentElement.style.zoom = `${zoomPercent}%`;
+    reportDebug("workspace.t3PaneZoomApplied", {
+      reason,
+      sessionId: pane.sessionId,
+      threadId: pane.sessionRecord.t3.threadId,
+      zoomPercent,
+    });
+  });
 
   const requestComposerFocus = (reason: string) => {
     reportDebug("workspace.t3PaneComposerFocusRequested", {
@@ -203,6 +264,7 @@ export const T3Pane: React.FC<T3PaneProps> = ({
     }
 
     const handleLoad = () => {
+      applyZoomPercent("iframeLoad");
       reportDebug("workspace.t3PaneIframeMounted", {
         iframeSrc: iframe.src,
         ...readFrameWindowState(iframe.contentWindow),
@@ -218,6 +280,10 @@ export const T3Pane: React.FC<T3PaneProps> = ({
       iframe.removeEventListener("load", handleLoad);
     };
   }, [isFocused, pane.renderNonce, pane.sessionId, pane.sessionRecord.t3.threadId]);
+
+  useEffect(() => {
+    applyZoomPercent("zoomSettingChanged");
+  }, [zoomPercent]);
 
   useEffect(() => {
     return () => {
@@ -359,11 +425,20 @@ export const T3Pane: React.FC<T3PaneProps> = ({
       files: T3ClipboardFilePayload[];
       text: string;
     }> => {
+      logPasteTrace("workspace.clipboard.read.start", {
+        sessionId: pane.sessionId,
+        threadId: pane.sessionRecord.t3.threadId,
+      });
       let text = "";
       const files: T3ClipboardFilePayload[] = [];
 
       if (typeof navigator.clipboard.read === "function") {
         const clipboardItems = await navigator.clipboard.read().catch(() => []);
+        logPasteTrace("workspace.clipboard.read.items", {
+          itemTypes: clipboardItems.map((item) => [...item.types]),
+          sessionId: pane.sessionId,
+          threadId: pane.sessionRecord.t3.threadId,
+        });
         let imageIndex = 0;
         for (const item of clipboardItems) {
           for (const mimeType of item.types) {
@@ -395,6 +470,13 @@ export const T3Pane: React.FC<T3PaneProps> = ({
         text = await navigator.clipboard.readText().catch(() => "");
       }
 
+      logPasteTrace("workspace.clipboard.read.result", {
+        files: summarizePasteTraceFiles(files),
+        looksLikeFilePath: looksLikePasteTraceFilesystemPath(text),
+        sessionId: pane.sessionId,
+        threadId: pane.sessionRecord.t3.threadId,
+        ...summarizePasteTraceText(text),
+      });
       return { files, text };
     };
 
@@ -493,8 +575,21 @@ export const T3Pane: React.FC<T3PaneProps> = ({
           return;
         }
 
+        logPasteTrace("workspace.clipboard.readRequest.received", {
+          requestId,
+          sessionId: pane.sessionId,
+          threadId: pane.sessionRecord.t3.threadId,
+        });
         void readClipboardPayload().then(({ files, text }) => {
           const transferables = files.map((file) => file.buffer);
+          logPasteTrace("workspace.clipboard.readRequest.responding", {
+            files: summarizePasteTraceFiles(files),
+            looksLikeFilePath: looksLikePasteTraceFilesystemPath(text),
+            requestId,
+            sessionId: pane.sessionId,
+            threadId: pane.sessionRecord.t3.threadId,
+            ...summarizePasteTraceText(text),
+          });
           iframeRef.current?.contentWindow?.postMessage(
             {
               files,

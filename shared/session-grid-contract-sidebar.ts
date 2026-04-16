@@ -213,7 +213,30 @@ export type SidebarDaemonSessionsStateMessage = {
   daemon?: SidebarDaemonInfo;
   errorMessage?: string;
   sessions: SidebarDaemonSessionItem[];
+  t3Server?: SidebarT3ServerInfo;
+  t3Sessions: SidebarT3SessionItem[];
   type: "daemonSessionsState";
+};
+
+export type SidebarT3ServerInfo = {
+  pid: number;
+  port: number;
+  startedAt?: string;
+};
+
+export type SidebarT3SessionItem = {
+  activity: "idle" | "working" | "attention";
+  detail?: string;
+  isCurrentWorkspace: boolean;
+  isFocused: boolean;
+  isRunning: boolean;
+  isSleeping: boolean;
+  lastInteractionAt?: string;
+  sessionId: string;
+  threadId?: string;
+  title?: string;
+  workspaceId: string;
+  workspaceRoot?: string;
 };
 
 export type SidebarPromptGitCommitMessage = {
@@ -273,9 +296,16 @@ export type SidebarToExtensionMessage =
       type: "killTerminalDaemon";
     }
   | {
+      type: "killT3RuntimeServer";
+    }
+  | {
       type: "killDaemonSession";
       sessionId: string;
       workspaceId: string;
+    }
+  | {
+      type: "killT3RuntimeSession";
+      sessionId: string;
     }
   | {
       type: "moveSidebarToOtherSide";

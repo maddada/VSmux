@@ -34,6 +34,10 @@ export type WorkspacePanelLayoutAppearance = {
   paneGap: number;
 };
 
+export type WorkspacePanelT3Appearance = {
+  zoomPercent: number;
+};
+
 export type WorkspacePanelAutoFocusRequest = {
   requestId: number;
   sessionId: string;
@@ -80,6 +84,7 @@ export type WorkspacePanelHydrateMessage = {
   panes: WorkspacePanelPane[];
   shouldShowWelcomeModal?: boolean;
   terminalAppearance: WorkspacePanelTerminalAppearance;
+  t3Appearance: WorkspacePanelT3Appearance;
   viewMode: TerminalViewMode;
   visibleCount: number;
   workspaceSnapshot: GroupedSessionWorkspaceSnapshot;
@@ -175,6 +180,11 @@ export type WorkspacePanelAdjustTerminalFontSizeMessage = {
   type: "adjustTerminalFontSize";
 };
 
+export type WorkspacePanelAdjustT3ZoomPercentMessage = {
+  delta: -1 | 1;
+  type: "adjustT3ZoomPercent";
+};
+
 export type WorkspacePanelForkSessionMessage = {
   type: "forkSession";
   sessionId: string;
@@ -244,6 +254,7 @@ export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelFullReloadSessionMessage
   | WorkspacePanelPromptRenameSessionMessage
   | WorkspacePanelAdjustTerminalFontSizeMessage
+  | WorkspacePanelAdjustT3ZoomPercentMessage
   | WorkspacePanelForkSessionMessage
   | WorkspacePanelSetSessionSleepingMessage
   | WorkspacePanelSyncPaneOrderMessage

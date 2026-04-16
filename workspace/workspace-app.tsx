@@ -19,6 +19,7 @@ import type {
   WorkspacePanelScrollTerminalToBottomMessage,
   WorkspacePanelSessionStateMessage,
   WorkspacePanelShowToastMessage,
+  WorkspacePanelT3Appearance,
 } from "../shared/workspace-panel-contract";
 import {
   getVisiblePrimaryTitle,
@@ -1577,6 +1578,12 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
                 type: "adjustTerminalFontSize",
               })
             }
+            onAdjustT3ZoomPercent={(delta) =>
+              postToExtension({
+                delta,
+                type: "adjustT3ZoomPercent",
+              })
+            }
             onFork={() =>
               postToExtension({
                 sessionId: pane.sessionId,
@@ -1612,6 +1619,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             registerTerminalPortalTarget={
               pane.kind === "terminal" ? getTerminalPortalTargetRef(pane.sessionId) : undefined
             }
+            t3Appearance={workspaceState.t3Appearance}
             canDrag={pane.kind === "terminal" && pane.isVisible && reorderablePaneIds.length > 1}
             isDragging={draggedPaneId === pane.sessionId}
             isDropTarget={dropTargetPaneId === pane.sessionId && draggedPaneId !== pane.sessionId}
@@ -1738,6 +1746,7 @@ type WorkspacePaneViewProps = {
   onConfirmToastShown: (toast: WorkspacePanelShowToastMessage) => void;
   onFork: () => void;
   onAdjustTerminalFontSize: (delta: -1 | 1) => void;
+  onAdjustT3ZoomPercent: (delta: -1 | 1) => void;
   onT3ThreadChanged: (payload: { sessionId: string; threadId: string; title?: string }) => void;
   onRename: () => void;
   onReload: () => void;
@@ -1747,6 +1756,7 @@ type WorkspacePaneViewProps = {
   onHeaderNativeDragStart: (event: ReactDragEvent<HTMLElement>) => void;
   pane: WorkspacePanelPane;
   registerTerminalPortalTarget?: (element: HTMLDivElement | null) => void;
+  t3Appearance: WorkspacePanelT3Appearance;
 };
 
 const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
@@ -1768,6 +1778,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   onConfirmToastShown,
   onFork,
   onAdjustTerminalFontSize,
+  onAdjustT3ZoomPercent,
   onT3ThreadChanged,
   onRename,
   onBoundsMeasured,
@@ -1777,6 +1788,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   onHeaderNativeDragStart,
   pane,
   registerTerminalPortalTarget,
+  t3Appearance,
 }) => {
   const paneViewInstanceIdRef = useRef(`workspace-pane-view-${++nextWorkspacePaneViewInstanceId}`);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -1917,16 +1929,22 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
         </div>
         {pane.kind === "terminal" || pane.kind === "t3" ? (
           <div className="workspace-pane-header-actions">
-            {pane.kind === "terminal" ? (
-              <WorkspacePaneFontSizeControls onAdjustTerminalFontSize={onAdjustTerminalFontSize} />
+            {pane.kind === "terminal" || pane.kind === "t3" ? (
+              <WorkspacePaneFontSizeControls
+                onAdjustZoom={
+                  pane.kind === "terminal" ? onAdjustTerminalFontSize : onAdjustT3ZoomPercent
+                }
+              />
             ) : null}
-            {pane.kind === "terminal" ? (
+            {pane.kind === "terminal" || pane.kind === "t3" ? (
               <span aria-hidden="true" className="workspace-pane-action-divider" />
             ) : null}
-            {pane.kind === "terminal" ? <WorkspacePaneRenameButton onRename={onRename} /> : null}
+            {pane.kind === "terminal" || pane.kind === "t3" ? (
+              <WorkspacePaneRenameButton onRename={onRename} />
+            ) : null}
             {canFork ? <WorkspacePaneForkButton onFork={onFork} /> : null}
             {canReload ? <WorkspacePaneRefreshButton onRefresh={onReload} /> : null}
-            {pane.kind === "terminal" || canFork || canReload ? (
+            {pane.kind === "terminal" || pane.kind === "t3" || canFork || canReload ? (
               <span aria-hidden="true" className="workspace-pane-action-divider" />
             ) : null}
             <WorkspacePaneSleepButton
@@ -1959,6 +1977,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
             onFocus={onFocus}
             onThreadChanged={onT3ThreadChanged}
             pane={pane}
+            zoomPercent={t3Appearance.zoomPercent}
           />
         )}
       </div>

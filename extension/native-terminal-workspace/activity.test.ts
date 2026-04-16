@@ -19,6 +19,7 @@ vi.mock("../terminal-workspace-helpers", () => ({
 }));
 
 import {
+  getDisplayedLastInteractionIso,
   INITIAL_ACTIVITY_SUPPRESSION_MS,
   MIN_WORKING_DURATION_BEFORE_LAST_ACTIVITY_MS,
   MIN_WORKING_DURATION_BEFORE_ATTENTION_MS,
@@ -323,5 +324,25 @@ describe("hasReachedLastActivityThreshold", () => {
       false,
     );
     expect(hasReachedLastActivityThreshold(undefined)).toBe(false);
+  });
+});
+
+describe("getDisplayedLastInteractionIso", () => {
+  test("should prefer the local transition timestamp when one is available", () => {
+    expect(
+      getDisplayedLastInteractionIso({
+        fallbackInteractionAt: "2026-04-16T09:00:00.000Z",
+        overrideActivityAt: Date.parse("2026-04-16T10:00:00.000Z"),
+      }),
+    ).toBe("2026-04-16T10:00:00.000Z");
+  });
+
+  test("should fall back to the runtime timestamp before any local transition is observed", () => {
+    expect(
+      getDisplayedLastInteractionIso({
+        fallbackInteractionAt: "2026-04-16T09:00:00.000Z",
+        overrideActivityAt: undefined,
+      }),
+    ).toBe("2026-04-16T09:00:00.000Z");
   });
 });

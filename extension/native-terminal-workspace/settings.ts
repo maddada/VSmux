@@ -50,6 +50,7 @@ export const FIND_PREVIOUS_SESSION_PROMPT_TEMPLATE_SETTING = "findPreviousSessio
 export const GIT_SKIP_SUGGESTED_COMMIT_CONFIRMATION_SETTING = "gitSkipSuggestedCommitConfirmation";
 export const TERMINAL_FONT_FAMILY_SETTING = "terminalFontFamily";
 export const TERMINAL_FONT_SIZE_SETTING = "terminalFontSize";
+export const T3_ZOOM_PERCENT_SETTING = "t3ZoomPercent";
 export const TERMINAL_FONT_WEIGHT_SETTING = "terminalFontWeight";
 export const TERMINAL_LINE_HEIGHT_SETTING = "terminalLineHeight";
 export const TERMINAL_LETTER_SPACING_SETTING = "terminalLetterSpacing";
@@ -60,6 +61,9 @@ export const TERMINAL_SCROLL_TO_BOTTOM_WHEN_TYPING_SETTING = "terminalScrollToBo
 export const MIN_TERMINAL_FONT_SIZE = 8;
 export const MAX_TERMINAL_FONT_SIZE = 32;
 export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+export const MIN_T3_ZOOM_PERCENT = 50;
+export const MAX_T3_ZOOM_PERCENT = 200;
+export const DEFAULT_T3_ZOOM_PERCENT = 100;
 export const DEFAULT_TERMINAL_FONT_WEIGHT = 300;
 export const MIN_XTERM_HEADLESS_SCROLLBACK = 100;
 export const MAX_XTERM_HEADLESS_SCROLLBACK = 100_000;
@@ -385,6 +389,14 @@ export function getTerminalFontSize(): number {
   return clampTerminalFontSize(value);
 }
 
+export function getT3ZoomPercent(): number {
+  const value =
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(T3_ZOOM_PERCENT_SETTING, DEFAULT_T3_ZOOM_PERCENT) ?? DEFAULT_T3_ZOOM_PERCENT;
+  return clampT3ZoomPercent(value);
+}
+
 export function getTerminalFontWeight(): number {
   const value =
     vscode.workspace
@@ -407,15 +419,28 @@ export function clampTerminalFontSize(value: number): number {
   );
 }
 
-export async function setTerminalFontSize(fontSize: number): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration(SETTINGS_SECTION);
-  const inspection = configuration.inspect<number>(TERMINAL_FONT_SIZE_SETTING);
-  const target =
-    inspection?.workspaceValue !== undefined
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
+export function clampT3ZoomPercent(value: number): number {
+  return clampNumber(value, MIN_T3_ZOOM_PERCENT, MAX_T3_ZOOM_PERCENT, DEFAULT_T3_ZOOM_PERCENT);
+}
 
-  await configuration.update(TERMINAL_FONT_SIZE_SETTING, clampTerminalFontSize(fontSize), target);
+export async function setTerminalFontSize(fontSize: number): Promise<void> {
+  await vscode.workspace
+    .getConfiguration(SETTINGS_SECTION)
+    .update(
+      TERMINAL_FONT_SIZE_SETTING,
+      clampTerminalFontSize(fontSize),
+      vscode.ConfigurationTarget.Workspace,
+    );
+}
+
+export async function setT3ZoomPercent(zoomPercent: number): Promise<void> {
+  await vscode.workspace
+    .getConfiguration(SETTINGS_SECTION)
+    .update(
+      T3_ZOOM_PERCENT_SETTING,
+      clampT3ZoomPercent(zoomPercent),
+      vscode.ConfigurationTarget.Workspace,
+    );
 }
 
 export function getTerminalLineHeight(): number {

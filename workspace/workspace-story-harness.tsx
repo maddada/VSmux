@@ -189,6 +189,9 @@ function createWorkspaceStoryMessage(
       scrollToBottomWhenTyping: false,
       xtermFrontendScrollback: 75_000,
     },
+    t3Appearance: {
+      zoomPercent: 100,
+    },
     type: "hydrate",
     viewMode: activeGroup?.viewMode ?? "grid",
     visibleCount: activeGroup?.visibleCount ?? 1,

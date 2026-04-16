@@ -34,6 +34,8 @@ export type SidebarMessageHandlers = {
   deletePreviousSession: (historyId: string) => Promise<void>;
   killDaemonSession: (workspaceId: string, sessionId: string) => Promise<void>;
   killTerminalDaemon: () => Promise<void>;
+  killT3RuntimeServer: () => Promise<void>;
+  killT3RuntimeSession: (sessionId: string) => Promise<void>;
   deleteSidebarAgent: (agentId: string) => Promise<void>;
   deleteSidebarCommand: (commandId: string) => Promise<void>;
   focusGroup: (groupId: string, source?: "sidebar") => Promise<void>;
@@ -145,8 +147,14 @@ export async function dispatchSidebarMessage(
     case "killTerminalDaemon":
       await handlers.killTerminalDaemon();
       return;
+    case "killT3RuntimeServer":
+      await handlers.killT3RuntimeServer();
+      return;
     case "killDaemonSession":
       await handlers.killDaemonSession(message.workspaceId, message.sessionId);
+      return;
+    case "killT3RuntimeSession":
+      await handlers.killT3RuntimeSession(message.sessionId);
       return;
     case "moveSidebarToOtherSide":
       await handlers.moveSidebarToOtherSide();
