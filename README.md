@@ -6,11 +6,12 @@
 
 ---
 
-### Latest Release: 3.8.0
+### Latest Release: 4.0.0
 
-- Sidebar actions can now be global across all projects or shared across Git worktrees from the same repository.
-- Browser and session groups collapse more intelligently, especially around empty browser groups and newly added browser sessions.
-- Workspace terminals now include a scroll-to-top control for navigating long terminal history.
+- T3 sessions can now be opened from your phone or browser with QR-based remote access links, including Tailscale, LAN, and VS Code external-link fallbacks.
+- Workspace panes now have inline zoom controls and clearer action tooltips, so adjusting terminal readability takes one click instead of a settings detour.
+- Session cards now default to agent icons instead of noisy timestamps, use cleaner compact time labels, and ignore generic bare titles like `Codex` or `Claude Code` when choosing what to show.
+- Command buttons also behave better in dense layouts, including cleaner support for icon-only buttons.
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -44,7 +45,7 @@ Then this is the extension for you! You get a very nice interface to work with y
 
 ## Main Features at a Glance
 
-- **Multiplexed Split Views** — Split your workspace into multiple panes (e.g., view 2 up to 9 sessions at once) to monitor and interact with several tasks simultaneously, complete with zoom functionality for easier reading.
+- **Multiplexed Split Views** — Split your workspace into multiple panes (e.g., view 2 up to 9 sessions at once) to monitor and interact with several tasks simultaneously, complete with per-pane zoom controls for easier reading.
 - **Unified Session Search & History** — Quickly search across all your sessions from various tools (WSL, Cloud Code, Codex) in one centralized location, rather than hunting through different tabs.
 - **Session Management & Organization** — Group, sort manually, or organize your sessions by recent activity to maintain a tidy workspace.
 - **Session Resumption** — Click on any past session from the history to instantly reload it and pick up exactly where you left off with the original AI agent.
@@ -148,6 +149,7 @@ Gist on how to do this
 ### T3 Code Integration
 
 - **Embedded T3 sessions** — T3 Code runs directly inside the VSmux sidebar as a webview
+- **Remote T3 browser access** — open an active T3 session from your phone or another browser with QR-based share links and Tailscale/LAN fallback handling
 - **T3 activity monitoring** — WebSocket connection to local T3 runtime tracks thread activity in real time
 - **T3 session lifecycle** — automatic supervision, sync, and management of T3 sessions
 

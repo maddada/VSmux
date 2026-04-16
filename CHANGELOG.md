@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.0.0 - 2026-04-16
+
+- T3 sessions can now be opened outside the editor through a new remote-access flow, with QR codes plus VS Code external-link, Tailscale, LAN, and local-only fallback handling depending on what is available on your machine.
+- Workspace panes are more convenient to control now, with inline zoom buttons for terminal font size and tooltip-backed pane actions for rename, fork, reload, sleep, and close.
+- Session presentation is calmer and more informative now: cards default to agent icons instead of always showing timestamps, relative times are more compact, browser titles avoid unsynced markers, and generic bare agent titles like `Codex` or `Claude Code` are filtered out of visible session titles and saved history.
+- Command buttons render more cleanly in dense sidebars now, including proper icon-only button sizing.
+
 ## 3.8.0 - 2026-04-16
 
 - Sidebar actions are more flexible now: custom actions can be marked global so they appear in every VSmux project, while project actions can be shared across Git worktrees from the same repository.
