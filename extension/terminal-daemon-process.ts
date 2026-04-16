@@ -39,8 +39,8 @@ import { TerminalDaemonRingBuffer } from "./terminal-daemon-ring-buffer";
 import { createTerminalDaemonSessionKey } from "./terminal-daemon-session-scope";
 import { parseTerminalTitleFromOutputChunk } from "./terminal-workspace-history";
 import {
+  getVisibleTerminalTitle,
   normalizeTerminalEngine,
-  normalizeTerminalTitle,
   type TerminalEngine,
 } from "../shared/session-grid-contract";
 import type {
@@ -668,7 +668,7 @@ async function buildSnapshot(
     isAttached: sessionSocketsBySessionKey.get(session.sessionKey)?.readyState === WebSocket.OPEN,
     title: shouldPreferPersistedPresentation
       ? (persistedState.title ?? session.snapshot.title)
-      : (session.liveTitle ?? persistedState.title),
+      : getSessionSnapshotTitle(session.liveTitle, persistedState.title),
   };
   return session.snapshot;
 }
@@ -829,10 +829,10 @@ export function getSessionPresentationTitle(
   normalizedTitle = title.trim().replace(/\s+/g, " "),
 ): string | undefined {
   if (hasOpenCodeTitlePrefix(normalizedTitle)) {
-    return normalizeTerminalTitle(title);
+    return getVisibleTerminalTitle(title);
   }
 
-  return title;
+  return getVisibleTerminalTitle(title);
 }
 
 async function persistSessionLiveTitle(session: ManagedSession, title: string): Promise<void> {
@@ -942,9 +942,20 @@ function applySessionTitleActivity(session: ManagedSession): void {
     ...session.snapshot,
     agentName: session.titleActivity.agentName,
     agentStatus: session.titleActivity.activity,
-    title: session.liveTitle ?? session.lastKnownPersistedTitle,
+    title: getSessionSnapshotTitle(session.liveTitle, session.lastKnownPersistedTitle),
   };
   void persistSessionPresentationState(session);
+}
+
+function getSessionSnapshotTitle(
+  liveTitle: string | undefined,
+  fallbackTitle: string | undefined,
+): string | undefined {
+  if (!liveTitle) {
+    return fallbackTitle;
+  }
+
+  return getSessionPresentationTitle(liveTitle) ?? fallbackTitle;
 }
 
 function scheduleDaemonLifecycleCheckIfNeeded(): void {

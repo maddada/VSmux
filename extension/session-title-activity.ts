@@ -3,6 +3,7 @@ import type { SidebarSessionActivityState } from "../shared/session-grid-contrac
 const CLAUDE_CODE_IDLE_MARKERS = ["✳", "*"] as const;
 const CLAUDE_CODE_WORKING_MARKERS = ["⠐", "⠂", "·"] as const;
 const CLAUDE_CODE_TITLE = "Claude Code";
+const CLAUDE_TITLE_KEYWORD = "claude";
 const CODEX_TITLE_KEYWORD = "codex";
 const CODEX_WORKING_MARKERS = ["⠸", "⠴", "⠼", "⠧", "⠦", "⠏", "⠋", "⠇", "⠙", "⠹"] as const;
 const GEMINI_WORKING_MARKER = "✦";
@@ -224,7 +225,8 @@ function getClaudeCodeTitleState(
   const lowerTitle = normalizedTitle.toLowerCase();
   const lowerClaudeCodeTitle = CLAUDE_CODE_TITLE.toLowerCase();
 
-  const hasClaudeKeyword = lowerTitle.includes(lowerClaudeCodeTitle);
+  const hasClaudeKeyword =
+    lowerTitle.includes(lowerClaudeCodeTitle) || lowerTitle.includes(CLAUDE_TITLE_KEYWORD);
   const hasClaudeInferenceMarker =
     normalizedTitle.includes("✳") || normalizedTitle.includes("⠐") || normalizedTitle.includes("⠂");
   if (!allowAgentHintMatch && !hasClaudeKeyword && !hasClaudeInferenceMarker) {
@@ -261,6 +263,10 @@ function getClaudeCodeTitleState(
 
     if (containsAnyMarker(normalizedTitle, CLAUDE_CODE_WORKING_MARKERS)) {
       return "working";
+    }
+
+    if (hasClaudeKeyword) {
+      return "idle";
     }
   }
 

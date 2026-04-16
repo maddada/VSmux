@@ -197,7 +197,7 @@ describe("buildSidebarMessage", () => {
     const message = getSidebarStateMessage(
       buildSidebarMessage({
         ...createBuildSidebarMessageOptions(workspaceSnapshot, []),
-        getTerminalTitle: () => "Claude Code",
+        getTerminalTitle: () => "Claude Code / repo sweep",
       }),
     );
 
@@ -205,7 +205,7 @@ describe("buildSidebarMessage", () => {
       expect.objectContaining({
         isPrimaryTitleTerminalTitle: true,
         lastInteractionAt: sessionRecord.createdAt,
-        primaryTitle: "Claude Code",
+        primaryTitle: "Claude Code / repo sweep",
         terminalTitle: undefined,
       }),
     );
@@ -222,6 +222,29 @@ describe("buildSidebarMessage", () => {
       buildSidebarMessage({
         ...createBuildSidebarMessageOptions(workspaceSnapshot, []),
         getTerminalTitle: () => "VSmux",
+      }),
+    );
+
+    expect(message.groups[1]?.sessions[0]).toEqual(
+      expect.objectContaining({
+        alias: "00",
+        primaryTitle: undefined,
+        terminalTitle: undefined,
+      }),
+    );
+  });
+
+  test("should ignore bare agent terminal titles for unnamed terminal sessions", () => {
+    const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
+    const sessionRecord = createSessionRecord(1, 0);
+    workspaceSnapshot.groups[0].snapshot.sessions = [sessionRecord];
+    workspaceSnapshot.groups[0].snapshot.focusedSessionId = sessionRecord.sessionId;
+    workspaceSnapshot.groups[0].snapshot.visibleSessionIds = [sessionRecord.sessionId];
+
+    const message = getSidebarStateMessage(
+      buildSidebarMessage({
+        ...createBuildSidebarMessageOptions(workspaceSnapshot, []),
+        getTerminalTitle: () => "Claude Code",
       }),
     );
 
@@ -324,7 +347,7 @@ describe("buildSidebarMessage", () => {
     const message = getSidebarStateMessage(
       buildSidebarMessage({
         ...createBuildSidebarMessageOptions(workspaceSnapshot, []),
-        getTerminalTitle: () => "Claude Code",
+        getTerminalTitle: () => "Run regression suite",
       }),
     );
 
@@ -333,7 +356,7 @@ describe("buildSidebarMessage", () => {
         isFavorite: false,
         isPrimaryTitleTerminalTitle: false,
         primaryTitle: "Bug Fix",
-        terminalTitle: "Claude Code",
+        terminalTitle: "Run regression suite",
       }),
     );
   });
@@ -362,12 +385,12 @@ describe("buildSidebarMessage", () => {
           shell: "/bin/zsh",
           startedAt: "2026-04-02T00:00:00.000Z",
           status: "running",
-          title: "Claude Code",
+          title: "Claude / recent sessions polish",
           workspaceId: "workspace-1",
         }),
         getSidebarAgentIcon: (_sessionId, snapshotAgentName) =>
           snapshotAgentName === "claude" ? "claude" : undefined,
-        getTerminalTitle: () => "Claude Code",
+        getTerminalTitle: () => "Claude / recent sessions polish",
       }),
     );
 
@@ -375,7 +398,7 @@ describe("buildSidebarMessage", () => {
       expect.objectContaining({
         agentIcon: "claude",
         isPrimaryTitleTerminalTitle: true,
-        primaryTitle: "Claude Code",
+        primaryTitle: "Claude / recent sessions polish",
         terminalTitle: undefined,
       }),
     );
@@ -511,7 +534,7 @@ describe("buildSidebarMessage", () => {
         lifecycleState: "sleeping",
         isRunning: false,
         isSleeping: true,
-        primaryTitle: "Codex",
+        primaryTitle: undefined,
       }),
     );
   });
@@ -597,6 +620,22 @@ describe("createPreviousSessionEntry", () => {
     expect(previousSession).toBeUndefined();
   });
 
+  test("should skip bare agent titles when archiving previous sessions", () => {
+    const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
+    const group = workspaceSnapshot.groups[0];
+    const sessionRecord = createSessionRecord(1, 0);
+    group.snapshot.sessions = [sessionRecord];
+    group.snapshot.focusedSessionId = sessionRecord.sessionId;
+    group.snapshot.visibleSessionIds = [sessionRecord.sessionId];
+
+    const previousSession = createPreviousSessionEntry({
+      ...createPreviousSessionEntryOptions(group, sessionRecord),
+      getTerminalTitle: () => "Codex",
+    });
+
+    expect(previousSession).toBeUndefined();
+  });
+
   test("should skip default Windows PowerShell executable titles when archiving previous sessions", () => {
     const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
     const group = workspaceSnapshot.groups[0];
@@ -642,7 +681,7 @@ describe("createPreviousSessionEntry", () => {
         shell: "/bin/zsh",
         startedAt: "2026-04-02T00:00:00.000Z",
         status: "running",
-        title: "Codex",
+        title: "Codex / recent sessions polish",
         workspaceId: "workspace-1",
       }),
       getSidebarAgentIcon: (_sessionId, snapshotAgentName) =>
@@ -651,7 +690,7 @@ describe("createPreviousSessionEntry", () => {
         activity: "idle",
         isRunning: false,
       }),
-      getTerminalTitle: () => "Codex",
+      getTerminalTitle: () => "Codex / recent sessions polish",
       group,
       platform: "default",
       sessionRecord,
@@ -709,7 +748,7 @@ function createPreviousSessionEntryOptions(
       shell: "/bin/zsh",
       startedAt: "2026-04-02T00:00:00.000Z",
       status: "running",
-      title: "Codex",
+      title: "Codex / recent sessions polish",
       workspaceId: "workspace-1",
     }),
     getSidebarAgentIcon: (_sessionId, snapshotAgentName) =>
@@ -718,7 +757,7 @@ function createPreviousSessionEntryOptions(
       activity: "idle",
       isRunning: false,
     }),
-    getTerminalTitle: () => "Codex",
+    getTerminalTitle: () => "Codex / recent sessions polish",
     group,
     platform: "default",
     sessionRecord,
@@ -809,7 +848,7 @@ function createSidebarHudState(): SidebarHydrateMessage["hud"] {
     createSessionOnSidebarDoubleClick: false,
     showCloseButtonOnSessionCards: false,
     showHotkeysOnSessionCards: false,
-    showLastInteractionTimeOnSessionCards: true,
+    showLastInteractionTimeOnSessionCards: false,
     theme: "dark-blue",
     viewMode: "grid",
     visibleCount: 1,

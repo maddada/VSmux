@@ -344,6 +344,7 @@ describe("sidebar HUD state", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       "manual",
       true,
     );
@@ -404,7 +405,9 @@ describe("visible primary titles", () => {
   });
 
   test("should prefer the terminal title when choosing a visible session title", () => {
-    expect(getPreferredSessionTitle("Session 1", "Claude Code")).toBe("Claude Code");
+    expect(getPreferredSessionTitle("Session 1", "Claude Code / repo sweep")).toBe(
+      "Claude Code / repo sweep",
+    );
   });
 
   test("should fall back to the custom session title when no terminal title exists", () => {
@@ -413,6 +416,16 @@ describe("visible primary titles", () => {
 
   test("should ignore generic VSmux terminal titles when choosing a visible session title", () => {
     expect(getPreferredSessionTitle("Session 1", "VSmux")).toBeUndefined();
+  });
+
+  test("should ignore bare agent names when choosing a visible session title", () => {
+    expect(getPreferredSessionTitle("Session 1", "Codex")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "Codex CLI")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "OpenAI Codex")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "Claude")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "Claude Code")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "  ⠸ Codex  ")).toBeUndefined();
+    expect(getPreferredSessionTitle("Session 1", "  ✳ Claude Code  ")).toBeUndefined();
   });
 
   test("should ignore the default Windows PowerShell executable title", () => {

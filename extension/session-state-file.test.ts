@@ -62,6 +62,33 @@ describe("persisted session title normalization", () => {
     });
   });
 
+  test("should ignore bare agent titles when reading and serializing persisted titles", async () => {
+    expect(
+      serializePersistedSessionState({
+        agentName: "codex",
+        agentStatus: "idle",
+        lastActivityAt: "2026-04-08T10:00:00.000Z",
+        title: "⠸ Codex",
+      }),
+    ).toContain("title=");
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
+    const filePath = path.join(tempDir, "session-ignored-title.state");
+
+    await writeFile(
+      filePath,
+      "status=idle\nagent=claude\nlastActivityAt=2026-04-08T10:00:00.000Z\ntitle=Claude Code\n",
+      "utf8",
+    );
+
+    await expect(readPersistedSessionStateFromFile(filePath)).resolves.toEqual({
+      agentName: "claude",
+      agentStatus: "idle",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
+      title: undefined,
+    });
+  });
+
   test("should expose the persisted state file modification time", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
     const filePath = path.join(tempDir, "session-02.state");
@@ -77,7 +104,7 @@ describe("persisted session title normalization", () => {
       agentName: "claude",
       agentStatus: "attention",
       lastActivityAt: "2026-04-08T10:00:00.000Z",
-      title: "Claude Code",
+      title: undefined,
     });
     expect(snapshot.updatedAtMs).toEqual(expect.any(Number));
   });

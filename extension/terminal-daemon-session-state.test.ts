@@ -53,6 +53,54 @@ describe("resolvePersistedSessionPresentationState", () => {
     });
   });
 
+  test("should not replace a persisted title with a bare agent title", () => {
+    expect(
+      resolvePersistedSessionPresentationState(
+        {
+          agentName: "codex",
+          agentStatus: "working",
+          lastActivityAt: "2026-04-08T10:00:00.000Z",
+          title: "Auto fix corruption",
+        },
+        {
+          liveTitle: "⠸ Codex",
+          snapshotAgentName: "codex",
+          snapshotAgentStatus: "working",
+          titleActivityAgentName: "codex",
+          titleActivityStatus: "working",
+        },
+      ),
+    ).toEqual({
+      agentName: "codex",
+      agentStatus: "working",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
+      title: "Auto fix corruption",
+    });
+  });
+
+  test("should keep an empty persisted title empty when the live title is a bare agent title", () => {
+    expect(
+      resolvePersistedSessionPresentationState(
+        {
+          agentName: undefined,
+          agentStatus: "idle",
+          lastActivityAt: "2026-04-08T10:00:00.000Z",
+          title: undefined,
+        },
+        {
+          liveTitle: "Claude",
+          titleActivityAgentName: "claude",
+          titleActivityStatus: "idle",
+        },
+      ),
+    ).toEqual({
+      agentName: "claude",
+      agentStatus: "idle",
+      lastActivityAt: "2026-04-08T10:00:00.000Z",
+      title: undefined,
+    });
+  });
+
   test("should fall back to the persisted agent if the snapshot is missing one", () => {
     expect(
       resolvePersistedSessionPresentationState(

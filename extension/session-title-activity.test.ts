@@ -135,6 +135,16 @@ describe("getTitleDerivedSessionActivity", () => {
     });
   });
 
+  test("should detect a bare Codex title as the Codex agent", () => {
+    expect(getTitleDerivedSessionActivity("Codex")).toEqual({
+      activity: "idle",
+      agentName: "codex",
+      hasSeenWorking: false,
+      isAcknowledged: false,
+      lastTitleChangeAt: undefined,
+    });
+  });
+
   test("should detect Codex spinner titles from the known session agent even when the title omits codex", () => {
     const derivedActivity = getTitleDerivedSessionActivityFromTransition(
       undefined,
@@ -230,6 +240,16 @@ describe("getTitleDerivedSessionActivity", () => {
       activity: "attention",
       agentName: "claude",
       hasSeenWorking: true,
+      isAcknowledged: false,
+      lastTitleChangeAt: undefined,
+    });
+  });
+
+  test("should detect a bare Claude title as the Claude agent", () => {
+    expect(getTitleDerivedSessionActivity("Claude")).toEqual({
+      activity: "idle",
+      agentName: "claude",
+      hasSeenWorking: false,
       isAcknowledged: false,
       lastTitleChangeAt: undefined,
     });

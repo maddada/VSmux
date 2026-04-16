@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import { normalizeTerminalTitle } from "../shared/session-grid-contract";
+import { getVisibleTerminalTitle } from "../shared/session-grid-contract";
 import type { TerminalAgentStatus } from "../shared/terminal-host-protocol";
 
 export type PersistedSessionState = {
@@ -41,7 +41,7 @@ export function parsePersistedSessionState(rawState: string): PersistedSessionSt
       agentName = value || undefined;
     }
     if (key === "title") {
-      title = normalizeTerminalTitle(value);
+      title = getVisibleTerminalTitle(value);
     }
     if (key === "lastActivityAt") {
       lastActivityAt = normalizePersistedTimestamp(value);
@@ -64,7 +64,7 @@ export function serializePersistedSessionState(state: PersistedSessionState): st
     `status=${state.agentStatus}`,
     `agent=${normalizePersistedSessionValue(state.agentName) ?? ""}`,
     `lastActivityAt=${normalizePersistedTimestamp(state.lastActivityAt) ?? ""}`,
-    `title=${normalizePersistedSessionValue(normalizeTerminalTitle(state.title)) ?? ""}`,
+    `title=${normalizePersistedSessionValue(getVisibleTerminalTitle(state.title)) ?? ""}`,
     "",
   ].join("\n");
 }

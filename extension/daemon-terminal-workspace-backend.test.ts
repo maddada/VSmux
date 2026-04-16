@@ -23,13 +23,13 @@ describe("applyPersistedSessionStateToDisconnectedSnapshot", () => {
       applyPersistedSessionStateToDisconnectedSnapshot(snapshot, {
         agentName: "codex",
         agentStatus: "attention",
-        title: "Claude Code",
+        title: "Claude Code / repo sweep",
       }),
     ).toEqual({
       ...snapshot,
       agentName: "codex",
       agentStatus: "attention",
-      title: "Claude Code",
+      title: "Claude Code / repo sweep",
     });
   });
 });
