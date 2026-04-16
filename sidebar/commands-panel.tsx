@@ -695,7 +695,7 @@ function SortableCommandButton({
   onRun,
 }: SortableCommandButtonProps) {
   const trimmedName = command.name.trim();
-  const isIconOnly = trimmedName.length === 0 && command.icon !== undefined;
+  const isIconOnly = trimmedName.length === 0;
 
   const sortable = useSortable({
     accept: "sidebar-command",
