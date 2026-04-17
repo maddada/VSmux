@@ -8,15 +8,21 @@ Download links:
 
 ---
 
-### Latest Release: 4.2.0
+### Latest Release: 4.3.0
+
+- Idle Claude and Codex sessions can auto-sleep now, but only when you opt in by setting `VSmux.backgroundSessionTimeoutMinutes` to a value like `20`, so the default behavior stays conservative.
+- Attention and working indicators feel calmer now: terminal sessions only clear done states after real interaction, and embedded T3 panes can track "working for..." timers more steadily instead of bouncing their last-activity timestamps.
+- Session cards can now open rename on double-click when you enable it in settings, and T3 cards now keep their context menu focused on remote access instead of exposing the old manual thread-ID action.
+- Codex can auto-title new sessions from the first real prompt, and `Copy Resume Command` now falls back to the original launch command for custom agents that do not have a known resume syntax.
+
+### Previous Release: 4.2.0
 
 - T3 browser access is sturdier now: VSmux can reuse shared browser-access session state across windows, recover more gracefully when the shared access port is already in use, and keep remote-share links working with less manual setup.
 - T3 paste handling is stronger on macOS now, with a native clipboard fallback for pasted images, files, and text when the browser clipboard APIs come back empty.
 - Workspace readability controls are smoother now: terminal font size and T3 zoom preferences stay in sync more reliably, pane zoom controls support quick reset, and thread navigation inside T3 preserves session bindings more cleanly.
 - The sidebar has another polish pass, including clearer top-toolbar actions for search/history/pinned prompts, calmer group header interactions, a larger pinned-prompt editor, and tidier icon/header styling.
-- Codex sessions title themselves more helpfully now: VSmux can react to richer agent shell hook responses and auto-rename fresh Codex sessions from the first real prompt instead of leaving them with generic titles.
 
-### Previous Release: 4.1.0
+### Earlier Release: 4.1.0
 
 - T3 sessions can now be opened from your phone or browser with QR-based remote access links, including Tailscale, LAN, and VS Code external-link fallbacks, and VSmux can now spin up a T3 session for browser access when you do not already have one open.
 - Workspace panes now have inline zoom controls and clearer action tooltips, so adjusting terminal readability takes one click instead of a settings detour.

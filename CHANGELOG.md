@@ -2,15 +2,20 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.3.0 - 2026-04-17
+
+- Idle Claude and Codex sessions can auto-sleep now, but only when you opt in by setting `VSmux.backgroundSessionTimeoutMinutes` to a non-zero value such as `20`, so the default behavior stays conservative while restore coverage for other agents continues to improve.
+- Workspace attention handling is calmer now: done states wait for a meaningful acknowledgement like clicking, typing, or a short focus dwell before clearing, and embedded T3 sessions can derive a steadier working-started timestamp from the in-app timer.
+- Terminal session cards can now open rename on double-click when `VSmux.renameSessionOnDoubleClick` is enabled, and T3 session cards have a simpler context menu that keeps remote access but removes the old manual thread-ID action.
+- Codex sessions can now auto-rename from the first meaningful prompt, and `Copy Resume Command` falls back to the original launch command for custom agents whose resume syntax is not known to VSmux.
+
 ## 4.2.0 - 2026-04-17
 
 - T3 browser access is more resilient now: VSmux can reuse shared browser-access session state across windows, recover cleanly when the shared browser-access port is already occupied by a reusable VSmux server, and keep remote T3 share links available with less setup friction.
 - Embedded T3 paste flows are stronger on macOS now because VSmux can fall back to a native clipboard read for images, files, and text when the browser clipboard APIs return nothing.
-- Session auto-sleep is now opt-in instead of on by default. If you enable it with `VSmux.backgroundSessionTimeoutMinutes` and set a value like `20`, VSmux will automatically sleep idle sessions after that much inactivity. For now this only applies to Claude and Codex sessions while restore behavior for other agents is still being tightened up.
 - Workspace appearance controls behave better now: terminal font size and T3 zoom settings are cached more reliably, pane zoom controls support quick reset, and T3 thread navigation preserves session bindings by opening or focusing the matching session instead of mutating the current one in place.
 - The sidebar has been polished again, with clearer top-toolbar button placement for search, previous sessions, and pinned prompts, calmer group header interactions, smoother browser-group behavior, improved icon choices, and a larger pinned-prompt editor.
 - Agent shell hook responses are now handled more completely, which helps shell-driven state updates land more reliably across supported CLIs.
-- Fresh Codex sessions can now auto-rename from the first meaningful prompt, so new tabs start with a useful title earlier instead of lingering on a generic agent name.
 
 ## 4.1.0 - 2026-04-16
 
