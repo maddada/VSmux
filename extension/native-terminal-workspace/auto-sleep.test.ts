@@ -28,6 +28,17 @@ describe("shouldAutoSleepSidebarSession", () => {
     ).toBe(true);
   });
 
+  test("should allow T3 idle running sessions to auto-sleep", () => {
+    expect(
+      shouldAutoSleepSidebarSession({
+        activity: "idle",
+        agentIcon: "t3",
+        isRunning: true,
+        isSleeping: false,
+      }),
+    ).toBe(true);
+  });
+
   test("should skip other agent types for now", () => {
     expect(
       shouldAutoSleepSidebarSession({

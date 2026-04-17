@@ -17,7 +17,9 @@ export function shouldAutoSleepSidebarSession(
   }
 
   return (
-    (session.agentIcon === "claude" || session.agentIcon === "codex") &&
+    (session.agentIcon === "claude" ||
+      session.agentIcon === "codex" ||
+      session.agentIcon === "t3") &&
     session.activity === "idle" &&
     getSidebarSessionLifecycleState(session) === "running"
   );
