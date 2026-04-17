@@ -2,6 +2,8 @@
 
 > Manage all your CLI coding agent sessions without leaving your IDE.
 
+Download links:
+
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=maddada.VSmux) [![Open VSX](https://img.shields.io/badge/Open%20VSX-Registry-purple)](https://open-vsx.org/extension/maddada/VSmux)
 
 ---
