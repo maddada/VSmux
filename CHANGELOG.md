@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.3.1 - 2026-04-17
+
+- Idle T3 sessions now participate in the opt-in auto-sleep flow alongside Claude and Codex when `VSmux.backgroundSessionTimeoutMinutes` is set to a non-zero value.
+- Sleeping embedded T3 panes now destroy their cached runtime more cleanly, which helps avoid stale iframe state when a session sleeps and later wakes back up.
+- Workspace pane projection now keeps T3 threads available even when they belong to an inactive group, so embedded T3 sessions remain projected while you focus other terminal groups.
+
 ## 4.3.0 - 2026-04-17
 
 - Idle Claude and Codex sessions can auto-sleep now, but only when you opt in by setting `VSmux.backgroundSessionTimeoutMinutes` to a non-zero value such as `20`, so the default behavior stays conservative while restore coverage for other agents continues to improve.
