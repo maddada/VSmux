@@ -1,3 +1,5 @@
+import { coalesceWorkingStartedAtMs, getWorkingStartedAtMsFromText } from "./t3-working-timer";
+
 type T3FrameBootstrap = {
   browserBootstrapToken: string;
   scriptSrc: string;
@@ -23,6 +25,7 @@ type T3ClipboardPayload = {
 
 const VSMUX_PASTE_TRACE_TAG = "[VSMUX_PASTE_TRACE]";
 const MAX_PASTE_TRACE_TEXT_LENGTH = 180;
+const WORKING_STARTED_AT_POLL_MS = 1_000;
 
 declare global {
   interface Window {
@@ -197,8 +200,11 @@ let primedClipboardReadToken = 0;
 let currentThreadId = bootstrap.threadId;
 let pendingComposerFocusTimeoutId: number | undefined;
 let composerFocusRequestVersion = 0;
+let lastReportedWorkingStartedAtMs: number | undefined;
 
 window.addEventListener("beforeunload", () => {
+  workingStartedAtObserver.disconnect();
+  window.clearInterval(workingStartedAtPollId);
   reportDebugLog("workspace.t3FrameHostBeforeUnload", {
     currentThreadId: getCurrentThreadId(),
     hash: window.location.hash,
@@ -515,6 +521,48 @@ function getCurrentThreadId(): string | undefined {
     window.__VSMUX_T3_BOOTSTRAP__?.threadId
   );
 }
+
+function syncWorkingStartedAt(reason: string): void {
+  const bodyText = document.body?.innerText ?? document.body?.textContent ?? "";
+  const nextWorkingStartedAtMs = coalesceWorkingStartedAtMs({
+    nextWorkingStartedAtMs: getWorkingStartedAtMsFromText(bodyText, Date.now()),
+    previousWorkingStartedAtMs: lastReportedWorkingStartedAtMs,
+  });
+  if (nextWorkingStartedAtMs === lastReportedWorkingStartedAtMs) {
+    return;
+  }
+
+  lastReportedWorkingStartedAtMs = nextWorkingStartedAtMs;
+  const workingStartedAt =
+    nextWorkingStartedAtMs === undefined
+      ? undefined
+      : new Date(nextWorkingStartedAtMs).toISOString();
+  reportDebugLog("workspace.t3FrameHostWorkingStartedAtChanged", {
+    reason,
+    workingStartedAt,
+  });
+  window.parent?.postMessage(
+    {
+      sessionId: bootstrap.sessionId,
+      type: "vsmuxT3WorkingStartedAtChanged",
+      workingStartedAt,
+    },
+    "*",
+  );
+}
+
+syncWorkingStartedAt("initial");
+const workingStartedAtObserver = new MutationObserver(() => {
+  syncWorkingStartedAt("mutation");
+});
+workingStartedAtObserver.observe(document.documentElement, {
+  characterData: true,
+  childList: true,
+  subtree: true,
+});
+const workingStartedAtPollId = window.setInterval(() => {
+  syncWorkingStartedAt("poll");
+}, WORKING_STARTED_AT_POLL_MS);
 
 function normalizeTitle(value: string | undefined): string | undefined {
   const normalizedValue = value?.trim();

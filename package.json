@@ -359,8 +359,9 @@
           "title": "Background Session Timeout Minutes",
           "type": "number",
           "minimum": 0,
-          "default": 5,
-          "description": "How long detached background sessions stay alive after the last VSmux window disconnects. Set to 0 to keep sessions alive until they exit or are explicitly closed."
+          "default": 0,
+          "description": "How long detached background sessions stay alive after the last VSmux window disconnects. Set to 0 to disable this timeout. For auto-sleep, set this to a value like 20 minutes to opt in.",
+          "markdownDescription": "How long detached background sessions stay alive after the last VSmux window disconnects. Set to `0` to keep this disabled by default.\n\nNote: this same timeout also drives automatic sleeping for idle sessions when you opt in by setting a value such as `20` minutes. For now, auto-sleep only applies to idle Claude and Codex sessions. More agents will be added later as restore reliability improves."
         },
         "VSmux.autoOpenSidebarViewsOnStartup": {
           "title": "Auto Open Sidebar Views On Startup",
@@ -873,6 +874,12 @@
           "type": "boolean",
           "default": false,
           "description": "When enabled, double-clicking empty space in the VSmux sidebar creates a new terminal session."
+        },
+        "VSmux.renameSessionOnDoubleClick": {
+          "title": "Rename Session On Double Click",
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, double-clicking a terminal session card in the VSmux sidebar opens rename."
         }
       }
     },

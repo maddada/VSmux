@@ -322,6 +322,7 @@ describe("sidebar HUD state", () => {
       git: true,
     });
     expect(hud.createSessionOnSidebarDoubleClick).toBe(false);
+    expect(hud.renameSessionOnDoubleClick).toBe(false);
     expect(hud.showCloseButtonOnSessionCards).toBe(false);
     expect(hud.showHotkeysOnSessionCards).toBe(false);
     expect(hud.showLastInteractionTimeOnSessionCards).toBe(true);
@@ -350,6 +351,31 @@ describe("sidebar HUD state", () => {
     );
 
     expect(hud.createSessionOnSidebarDoubleClick).toBe(true);
+  });
+
+  test("should expose the session-card rename double click setting", () => {
+    const hud = createSidebarHudState(
+      createDefaultSessionGridSnapshot(),
+      "dark-green",
+      100,
+      false,
+      false,
+      true,
+      false,
+      false,
+      "ping",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "manual",
+      false,
+      true,
+    );
+
+    expect(hud.renameSessionOnDoubleClick).toBe(true);
   });
 
   test("should expose when reversible focus mode is active", () => {

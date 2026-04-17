@@ -121,6 +121,7 @@ export type SidebarHudState = {
   pendingAgentIds: string[];
   sectionVisibility: SidebarSectionVisibility;
   createSessionOnSidebarDoubleClick: boolean;
+  renameSessionOnDoubleClick: boolean;
   showCloseButtonOnSessionCards: boolean;
   showHotkeysOnSessionCards: boolean;
   showLastInteractionTimeOnSessionCards: boolean;
@@ -390,10 +391,6 @@ export type SidebarToExtensionMessage =
   | {
       type: "fullReloadGroup";
       groupId: string;
-    }
-  | {
-      type: "setT3SessionThreadId";
-      sessionId: string;
     }
   | {
       type: "requestT3SessionBrowserAccess";

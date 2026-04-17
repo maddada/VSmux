@@ -338,13 +338,21 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
     );
   }
   if (
+    message.type === "acknowledgeSessionAttention" ||
     message.type === "focusSession" ||
     message.type === "closeSession" ||
     message.type === "fullReloadSession" ||
     message.type === "promptRenameSession" ||
     message.type === "forkSession"
   ) {
-    return typeof message.sessionId === "string" && message.sessionId.length > 0;
+    return (
+      typeof message.sessionId === "string" &&
+      message.sessionId.length > 0 &&
+      (message.type !== "acknowledgeSessionAttention" ||
+        message.reason === "click" ||
+        message.reason === "focusDwell" ||
+        message.reason === "typing")
+    );
   }
   if (message.type === "setSessionSleeping") {
     return (

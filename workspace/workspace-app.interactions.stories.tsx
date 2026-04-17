@@ -186,6 +186,8 @@ function createT3WorkspaceMessage(): SidebarHydrateMessage {
         browsers: true,
         git: true,
       },
+      createSessionOnSidebarDoubleClick: false,
+      renameSessionOnDoubleClick: false,
       showCloseButtonOnSessionCards: false,
       showHotkeysOnSessionCards: false,
       showLastInteractionTimeOnSessionCards: true,

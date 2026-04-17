@@ -189,6 +189,14 @@ export type WorkspacePanelFocusSessionMessage = {
   sessionId: string;
 };
 
+export type WorkspacePanelAcknowledgeSessionAttentionReason = "click" | "focusDwell" | "typing";
+
+export type WorkspacePanelAcknowledgeSessionAttentionMessage = {
+  type: "acknowledgeSessionAttention";
+  reason: WorkspacePanelAcknowledgeSessionAttentionReason;
+  sessionId: string;
+};
+
 export type WorkspacePanelCloseSessionMessage = {
   type: "closeSession";
   sessionId: string;
@@ -281,6 +289,12 @@ export type WorkspacePanelT3ThreadChangedMessage = {
   type: "t3ThreadChanged";
 };
 
+export type WorkspacePanelT3WorkingStartedAtChangedMessage = {
+  sessionId: string;
+  type: "t3WorkingStartedAtChanged";
+  workingStartedAt?: string;
+};
+
 export type WorkspacePanelCompleteWelcomeMessage = {
   type: "completeWelcome";
 };
@@ -299,6 +313,7 @@ export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelApplyCodexTerminalTitleMessage
   | WorkspacePanelApplyCodexStatusLineMessage
   | WorkspacePanelDebugLogMessage
+  | WorkspacePanelAcknowledgeSessionAttentionMessage
   | WorkspacePanelFocusSessionMessage
   | WorkspacePanelCloseSessionMessage
   | WorkspacePanelFullReloadSessionMessage
@@ -315,7 +330,8 @@ export type WorkspacePanelToExtensionMessage =
   | WorkspacePanelReloadT3SessionMessage
   | WorkspacePanelResolveClipboardImagePathMessage
   | WorkspacePanelReadNativeClipboardPayloadMessage
-  | WorkspacePanelT3ThreadChangedMessage;
+  | WorkspacePanelT3ThreadChangedMessage
+  | WorkspacePanelT3WorkingStartedAtChangedMessage;
 
 export function stripWorkspacePanelTransientFields(
   message: ExtensionToWorkspacePanelMessage,

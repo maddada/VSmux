@@ -136,6 +136,11 @@ import {
   shouldSkipSessionForGroupFullReload,
   shouldSkipSessionForIndicatorProtectedGroupAction,
 } from "./full-reload";
+import {
+  getAutoSleepCheckIntervalMs,
+  hasReachedAutoSleepTimeout,
+  shouldAutoSleepSidebarSession,
+} from "./auto-sleep";
 import { finalizeRestoredPreviousSession } from "./restore-previous-session";
 import {
   getWorkspacePaneSessionRecords,
@@ -198,8 +203,10 @@ import {
   getClampedActionCompletionSoundSetting,
   getClampedAgentManagerZoomPercent,
   getClampedCompletionSoundSetting,
+  getBackgroundSessionTimeoutMs,
   getClampedSidebarThemeSetting,
   getCreateSessionOnSidebarDoubleClick,
+  getRenameSessionOnDoubleClick,
   getDefaultBrowserLaunchUrl,
   getDefaultTerminalEngine,
   getDebuggingMode,
@@ -255,6 +262,8 @@ import type { TerminalAgentStatus } from "../../shared/terminal-host-protocol";
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
 const COMPLETION_SOUND_CONFIRMATION_DELAY_MS = 1_000;
+const DONE_ATTENTION_FOCUS_DWELL_MS = 1_200;
+const DONE_ATTENTION_MIN_NOTICE_MS = 3_000;
 const FORK_RENAME_DELAY_MS = 4_000;
 const WORKSPACE_RENAME_TOAST_DURATION_MS = 3_000;
 const SIMPLE_BROWSER_OPEN_COMMAND = "simpleBrowser.api.open";
@@ -315,10 +324,28 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly frozenLastActivityAtBySessionId = new Map<string, number | null>();
   private readonly lastActivityIgnoreUntilBySessionId = new Map<string, number>();
   private readonly lastActivityOverrideAtBySessionId = new Map<string, number>();
+  private readonly t3WorkingStartedAtBySessionId = new Map<string, number>();
   private readonly workingStartedAtBySessionId = new Map<string, number>();
+  private readonly attentionAcknowledgementAvailableAtBySessionId = new Map<string, number>();
+  private readonly focusedAtBySessionId = new Map<string, number>();
   private readonly pendingCompletionSoundTimeoutBySessionId = new Map<string, NodeJS.Timeout>();
+  private readonly pendingDeferredAttentionAcknowledgementBySessionId = new Map<
+    string,
+    {
+      reason: "click" | "focusDwell" | "typing";
+      timeout: NodeJS.Timeout;
+    }
+  >();
+  private pendingFocusedAttentionAcknowledgement:
+    | {
+        sessionId: string;
+        timeout: NodeJS.Timeout;
+      }
+    | undefined;
   private readonly pendingFirstPromptAutoRenameBySessionId = new Set<string>();
   private readonly pendingForkRenameTimeoutBySessionId = new Map<string, NodeJS.Timeout>();
+  private autoSleepTimer: NodeJS.Timeout | undefined;
+  private autoSleepPass: Promise<void> | undefined;
   private readonly loggedTitleSymbolKeys = new Set<string>();
   private readonly pendingT3SessionIds = new Set<string>();
   private readonly t3PaneHtmlBySessionId = new Map<string, { cacheKey: string; html: string }>();
@@ -419,6 +446,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           return;
         }
 
+        if (message.type === "t3WorkingStartedAtChanged") {
+          await this.handleWorkspaceT3WorkingStartedAtChanged(
+            message.sessionId,
+            message.workingStartedAt,
+          );
+          return;
+        }
+
         if (message.type === "applyCodexTerminalTitle") {
           await this.applyCodexTerminalTitleFromWelcome();
           return;
@@ -435,6 +470,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           if (message.event.startsWith("repro.")) {
             logVSmuxReproTrace(event, message.details);
           }
+          return;
+        }
+
+        if (message.type === "acknowledgeSessionAttention") {
+          await this.acknowledgeSessionAttentionFromWorkspace(message.sessionId, message.reason);
           return;
         }
 
@@ -567,6 +607,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }),
       vscode.workspace.onDidChangeConfiguration(() => {
         void this.backend.syncConfiguration();
+        this.restartAutoSleepTimer();
+        void this.runAutoSleepPass();
         this.invalidateSidebarGitHudState();
         void this.refreshWorkspacePanel();
         void this.refreshSidebar("hydrate");
@@ -603,9 +645,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessionCount: this.getAllSessionRecords().length,
     });
     await this.backend.initialize(this.getAllSessionRecords());
+    this.restartAutoSleepTimer();
     await this.syncT3ActivityMonitor();
     await this.syncKnownSessionActivities(false);
     this.hasCompletedInitialActivityHydration = true;
+    await this.runAutoSleepPass();
     this.syncSurfaceManagers();
     await this.reconcileProjectedSessions();
     await this.refreshSidebar("hydrate");
@@ -613,6 +657,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public dispose(): void {
+    if (this.autoSleepTimer) {
+      clearInterval(this.autoSleepTimer);
+      this.autoSleepTimer = undefined;
+    }
     for (const timeout of this.pendingCompletionSoundTimeoutBySessionId.values()) {
       clearTimeout(timeout);
     }
@@ -719,19 +767,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       source,
       targetGroup: this.describeFocusTraceGroup(this.store.getSessionGroup(sessionId)),
     });
+    const previousFocusedSessionId = this.store.getActiveGroup()?.snapshot.focusedSessionId;
     const shouldReattachDetachedTerminal =
       source === "sidebar" &&
       sessionRecord.kind === "terminal" &&
       !this.backend.hasAttachedTerminal(sessionRecord.sessionId);
     let terminalSurfaceEnsureResult: TerminalSurfaceEnsureResult = "non-terminal";
-    const acknowledgedAttention = await this.acknowledgeSessionAttentionIfNeeded(sessionRecord);
-    logVSmuxDebug("controller.focusSession.afterAcknowledge", {
-      acknowledgedAttention,
-      durationMs: Date.now() - focusStartedAt,
-      focusRequestId,
-      sessionId,
-    });
     const changed = await this.store.focusSession(sessionId);
+    if (changed || previousFocusedSessionId !== sessionId) {
+      this.focusedAtBySessionId.set(sessionId, Date.now());
+      this.syncFocusedAttentionAcknowledgement({
+        reason: "focusSession",
+      });
+    }
     logVSmuxDebug("controller.focusSession.afterStoreFocus", {
       changed,
       durationMs: Date.now() - focusStartedAt,
@@ -758,6 +806,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     });
     if (source === "sidebar") {
       this.enqueueWorkspaceAutoFocus(sessionId, "sidebar");
+      if (this.lastKnownActivityBySessionId.get(sessionId) === "attention") {
+        await this.acknowledgeSessionAttentionFromWorkspace(sessionId, "click");
+      }
     }
     if (shouldReattachDetachedTerminal) {
       terminalSurfaceEnsureResult = await this.createSurfaceIfNeeded(sessionRecord);
@@ -783,18 +834,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
     const isVisiblePresentationFocus =
       this.isSessionVisibleInWorkspace(sessionId) && !shouldReattachDetachedTerminal;
-    const sidebarRefreshPromise =
-      changed || acknowledgedAttention
-        ? this.refreshSidebarFromCurrentState().then(() => {
-            logVSmuxDebug("controller.focusSession.afterSidebarRefresh", {
-              durationMs: Date.now() - focusStartedAt,
-              focusRequestId,
-              sessionId,
-            });
-          })
-        : undefined;
+    const sidebarRefreshPromise = changed
+      ? this.refreshSidebarFromCurrentState().then(() => {
+          logVSmuxDebug("controller.focusSession.afterSidebarRefresh", {
+            durationMs: Date.now() - focusStartedAt,
+            focusRequestId,
+            sessionId,
+          });
+        })
+      : undefined;
     if (isVisiblePresentationFocus) {
-      if (changed || acknowledgedAttention) {
+      if (changed) {
         await this.refreshWorkspacePanel();
         logVSmuxDebug("controller.focusSession.afterImmediateWorkspaceRefresh", {
           durationMs: Date.now() - focusStartedAt,
@@ -804,7 +854,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }
       await this.revealWorkspacePanelForSidebarFocus(source);
       logVSmuxDebug("controller.focusSession.visiblePresentation", {
-        acknowledgedAttention,
         changed,
         durationMs: Date.now() - focusStartedAt,
         focusRequestId,
@@ -812,7 +861,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         source,
       });
       logVSmuxReproTrace("repro.controller.focusSession.visiblePresentation", {
-        acknowledgedAttention,
         changed,
         durationMs: Date.now() - focusStartedAt,
         focusRequestId,
@@ -831,7 +879,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     if (!changed) {
       if (shouldReattachDetachedTerminal) {
-        await this.afterStateChange({ sidebarAlreadyRefreshed: changed || acknowledgedAttention });
+        await this.afterStateChange({ sidebarAlreadyRefreshed: changed });
         logVSmuxDebug("controller.focusSession.afterStateChangeNoChangePath", {
           durationMs: Date.now() - focusStartedAt,
           focusRequestId,
@@ -1238,11 +1286,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     if (sleeping) {
-      for (const sessionRecord of sessionsToSleep) {
-        await this.disposeSleepingSessionSurface(sessionRecord);
-      }
-      await this.refreshSidebarFromCurrentState();
-      await this.afterStateChange({ sidebarAlreadyRefreshed: true });
+      await this.finalizeSessionsSleeping(sessionsToSleep);
       return;
     }
 
@@ -2370,7 +2414,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         this.setSessionFavorite(sessionId, favorite),
       setSessionSleeping: async (sessionId, sleeping) =>
         this.setSessionSleeping(sessionId, sleeping),
-      setT3SessionThreadId: async (sessionId) => this.promptSetT3SessionThreadId(sessionId),
       requestT3SessionBrowserAccess: async (sessionId) =>
         this.requestT3SessionBrowserAccess(sessionId),
       createGroup: async () => this.createGroup(),
@@ -2674,6 +2717,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getSidebarSectionCollapseState(this.context, this.workspaceId),
         getSidebarActiveSessionsSortMode(this.context, this.workspaceId),
         getCreateSessionOnSidebarDoubleClick(),
+        getRenameSessionOnDoubleClick(),
       ),
       platform: SHORTCUT_LABEL_PLATFORM,
       pinnedPrompts: getSidebarPinnedPrompts(this.context),
@@ -3479,6 +3523,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const threadActivity = this.t3ActivityMonitor.getThreadActivity(sessionRecord.t3.threadId);
+    const workingStartedAt = this.t3WorkingStartedAtBySessionId.get(sessionRecord.sessionId);
     return {
       activity: threadActivity?.activity ?? "idle",
       detail:
@@ -3486,10 +3531,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           ? `Thread ${sessionRecord.t3.threadId.slice(0, 8)}`
           : undefined,
       isRunning: threadActivity?.isRunning ?? true,
-      lastInteractionAt: getDisplayedLastInteractionIso({
-        fallbackInteractionAt: threadActivity?.lastInteractionAt ?? sessionRecord.createdAt,
-        overrideActivityAt: this.lastActivityOverrideAtBySessionId.get(sessionRecord.sessionId),
-      }),
+      lastInteractionAt:
+        threadActivity?.activity === "working" && workingStartedAt !== undefined
+          ? new Date(workingStartedAt).toISOString()
+          : getDisplayedLastInteractionIso({
+              fallbackInteractionAt: threadActivity?.lastInteractionAt ?? sessionRecord.createdAt,
+              overrideActivityAt: this.lastActivityOverrideAtBySessionId.get(
+                sessionRecord.sessionId,
+              ),
+            }),
     };
   }
 
@@ -3505,8 +3555,43 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }
 
       const nextActivity = this.getT3ActivityState(sessionRecord).activity;
+      if (previousActivity === "working" && nextActivity !== "working") {
+        this.t3WorkingStartedAtBySessionId.delete(sessionRecord.sessionId);
+      }
       this.recordLastActivityTransition(sessionRecord, previousActivity, nextActivity);
     }
+  }
+
+  private async handleWorkspaceT3WorkingStartedAtChanged(
+    sessionId: string,
+    workingStartedAt: string | undefined,
+  ): Promise<void> {
+    const sessionRecord = this.store.getSession(sessionId);
+    if (!sessionRecord || !isT3Session(sessionRecord)) {
+      return;
+    }
+
+    const nextWorkingStartedAtMs =
+      typeof workingStartedAt === "string" ? Date.parse(workingStartedAt) : NaN;
+    const previousWorkingStartedAtMs = this.t3WorkingStartedAtBySessionId.get(sessionId);
+    if (!Number.isFinite(nextWorkingStartedAtMs)) {
+      if (previousWorkingStartedAtMs === undefined) {
+        return;
+      }
+
+      this.t3WorkingStartedAtBySessionId.delete(sessionId);
+      await this.postSessionPresentationMessage(sessionId);
+      await this.refreshSidebar();
+      return;
+    }
+
+    if (previousWorkingStartedAtMs === nextWorkingStartedAtMs) {
+      return;
+    }
+
+    this.t3WorkingStartedAtBySessionId.set(sessionId, nextWorkingStartedAtMs);
+    await this.postSessionPresentationMessage(sessionId);
+    await this.refreshSidebar();
   }
 
   private async syncT3ActivityMonitor(): Promise<void> {
@@ -3518,6 +3603,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private clearSessionPresentationState(sessionId: string): void {
     this.activitySuppressedUntilBySessionId.delete(sessionId);
+    this.clearAttentionAcknowledgementState(sessionId);
     this.frozenLastActivityAtBySessionId.delete(sessionId);
     this.lastActivityIgnoreUntilBySessionId.delete(sessionId);
     this.pendingT3SessionIds.delete(sessionId);
@@ -3527,7 +3613,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.terminalTitleBySessionId.delete(sessionId);
     this.lastKnownActivityBySessionId.delete(sessionId);
     this.lastActivityOverrideAtBySessionId.delete(sessionId);
+    this.t3WorkingStartedAtBySessionId.delete(sessionId);
     this.workingStartedAtBySessionId.delete(sessionId);
+    this.focusedAtBySessionId.delete(sessionId);
     this.clearPendingCompletionSound(sessionId);
     this.clearPendingForkRename(sessionId);
   }
@@ -3932,11 +4020,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async syncKnownSessionActivities(playSound: boolean): Promise<void> {
+    const previousActivityBySessionId = new Map(this.lastKnownActivityBySessionId);
     await syncKnownSessionActivities(
       this.createSessionActivityContext(),
       this.getAllSessionRecords(),
       playSound,
     );
+    this.syncAttentionAcknowledgementState(previousActivityBySessionId);
   }
 
   private syncSessionActivityState(sessionId: string, playSound: boolean): void {
@@ -3961,6 +4051,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     this.lastKnownActivityBySessionId.set(sessionId, nextActivity);
+    this.handleAttentionActivityTransition(sessionId, previousActivity, nextActivity);
   }
 
   private recordLastActivityTransition(
@@ -4089,6 +4180,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private queueCompletionSound(sessionId: string): void {
+    this.attentionAcknowledgementAvailableAtBySessionId.set(
+      sessionId,
+      Date.now() + DONE_ATTENTION_MIN_NOTICE_MS,
+    );
+    this.syncFocusedAttentionAcknowledgement({
+      reason: "completion",
+    });
+
     if (!this.getCompletionBellEnabled()) {
       logVSmuxDebug("controller.completionSound.skippedDisabled", {
         sessionId,
@@ -4140,6 +4239,179 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       });
     }, COMPLETION_SOUND_CONFIRMATION_DELAY_MS);
     this.pendingCompletionSoundTimeoutBySessionId.set(sessionId, timeout);
+  }
+
+  private syncAttentionAcknowledgementState(
+    previousActivityBySessionId: ReadonlyMap<string, "idle" | "working" | "attention">,
+  ): void {
+    const candidateSessionIds = new Set<string>([
+      ...previousActivityBySessionId.keys(),
+      ...this.lastKnownActivityBySessionId.keys(),
+    ]);
+    for (const sessionId of candidateSessionIds) {
+      this.handleAttentionActivityTransition(
+        sessionId,
+        previousActivityBySessionId.get(sessionId),
+        this.lastKnownActivityBySessionId.get(sessionId) ?? "idle",
+      );
+    }
+  }
+
+  private handleAttentionActivityTransition(
+    sessionId: string,
+    previousActivity: "idle" | "working" | "attention" | undefined,
+    nextActivity: "idle" | "working" | "attention",
+  ): void {
+    if (nextActivity === "attention") {
+      if (previousActivity !== "attention") {
+        this.attentionAcknowledgementAvailableAtBySessionId.set(
+          sessionId,
+          Date.now() + DONE_ATTENTION_MIN_NOTICE_MS,
+        );
+      }
+      this.syncFocusedAttentionAcknowledgement({
+        reason: "attention-transition",
+      });
+      return;
+    }
+
+    if (previousActivity === "attention") {
+      this.clearAttentionAcknowledgementState(sessionId);
+      this.syncFocusedAttentionAcknowledgement({
+        reason: "attention-cleared",
+      });
+    }
+  }
+
+  private clearAttentionAcknowledgementState(sessionId: string): void {
+    this.attentionAcknowledgementAvailableAtBySessionId.delete(sessionId);
+    this.clearPendingDeferredAttentionAcknowledgement(sessionId);
+    this.clearPendingFocusedAttentionAcknowledgement(sessionId);
+  }
+
+  private clearPendingDeferredAttentionAcknowledgement(sessionId: string): void {
+    const pendingAcknowledgement =
+      this.pendingDeferredAttentionAcknowledgementBySessionId.get(sessionId);
+    if (!pendingAcknowledgement) {
+      return;
+    }
+
+    clearTimeout(pendingAcknowledgement.timeout);
+    this.pendingDeferredAttentionAcknowledgementBySessionId.delete(sessionId);
+  }
+
+  private clearPendingFocusedAttentionAcknowledgement(sessionId?: string): void {
+    if (
+      !this.pendingFocusedAttentionAcknowledgement ||
+      (sessionId !== undefined &&
+        this.pendingFocusedAttentionAcknowledgement.sessionId !== sessionId)
+    ) {
+      return;
+    }
+
+    clearTimeout(this.pendingFocusedAttentionAcknowledgement.timeout);
+    this.pendingFocusedAttentionAcknowledgement = undefined;
+  }
+
+  private syncFocusedAttentionAcknowledgement(options: {
+    reason:
+      | "attention-cleared"
+      | "attention-transition"
+      | "completion"
+      | "focusSession"
+      | "workspace-acknowledged";
+  }): void {
+    const focusedSessionId = this.store.getActiveGroup()?.snapshot.focusedSessionId;
+    if (!focusedSessionId) {
+      this.clearPendingFocusedAttentionAcknowledgement();
+      return;
+    }
+
+    const focusedActivity = this.lastKnownActivityBySessionId.get(focusedSessionId);
+    if (focusedActivity !== "attention") {
+      this.clearPendingFocusedAttentionAcknowledgement();
+      return;
+    }
+
+    const focusedAt = this.focusedAtBySessionId.get(focusedSessionId) ?? Date.now();
+    const availableAt =
+      this.attentionAcknowledgementAvailableAtBySessionId.get(focusedSessionId) ?? Date.now();
+    const dueAt = Math.max(availableAt, focusedAt + DONE_ATTENTION_FOCUS_DWELL_MS);
+    const delayMs = Math.max(0, dueAt - Date.now());
+    if (
+      this.pendingFocusedAttentionAcknowledgement?.sessionId === focusedSessionId &&
+      delayMs > 0
+    ) {
+      return;
+    }
+
+    this.clearPendingFocusedAttentionAcknowledgement();
+    const timeout = setTimeout(() => {
+      const pendingSessionId = this.pendingFocusedAttentionAcknowledgement?.sessionId;
+      this.pendingFocusedAttentionAcknowledgement = undefined;
+      if (pendingSessionId !== focusedSessionId) {
+        return;
+      }
+
+      void this.acknowledgeSessionAttentionFromWorkspace(focusedSessionId, "focusDwell");
+    }, delayMs);
+    this.pendingFocusedAttentionAcknowledgement = {
+      sessionId: focusedSessionId,
+      timeout,
+    };
+    logVSmuxDebug("controller.focusedAttentionAcknowledgement.scheduled", {
+      delayMs,
+      dueAt: new Date(Date.now() + delayMs).toISOString(),
+      reason: options.reason,
+      sessionId: focusedSessionId,
+    });
+  }
+
+  private async acknowledgeSessionAttentionFromWorkspace(
+    sessionId: string,
+    reason: "click" | "focusDwell" | "typing",
+  ): Promise<void> {
+    const sessionRecord = this.store.getSession(sessionId);
+    if (!sessionRecord) {
+      return;
+    }
+
+    const availableAt = this.attentionAcknowledgementAvailableAtBySessionId.get(sessionId);
+    if (availableAt !== undefined && Date.now() < availableAt) {
+      this.clearPendingDeferredAttentionAcknowledgement(sessionId);
+      const delayMs = Math.max(0, availableAt - Date.now());
+      const timeout = setTimeout(() => {
+        this.pendingDeferredAttentionAcknowledgementBySessionId.delete(sessionId);
+        void this.acknowledgeSessionAttentionFromWorkspace(sessionId, reason);
+      }, delayMs);
+      this.pendingDeferredAttentionAcknowledgementBySessionId.set(sessionId, {
+        reason,
+        timeout,
+      });
+      logVSmuxDebug("controller.acknowledgeSessionAttention.deferred", {
+        availableAt: new Date(availableAt).toISOString(),
+        delayMs,
+        reason,
+        sessionId,
+      });
+      return;
+    }
+
+    const acknowledgedAttention = await this.acknowledgeSessionAttentionIfNeeded(sessionRecord);
+    logVSmuxDebug("controller.acknowledgeSessionAttention.fromWorkspace", {
+      acknowledgedAttention,
+      reason,
+      sessionId,
+    });
+    if (!acknowledgedAttention) {
+      return;
+    }
+
+    this.clearAttentionAcknowledgementState(sessionId);
+    this.syncFocusedAttentionAcknowledgement({
+      reason: "workspace-acknowledged",
+    });
+    await this.afterStateChange();
   }
 
   private getSidebarAgentIconForSession(sessionId: string): SidebarAgentIcon | undefined {
@@ -4344,6 +4616,96 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private getAllSessionRecords(): SessionRecord[] {
     return this.store.getSnapshot().groups.flatMap((group) => group.snapshot.sessions);
+  }
+
+  private restartAutoSleepTimer(): void {
+    if (this.autoSleepTimer) {
+      clearInterval(this.autoSleepTimer);
+      this.autoSleepTimer = undefined;
+    }
+
+    const intervalMs = getAutoSleepCheckIntervalMs(getBackgroundSessionTimeoutMs());
+    if (intervalMs === undefined) {
+      return;
+    }
+
+    this.autoSleepTimer = setInterval(() => {
+      void this.runAutoSleepPass();
+    }, intervalMs);
+  }
+
+  private async runAutoSleepPass(): Promise<void> {
+    if (this.autoSleepPass) {
+      return this.autoSleepPass;
+    }
+
+    this.autoSleepPass = this.autoSleepIdleSessions().finally(() => {
+      this.autoSleepPass = undefined;
+    });
+    return this.autoSleepPass;
+  }
+
+  private async autoSleepIdleSessions(): Promise<void> {
+    const timeoutMs = getBackgroundSessionTimeoutMs();
+    if (timeoutMs === null || timeoutMs <= 0) {
+      return;
+    }
+
+    const workspaceSnapshot = this.getPresentedWorkspaceSnapshot();
+    const sessionActivityContext = this.createSessionActivityContext();
+    const sessionsToSleep = this.getAllSessionRecords().filter((sessionRecord) => {
+      if (sessionRecord.kind === "browser" || sessionRecord.isSleeping === true) {
+        return false;
+      }
+
+      const sidebarSession = this.createSidebarSessionItem(
+        sessionRecord,
+        workspaceSnapshot,
+        sessionActivityContext,
+      );
+      if (!sidebarSession || !shouldAutoSleepSidebarSession(sidebarSession)) {
+        return false;
+      }
+
+      return hasReachedAutoSleepTimeout({
+        activityAt: sidebarSession.lastInteractionAt ?? sessionRecord.createdAt,
+        timeoutMs,
+      });
+    });
+
+    if (sessionsToSleep.length === 0) {
+      return;
+    }
+
+    await this.sleepSessions(sessionsToSleep);
+  }
+
+  private async sleepSessions(sessionRecords: readonly SessionRecord[]): Promise<void> {
+    const changedSessions: SessionRecord[] = [];
+    for (const sessionRecord of sessionRecords) {
+      if (sessionRecord.kind === "browser" || sessionRecord.isSleeping === true) {
+        continue;
+      }
+
+      const changed = await this.store.setSessionSleeping(sessionRecord.sessionId, true);
+      if (changed) {
+        changedSessions.push(sessionRecord);
+      }
+    }
+
+    if (changedSessions.length === 0) {
+      return;
+    }
+
+    await this.finalizeSessionsSleeping(changedSessions);
+  }
+
+  private async finalizeSessionsSleeping(sessionRecords: readonly SessionRecord[]): Promise<void> {
+    for (const sessionRecord of sessionRecords) {
+      await this.disposeSleepingSessionSurface(sessionRecord);
+    }
+    await this.refreshSidebarFromCurrentState();
+    await this.afterStateChange({ sidebarAlreadyRefreshed: true });
   }
 
   private getCompletionBellEnabled(): boolean {

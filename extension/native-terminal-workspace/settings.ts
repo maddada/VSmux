@@ -31,6 +31,7 @@ export const BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING = "backgroundSessionTime
 export const AUTO_OPEN_SIDEBAR_VIEWS_ON_STARTUP_SETTING = "autoOpenSidebarViewsOnStartup";
 export const SEND_RENAME_COMMAND_ON_SIDEBAR_RENAME_SETTING = "sendRenameCommandOnSidebarRename";
 export const CREATE_SESSION_ON_SIDEBAR_DOUBLE_CLICK_SETTING = "createSessionOnSidebarDoubleClick";
+export const RENAME_SESSION_ON_DOUBLE_CLICK_SETTING = "renameSessionOnDoubleClick";
 export const SIDEBAR_THEME_SETTING = "sidebarTheme";
 export const AGENT_MANAGER_ZOOM_SETTING = "agentManagerZoom";
 export const SHOW_CLOSE_BUTTON_ON_SESSION_CARDS_SETTING = "showCloseButtonOnSessionCards";
@@ -102,6 +103,23 @@ const DEFAULT_AGENT_COMMANDS: DefaultAgentCommandsSetting = {
 
 export function getBackgroundSessionTimeoutConfigurationKey(): string {
   return `${SETTINGS_SECTION}.${BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING}`;
+}
+
+export function getBackgroundSessionTimeoutMinutes(): number {
+  return (
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<number>(BACKGROUND_SESSION_TIMEOUT_MINUTES_SETTING, 0) ?? 0
+  );
+}
+
+export function getBackgroundSessionTimeoutMs(): number | null {
+  const timeoutMinutes = getBackgroundSessionTimeoutMinutes();
+  if (timeoutMinutes <= 0) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(timeoutMinutes * 60_000));
 }
 
 export function getAutoOpenSidebarViewsOnStartupConfigurationKey(): string {
@@ -278,6 +296,14 @@ export function getCreateSessionOnSidebarDoubleClick(): boolean {
     vscode.workspace
       .getConfiguration(SETTINGS_SECTION)
       .get<boolean>(CREATE_SESSION_ON_SIDEBAR_DOUBLE_CLICK_SETTING, false) ?? false
+  );
+}
+
+export function getRenameSessionOnDoubleClick(): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<boolean>(RENAME_SESSION_ON_DOUBLE_CLICK_SETTING, false) ?? false
   );
 }
 

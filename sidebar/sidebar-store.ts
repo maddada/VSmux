@@ -80,6 +80,7 @@ export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
       pendingAgentIds: [],
       sectionVisibility: createDefaultSidebarSectionVisibility(),
       createSessionOnSidebarDoubleClick: false,
+      renameSessionOnDoubleClick: false,
       showCloseButtonOnSessionCards: false,
       showHotkeysOnSessionCards: false,
       showLastInteractionTimeOnSessionCards: false,

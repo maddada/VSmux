@@ -38,7 +38,10 @@ import {
 import { indexWorkspaceTerminalSnapshotsBySessionId } from "./terminal-daemon-session-scope";
 import { getWorkspaceStorageKey } from "./terminal-workspace-environment";
 import { logVSmuxDebug } from "./vsmux-debug-log";
-import { getXtermHeadlessScrollback } from "./native-terminal-workspace/settings";
+import {
+  getBackgroundSessionTimeoutMs,
+  getXtermHeadlessScrollback,
+} from "./native-terminal-workspace/settings";
 
 const POLL_INTERVAL_MS = 500;
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
@@ -479,14 +482,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   private getIdleShutdownTimeoutMs(): number | null {
-    const timeoutMinutes =
-      vscode.workspace.getConfiguration("VSmux").get<number>("backgroundSessionTimeoutMinutes") ??
-      5;
-    if (timeoutMinutes <= 0) {
-      return null;
-    }
-
-    return Math.max(0, Math.round(timeoutMinutes * 60_000));
+    return getBackgroundSessionTimeoutMs();
   }
 
   private getManagedTerminalSessionIds(): string[] {

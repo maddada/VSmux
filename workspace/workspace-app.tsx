@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { createEditorLayoutPlan } from "../shared/editor-layout";
 import type {
   ExtensionToWorkspacePanelMessage,
+  WorkspacePanelAcknowledgeSessionAttentionReason,
   WorkspacePanelAutoFocusRequest,
   WorkspacePanelHydrateMessage,
   WorkspaceWelcomeModalMode,
@@ -308,6 +309,17 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
   const postToExtension = (message: Record<string, unknown>) => {
     vscode.postMessage(message);
+  };
+
+  const requestAcknowledgeSessionAttention = (
+    sessionId: string,
+    reason: WorkspacePanelAcknowledgeSessionAttentionReason,
+  ) => {
+    postToExtension({
+      reason,
+      sessionId,
+      type: "acknowledgeSessionAttention",
+    });
   };
 
   const showWorkspaceToast = (toast: WorkspacePanelShowToastMessage) => {
@@ -1309,6 +1321,22 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     });
   };
 
+  const handleT3WorkingStartedAtChanged = (payload: {
+    sessionId: string;
+    workingStartedAt?: string;
+  }) => {
+    postWorkspaceDebugLog(
+      workspaceState?.debuggingMode,
+      "workspace.t3WorkingStartedAtChanged",
+      payload,
+    );
+    postToExtension({
+      sessionId: payload.sessionId,
+      type: "t3WorkingStartedAtChanged",
+      workingStartedAt: payload.workingStartedAt,
+    });
+  };
+
   const clearDragState = () => {
     const pointerDragState = pointerDragStateRef.current;
     if (pointerDragState?.pointerTarget.hasPointerCapture(pointerDragState.pointerId)) {
@@ -1535,6 +1563,9 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
                   hiddenPaneParkingStyles.get(pane.sessionId))
             }
             t3FocusSuppressedUntil={t3TerminalFocusGuardUntil}
+            onAttentionInteraction={(reason) =>
+              requestAcknowledgeSessionAttention(pane.sessionId, reason)
+            }
             onBoundsMeasured={(bounds) => recordPaneMeasuredBounds(pane.sessionId, bounds)}
             onTerminalPointerIntent={
               pane.kind === "terminal"
@@ -1600,6 +1631,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
                 type: "forkSession",
               })
             }
+            onT3WorkingStartedAtChanged={handleT3WorkingStartedAtChanged}
             onT3ThreadChanged={handleT3ThreadChanged}
             onReload={() => {
               if (pane.kind === "terminal") {
@@ -1697,6 +1729,9 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               debuggingMode={workspaceState.debuggingMode}
               isFocused={presentedFocusedSessionId === pane.sessionId}
               isVisible={pane.isVisible}
+              onAttentionInteraction={(reason) =>
+                requestAcknowledgeSessionAttention(pane.sessionId, reason)
+              }
               onLagDetected={handleTerminalLagDetected}
               onActivate={(source) => handleTerminalActivate(pane.sessionId, source)}
               onTerminalEnter={() => handleTerminalEnter(pane.sessionId)}
@@ -1749,6 +1784,7 @@ type WorkspacePaneViewProps = {
   isDragging: boolean;
   isDropTarget: boolean;
   layoutStyle?: CSSProperties;
+  onAttentionInteraction: (reason: WorkspacePanelAcknowledgeSessionAttentionReason) => void;
   onFocus: () => void;
   onTerminalPointerIntent?: () => void;
   onClose: () => void;
@@ -1759,6 +1795,7 @@ type WorkspacePaneViewProps = {
   onResetTerminalFontSize: () => void;
   onAdjustT3ZoomPercent: (delta: -1 | 1) => void;
   onResetT3ZoomPercent: () => void;
+  onT3WorkingStartedAtChanged: (payload: { sessionId: string; workingStartedAt?: string }) => void;
   onT3ThreadChanged: (payload: { sessionId: string; threadId: string; title?: string }) => void;
   onRename: () => void;
   onReload: () => void;
@@ -1783,6 +1820,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   isDragging,
   isDropTarget,
   layoutStyle,
+  onAttentionInteraction,
   onFocus,
   onTerminalPointerIntent,
   onClose,
@@ -1793,6 +1831,7 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   onResetTerminalFontSize,
   onAdjustT3ZoomPercent,
   onResetT3ZoomPercent,
+  onT3WorkingStartedAtChanged,
   onT3ThreadChanged,
   onRename,
   onBoundsMeasured,
@@ -1991,7 +2030,9 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
             debugLog={debugLog}
             focusSuppressedUntil={t3FocusSuppressedUntil}
             isFocused={isFocused}
+            onAttentionInteraction={onAttentionInteraction}
             onFocus={onFocus}
+            onWorkingStartedAtChanged={onT3WorkingStartedAtChanged}
             onThreadChanged={onT3ThreadChanged}
             pane={pane}
             zoomPercent={t3Appearance.zoomPercent}

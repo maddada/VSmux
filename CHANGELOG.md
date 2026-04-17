@@ -6,6 +6,7 @@ All notable user-facing changes are documented in this file.
 
 - T3 browser access is more resilient now: VSmux can reuse shared browser-access session state across windows, recover cleanly when the shared browser-access port is already occupied by a reusable VSmux server, and keep remote T3 share links available with less setup friction.
 - Embedded T3 paste flows are stronger on macOS now because VSmux can fall back to a native clipboard read for images, files, and text when the browser clipboard APIs return nothing.
+- Session auto-sleep is now opt-in instead of on by default. If you enable it with `VSmux.backgroundSessionTimeoutMinutes` and set a value like `20`, VSmux will automatically sleep idle sessions after that much inactivity. For now this only applies to Claude and Codex sessions while restore behavior for other agents is still being tightened up.
 - Workspace appearance controls behave better now: terminal font size and T3 zoom settings are cached more reliably, pane zoom controls support quick reset, and T3 thread navigation preserves session bindings by opening or focusing the matching session instead of mutating the current one in place.
 - The sidebar has been polished again, with clearer top-toolbar button placement for search, previous sessions, and pinned prompts, calmer group header interactions, smoother browser-group behavior, improved icon choices, and a larger pinned-prompt editor.
 - Agent shell hook responses are now handled more completely, which helps shell-driven state updates land more reliably across supported CLIs.

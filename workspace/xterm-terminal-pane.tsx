@@ -9,6 +9,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import type {
+  WorkspacePanelAcknowledgeSessionAttentionReason,
   WorkspacePanelAutoFocusRequest,
   WorkspacePanelConnection,
   WorkspacePanelTerminalAppearance,
@@ -88,6 +89,7 @@ export type XtermTerminalPaneProps = {
   debuggingMode: boolean;
   isFocused: boolean;
   isVisible: boolean;
+  onAttentionInteraction: (reason: WorkspacePanelAcknowledgeSessionAttentionReason) => void;
   onTerminalEnter?: () => void;
   onActivate: (source: "focusin" | "pointer") => void;
   pane: WorkspacePanelTerminalPane;
@@ -172,6 +174,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
   debuggingMode,
   isFocused,
   isVisible,
+  onAttentionInteraction,
   onTerminalEnter,
   onActivate,
   pane,
@@ -1534,6 +1537,14 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
 
         const primaryModifier = IS_MAC ? event.metaKey : event.ctrlKey;
         if (!primaryModifier || event.key.toLowerCase() !== "f") {
+          if (
+            event.key !== "Alt" &&
+            event.key !== "Control" &&
+            event.key !== "Meta" &&
+            event.key !== "Shift"
+          ) {
+            onAttentionInteraction("typing");
+          }
           return;
         }
 
@@ -1543,6 +1554,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
       }}
       onMouseDown={(event) => {
         event.stopPropagation();
+        onAttentionInteraction("click");
         reportDebug("terminal.pointerActivate", {
           activeElement: describeDebugElement(document.activeElement),
           pointerType: "mouse",

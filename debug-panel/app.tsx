@@ -58,6 +58,18 @@ const EMPTY_STATE: NativeTerminalDebugPanelState = {
       highlightedVisibleCount: 1,
       isFocusModeActive: false,
       pendingAgentIds: [],
+      collapsedSections: {
+        actions: false,
+        agents: false,
+      },
+      sectionVisibility: {
+        actions: true,
+        agents: true,
+        browsers: true,
+        git: true,
+      },
+      createSessionOnSidebarDoubleClick: false,
+      renameSessionOnDoubleClick: false,
       showCloseButtonOnSessionCards: false,
       showHotkeysOnSessionCards: false,
       showLastInteractionTimeOnSessionCards: true,

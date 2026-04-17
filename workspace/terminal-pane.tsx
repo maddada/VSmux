@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconArrowBigDownFilled, IconArrowBigUpFilled } from "@tabler/icons-react";
 import { Restty } from "restty";
 import type {
+  WorkspacePanelAcknowledgeSessionAttentionReason,
   WorkspacePanelAutoFocusRequest,
   WorkspacePanelConnection,
   WorkspacePanelTerminalAppearance,
@@ -60,6 +61,7 @@ export type TerminalPaneProps = {
   debuggingMode: boolean;
   isFocused: boolean;
   isVisible: boolean;
+  onAttentionInteraction: (reason: WorkspacePanelAcknowledgeSessionAttentionReason) => void;
   onTerminalEnter?: () => void;
   onLagDetected?: (payload: {
     overshootMs: number;
@@ -85,6 +87,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   debuggingMode,
   isFocused,
   isVisible,
+  onAttentionInteraction,
   onTerminalEnter,
   onLagDetected,
   onActivate,
@@ -102,6 +105,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         debuggingMode={debuggingMode}
         isFocused={isFocused}
         isVisible={isVisible}
+        onAttentionInteraction={onAttentionInteraction}
         onActivate={onActivate}
         onTerminalEnter={onTerminalEnter}
         pane={pane}
@@ -1719,6 +1723,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           rootHasFocusWithin: rootRef.current?.matches(":focus-within") ?? false,
           sessionId: pane.sessionId,
         });
+        onAttentionInteraction("click");
         onActivate("pointer");
       }}
       onKeyDownCapture={(event) => {
@@ -1730,6 +1735,15 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           event.stopPropagation();
           openSearch();
           return;
+        }
+
+        if (
+          event.key !== "Alt" &&
+          event.key !== "Control" &&
+          event.key !== "Meta" &&
+          event.key !== "Shift"
+        ) {
+          onAttentionInteraction("typing");
         }
 
         if (

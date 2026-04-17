@@ -240,6 +240,33 @@ describe("WorkspacePanelManager", () => {
     manager.dispose();
   });
 
+  test("should forward acknowledge session attention messages from the workspace webview", async () => {
+    const onMessage = vi.fn();
+    const manager = new WorkspacePanelManager({
+      context: createMockContext(),
+      onMessage,
+    });
+
+    await manager.reveal();
+
+    const panel = createdPanels[0];
+    expect(panel).toBeDefined();
+
+    panel.webview.messageListeners[0]?.({
+      reason: "typing",
+      sessionId: "session-2",
+      type: "acknowledgeSessionAttention",
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      reason: "typing",
+      sessionId: "session-2",
+      type: "acknowledgeSessionAttention",
+    });
+
+    manager.dispose();
+  });
+
   test("should forward workspace debug log messages from the workspace webview", async () => {
     const onMessage = vi.fn();
     const manager = new WorkspacePanelManager({

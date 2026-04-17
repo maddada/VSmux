@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef } from "react";
 import type {
   WorkspacePanelClipboardFilePayload,
+  WorkspacePanelAcknowledgeSessionAttentionReason,
   WorkspacePanelAutoFocusRequest,
   WorkspacePanelT3Pane,
 } from "../shared/workspace-panel-contract";
@@ -50,7 +51,9 @@ export type T3PaneProps = {
   debugLog?: (event: string, payload?: Record<string, unknown>) => void;
   focusSuppressedUntil: number;
   isFocused: boolean;
+  onAttentionInteraction: (reason: WorkspacePanelAcknowledgeSessionAttentionReason) => void;
   onFocus: () => void;
+  onWorkingStartedAtChanged: (payload: { sessionId: string; workingStartedAt?: string }) => void;
   onThreadChanged: (payload: { sessionId: string; threadId: string; title?: string }) => void;
   pane: WorkspacePanelT3Pane;
   zoomPercent: number;
@@ -102,7 +105,9 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   debugLog,
   focusSuppressedUntil,
   isFocused,
+  onAttentionInteraction,
   onFocus,
+  onWorkingStartedAtChanged,
   onThreadChanged,
   pane,
   zoomPercent,
@@ -121,6 +126,11 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   const emitThreadChanged = useEffectEvent(
     (payload: { sessionId: string; threadId: string; title?: string }) => {
       onThreadChanged(payload);
+    },
+  );
+  const emitWorkingStartedAtChanged = useEffectEvent(
+    (payload: { sessionId: string; workingStartedAt?: string }) => {
+      onWorkingStartedAtChanged(payload);
     },
   );
   const applyZoomPercent = useEffectEvent((reason: string) => {
@@ -686,6 +696,26 @@ export const T3Pane: React.FC<T3PaneProps> = ({
         return;
       }
 
+      if (event.data.type === "vsmuxT3WorkingStartedAtChanged") {
+        const sessionId =
+          typeof event.data.sessionId === "string" ? event.data.sessionId.trim() : "";
+        const workingStartedAt =
+          typeof event.data.workingStartedAt === "string" &&
+          event.data.workingStartedAt.trim().length > 0
+            ? event.data.workingStartedAt.trim()
+            : undefined;
+        if (!sessionId || sessionId !== pane.sessionId) {
+          return;
+        }
+
+        reportDebug("workspace.t3PaneWorkingStartedAtChangedReceived", {
+          sessionId,
+          workingStartedAt,
+        });
+        emitWorkingStartedAtChanged({ sessionId, workingStartedAt });
+        return;
+      }
+
       if (event.data.type === "resolveClipboardImagePathResult") {
         const requestId =
           typeof event.data.requestId === "number" ? event.data.requestId : undefined;
@@ -943,6 +973,7 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   }, [pane.sessionId, pane.sessionRecord.t3.threadId]);
 
   const handleMouseDown = () => {
+    onAttentionInteraction("click");
     reportDebug("workspace.t3PaneMouseDown", {
       isFocused,
       isVisible: pane.isVisible,
