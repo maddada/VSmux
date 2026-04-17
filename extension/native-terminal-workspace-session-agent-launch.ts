@@ -134,8 +134,14 @@ export function buildCopyResumeCommandText(
 ): string | undefined {
   const agentId = resolveBuiltInAgentId(agentLaunch, agentIconId);
   const agentCommand = resolveAgentCommand(agentLaunch, agentIconId);
-  if (!agentId || !agentCommand) {
+  if (!agentCommand) {
     return undefined;
+  }
+
+  if (!agentId) {
+    // For custom agents we do not know the resume syntax, so fall back to the
+    // original launch command instead of failing the copy action entirely.
+    return agentCommand;
   }
 
   switch (agentId) {

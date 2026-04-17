@@ -446,6 +446,19 @@ describe("buildCopyResumeCommandText", () => {
       ),
     ).toBe(buildExpectedOpenCodeResumeCommand("oc", "Terminal bugfix"));
   });
+
+  test("should fall back to the stored launch command for custom agents", () => {
+    expect(
+      buildCopyResumeCommandText(
+        {
+          agentId: "agent-cli",
+          command: "agent --workspace /tmp/demo",
+        },
+        undefined,
+        "Session 05",
+      ),
+    ).toBe("agent --workspace /tmp/demo");
+  });
 });
 
 describe("buildDetachedResumeAction", () => {
