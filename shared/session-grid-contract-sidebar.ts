@@ -53,6 +53,7 @@ export type SidebarSessionItem = {
   activity: "idle" | "working" | "attention";
   activityLabel?: string;
   agentIcon?: SidebarAgentIcon;
+  isReloading?: boolean;
   lifecycleState?: SessionLifecycleState;
   isFavorite?: boolean;
   lastInteractionAt?: string;

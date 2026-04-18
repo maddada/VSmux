@@ -1543,7 +1543,9 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
             event.key !== "Meta" &&
             event.key !== "Shift"
           ) {
-            onAttentionInteraction("typing");
+            onAttentionInteraction(
+              event.key === "Escape" && pane.activity === "working" ? "escape" : "typing",
+            );
           }
           return;
         }

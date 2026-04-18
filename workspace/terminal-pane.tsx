@@ -1743,7 +1743,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           event.key !== "Meta" &&
           event.key !== "Shift"
         ) {
-          onAttentionInteraction("typing");
+          onAttentionInteraction(
+            event.key === "Escape" && pane.activity === "working" ? "escape" : "typing",
+          );
         }
 
         if (

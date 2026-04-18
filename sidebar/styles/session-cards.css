@@ -208,7 +208,8 @@
 }
 
 .session-frame[data-dragging="true"] .session-floating-agent-icon,
-.session-frame[data-dragging="true"] .session-floating-agent-tabler-icon {
+.session-frame[data-dragging="true"] .session-floating-agent-tabler-icon,
+.session-frame[data-dragging="true"] .session-floating-reloading-icon {
   opacity: 0;
 }
 
@@ -455,7 +456,8 @@
 }
 
 .session-head-trailing[data-default-trailing-display="icon"] .session-header-agent-icon,
-.session-head-trailing[data-default-trailing-display="icon"] .session-header-agent-tabler-icon {
+.session-head-trailing[data-default-trailing-display="icon"] .session-header-agent-tabler-icon,
+.session-head-trailing[data-default-trailing-display="icon"] .session-header-reloading-icon {
   opacity: 0.5;
 }
 
@@ -493,6 +495,19 @@
   transition: opacity 120ms ease;
 }
 
+.session-floating-reloading-icon {
+  animation: session-agent-icon-spin 0.9s linear infinite;
+  color: var(--session-agent-icon-color, var(--app-foreground));
+  left: calc(-4px * var(--sidebar-density-scale));
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: calc(5px * var(--sidebar-density-scale));
+  translate: 0 0;
+  transition: opacity 120ms ease;
+  z-index: 3;
+}
+
 .session-header-agent-icon {
   width: calc(15px * var(--sidebar-density-scale));
   height: calc(15px * var(--sidebar-density-scale));
@@ -513,6 +528,16 @@
 }
 
 .session-header-agent-tabler-icon {
+  color: var(--session-agent-icon-color, var(--app-foreground));
+  grid-area: 1 / 1;
+  justify-self: end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.session-header-reloading-icon {
+  animation: session-agent-icon-spin 0.9s linear infinite;
   color: var(--session-agent-icon-color, var(--app-foreground));
   grid-area: 1 / 1;
   justify-self: end;
@@ -567,7 +592,8 @@
 }
 
 .session-frame:hover .session-floating-agent-icon,
-.session-frame:hover .session-floating-agent-tabler-icon {
+.session-frame:hover .session-floating-agent-tabler-icon,
+.session-frame:hover .session-floating-reloading-icon {
   opacity: 0.74;
 }
 
@@ -637,6 +663,10 @@
   .session-head-trailing[data-hover-trailing-display="time"]
   .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-reloading-icon,
+.session-frame:not(.session-history-frame)
   .session:focus-visible
   .session-head-trailing[data-hover-trailing-display="time"]
   .session-header-agent-icon,
@@ -645,13 +675,21 @@
   .session-head-trailing[data-hover-trailing-display="time"]
   .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-reloading-icon,
+.session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
   .session-head-trailing[data-hover-trailing-display="time"]
   .session-header-agent-icon,
 .session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
   .session-head-trailing[data-hover-trailing-display="time"]
-  .session-header-agent-tabler-icon {
+  .session-header-agent-tabler-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="time"]
+  .session-header-reloading-icon {
   opacity: 0;
 }
 
@@ -664,6 +702,10 @@
   .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame)
+  .session:hover
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-reloading-icon,
+.session-frame:not(.session-history-frame)
   .session:focus-visible
   .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-icon,
@@ -672,14 +714,32 @@
   .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-tabler-icon,
 .session-frame:not(.session-history-frame)
+  .session:focus-visible
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-reloading-icon,
+.session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
   .session-head-trailing[data-hover-trailing-display="icon"]
   .session-header-agent-icon,
 .session-frame:not(.session-history-frame)
   .session:has(:focus-visible)
   .session-head-trailing[data-hover-trailing-display="icon"]
-  .session-header-agent-tabler-icon {
+  .session-header-agent-tabler-icon,
+.session-frame:not(.session-history-frame)
+  .session:has(:focus-visible)
+  .session-head-trailing[data-hover-trailing-display="icon"]
+  .session-header-reloading-icon {
   opacity: 0.74;
+}
+
+@keyframes session-agent-icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .session-frame:not(.session-history-frame)

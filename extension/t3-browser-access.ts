@@ -29,24 +29,14 @@ let cachedTailscaleStatus:
 export async function resolveT3BrowserAccessLink(localUrl: string): Promise<T3BrowserAccessLink> {
   const parsedLocalUrl = new URL(localUrl);
   const tunneledUrl = await resolveExternalUrl(parsedLocalUrl);
+  const tailscaleStatus = getTailscaleStatus();
   if (tunneledUrl) {
     return {
       endpointUrl: tunneledUrl,
       localUrl,
       mode: "external",
       note: "This link is being exposed by VS Code and can be opened outside the editor.",
-      tailscaleEnabled: getTailscaleStatus().enabled,
-    };
-  }
-
-  const tailscaleStatus = getTailscaleStatus();
-  if (tailscaleStatus.ipv4) {
-    return {
-      endpointUrl: replaceUrlHost(parsedLocalUrl, tailscaleStatus.ipv4),
-      localUrl,
-      mode: "tailscale",
-      note: "Scan this while your phone is connected to the same Tailnet.",
-      tailscaleEnabled: true,
+      tailscaleEnabled: tailscaleStatus.enabled,
     };
   }
 
@@ -56,8 +46,20 @@ export async function resolveT3BrowserAccessLink(localUrl: string): Promise<T3Br
       endpointUrl: replaceUrlHost(parsedLocalUrl, localNetworkHost),
       localUrl,
       mode: "local-network",
-      note: "This uses your machine's local network address because no Tailscale address was detected.",
-      tailscaleEnabled: false,
+      note: tailscaleStatus.enabled
+        ? "This uses your machine's local network address for the simplest same-network phone access. Tailscale is still available if you need cross-network access."
+        : "This uses your machine's local network address because no Tailscale address was detected.",
+      tailscaleEnabled: tailscaleStatus.enabled,
+    };
+  }
+
+  if (tailscaleStatus.ipv4) {
+    return {
+      endpointUrl: replaceUrlHost(parsedLocalUrl, tailscaleStatus.ipv4),
+      localUrl,
+      mode: "tailscale",
+      note: "This uses your machine's Tailscale address. Open it while your phone is connected to the same Tailnet.",
+      tailscaleEnabled: true,
     };
   }
 
@@ -66,7 +68,7 @@ export async function resolveT3BrowserAccessLink(localUrl: string): Promise<T3Br
     localUrl,
     mode: "local-only",
     note: "No Tailscale or LAN address was detected, so this link only works on this machine for now.",
-    tailscaleEnabled: false,
+    tailscaleEnabled: tailscaleStatus.enabled,
   };
 }
 

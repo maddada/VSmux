@@ -371,7 +371,27 @@ export function SortableSessionCard({
     });
   };
 
-  const requestClose = () => {
+  const requestClose = (
+    source: "context-menu" | "middle-click" | "meta-click" | "programmatic",
+  ) => {
+    if (isT3Session && showDebugSessionNumbers) {
+      vscode.postMessage({
+        details: {
+          activity: session.activity,
+          groupId,
+          isFocused: session.isFocused,
+          isRunning: session.isRunning,
+          isVisible: session.isVisible,
+          requestedAt: Date.now(),
+          sessionId: session.sessionId,
+          source,
+          title: session.primaryTitle,
+        },
+        event: "repro.t3CloseSession.requested",
+        type: "sidebarDebugLog",
+      });
+    }
+
     setContextMenuPosition(undefined);
     vscode.postMessage({
       sessionId: session.sessionId,
@@ -538,7 +558,7 @@ export function SortableSessionCard({
       ),
       key: "terminate",
       label: isBrowserSession ? "Close" : "Terminate",
-      onClick: requestClose,
+      onClick: () => requestClose("context-menu"),
     },
   ];
   const contextMenuSections = [primaryActions, sessionActions, destructiveActions].filter(
@@ -625,7 +645,11 @@ export function SortableSessionCard({
             className="session-drop-target-surface session-drop-target-surface-after"
             ref={afterDropTarget.ref}
           />
-          <SessionFloatingAgentIcon agentIcon={session.agentIcon} isFavorite={session.isFavorite} />
+          <SessionFloatingAgentIcon
+            agentIcon={session.agentIcon}
+            isFavorite={session.isFavorite}
+            isReloading={session.isReloading}
+          />
           <article
             aria-expanded={contextMenuPosition ? true : undefined}
             aria-haspopup="menu"
@@ -639,7 +663,7 @@ export function SortableSessionCard({
                   : "odd"
                 : undefined
             }
-            data-has-agent-icon={String(Boolean(session.agentIcon))}
+            data-has-agent-icon={String(Boolean(session.agentIcon) || session.isReloading === true)}
             data-dragging={String(Boolean(sortable.isDragging))}
             data-drop-position={visibleDropPosition}
             data-drop-target={String(isVisibleDropTarget)}
@@ -689,14 +713,14 @@ export function SortableSessionCard({
               }
 
               event.preventDefault();
-              requestClose();
+              requestClose("middle-click");
             }}
             onClick={(event) => {
               event.stopPropagation();
 
               if (event.metaKey) {
                 event.preventDefault();
-                requestClose();
+                requestClose("meta-click");
                 return;
               }
 
@@ -724,7 +748,7 @@ export function SortableSessionCard({
           >
             <SessionCardContent
               aliasHeadingRef={aliasHeadingRef}
-              onClose={requestClose}
+              onClose={() => requestClose("programmatic")}
               session={session}
               showDebugSessionNumbers={showDebugSessionNumbers}
               showCloseButton={showCloseButton}

@@ -35,17 +35,13 @@
 }
 
 .group[data-drop-target="true"] {
-  border-color: color-mix(in srgb, var(--app-button-background) 72%, var(--app-border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--app-button-background) 28%, transparent),
-    0 18px 32px color-mix(in srgb, var(--app-button-background) 14%, transparent);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .group:has(.session[data-drop-target="true"]) {
-  border-color: color-mix(in srgb, var(--app-button-background) 72%, var(--app-border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--app-button-background) 28%, transparent),
-    0 18px 32px color-mix(in srgb, var(--app-button-background) 14%, transparent);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .group-head {

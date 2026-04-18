@@ -1,4 +1,4 @@
-import { IconWorld } from "@tabler/icons-react";
+import { IconLoader2, IconWorld } from "@tabler/icons-react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import {
   cloneElement,
@@ -54,7 +54,7 @@ export function SessionCardContent({
     showDebugSessionNumbers,
   });
   const hasLastInteractionTime = Boolean(session.lastInteractionAt);
-  const hasHeaderAgentIcon = Boolean(session.agentIcon);
+  const hasHeaderAgentIcon = Boolean(session.agentIcon) || session.isReloading === true;
   useRelativeTimeTick(hasLastInteractionTime);
   const lastInteractionLabel =
     hasLastInteractionTime && session.lastInteractionAt
@@ -72,8 +72,10 @@ export function SessionCardContent({
       : lastInteractionLabel
         ? "time"
         : "icon";
-  const hoverTrailingDisplay =
-    defaultTrailingDisplay === "icon"
+  const shouldKeepReloadingIconVisible = session.isReloading === true && hasHeaderAgentIcon;
+  const hoverTrailingDisplay = shouldKeepReloadingIconVisible
+    ? "icon"
+    : defaultTrailingDisplay === "icon"
       ? lastInteractionLabel
         ? "time"
         : "icon"
@@ -103,6 +105,7 @@ export function SessionCardContent({
               <SessionHeaderAgentIcon
                 agentIcon={session.agentIcon}
                 isFavorite={session.isFavorite}
+                isReloading={session.isReloading}
               />
             ) : null}
           </div>
@@ -309,6 +312,7 @@ export function getSessionTitleTooltipOptions({
 type SessionAgentIconProps = {
   agentIcon: SidebarSessionItem["agentIcon"];
   isFavorite?: boolean;
+  isReloading?: boolean;
 };
 
 type SessionAgentLogoStyle = CSSProperties & {
@@ -317,6 +321,7 @@ type SessionAgentLogoStyle = CSSProperties & {
 
 type SessionAgentIconDecorationProps = SessionAgentIconProps & {
   className: string;
+  loadingClassName: string;
   tablerClassName: string;
 };
 
@@ -324,8 +329,14 @@ function SessionAgentIconDecoration({
   agentIcon,
   className,
   isFavorite = false,
+  isReloading = false,
+  loadingClassName,
   tablerClassName,
 }: SessionAgentIconDecorationProps) {
+  if (isReloading) {
+    return <IconLoader2 aria-hidden="true" className={loadingClassName} size={14} stroke={1.8} />;
+  }
+
   const favoriteState = String(isFavorite);
   if (agentIcon === "browser") {
     return (
@@ -365,17 +376,24 @@ export function SessionFloatingAgentIcon({ agentIcon, isFavorite = false }: Sess
       agentIcon={agentIcon}
       className="session-floating-agent-icon"
       isFavorite={isFavorite}
+      loadingClassName="session-floating-reloading-icon"
       tablerClassName="session-floating-agent-tabler-icon"
     />
   );
 }
 
-function SessionHeaderAgentIcon({ agentIcon, isFavorite = false }: SessionAgentIconProps) {
+function SessionHeaderAgentIcon({
+  agentIcon,
+  isFavorite = false,
+  isReloading = false,
+}: SessionAgentIconProps) {
   return (
     <SessionAgentIconDecoration
       agentIcon={agentIcon}
       className="session-header-agent-icon"
       isFavorite={isFavorite}
+      isReloading={isReloading}
+      loadingClassName="session-header-reloading-icon"
       tablerClassName="session-header-agent-tabler-icon"
     />
   );

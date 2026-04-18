@@ -158,6 +158,13 @@ reportDebugLog("workspace.t3FrameHostBoot", {
   pathname: window.location.pathname,
   threadId: bootstrap.threadId,
 });
+reportThreadSourceRepro("frameHostBoot", {
+  hash: window.location.hash,
+  href: window.location.href,
+  pathname: window.location.pathname,
+  threadId: bootstrap.threadId,
+  title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+});
 
 window.addEventListener("message", (event) => {
   if (event.data?.type === "blurComposer") {
@@ -201,6 +208,36 @@ let currentThreadId = bootstrap.threadId;
 let pendingComposerFocusTimeoutId: number | undefined;
 let composerFocusRequestVersion = 0;
 let lastReportedWorkingStartedAtMs: number | undefined;
+let lastObservedLocationKey = `${window.location.href}#${window.location.hash}`;
+let lastObservedThreadSourceState = `${bootstrap.threadId}|${window.__VSMUX_T3_ACTIVE_THREAD_TITLE__ ?? ""}`;
+
+installObservedThreadGlobals();
+installHistoryObservers();
+window.setInterval(() => {
+  const nextLocationKey = `${window.location.href}#${window.location.hash}`;
+  if (nextLocationKey !== lastObservedLocationKey) {
+    reportThreadSourceRepro("frameLocationPolledChange", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      previousLocationKey: lastObservedLocationKey,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+    lastObservedLocationKey = nextLocationKey;
+  }
+
+  const nextThreadSourceState = `${getCurrentThreadId() ?? ""}|${window.__VSMUX_T3_ACTIVE_THREAD_TITLE__ ?? ""}`;
+  if (nextThreadSourceState !== lastObservedThreadSourceState) {
+    reportThreadSourceRepro("frameThreadStatePolledChange", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      previousState: lastObservedThreadSourceState,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+    lastObservedThreadSourceState = nextThreadSourceState;
+  }
+}, 250);
 
 window.addEventListener("beforeunload", () => {
   workingStartedAtObserver.disconnect();
@@ -210,6 +247,11 @@ window.addEventListener("beforeunload", () => {
     hash: window.location.hash,
     href: window.location.href,
   });
+  reportThreadSourceRepro("frameHostBeforeUnload", {
+    currentThreadId: getCurrentThreadId(),
+    href: window.location.href,
+    title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+  });
 });
 
 window.addEventListener("pagehide", (event) => {
@@ -217,11 +259,21 @@ window.addEventListener("pagehide", (event) => {
     currentThreadId: getCurrentThreadId(),
     persisted: event.persisted,
   });
+  reportThreadSourceRepro("frameHostPageHide", {
+    currentThreadId: getCurrentThreadId(),
+    persisted: event.persisted,
+    title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+  });
 });
 
 document.addEventListener("visibilitychange", () => {
   reportDebugLog("workspace.t3FrameHostVisibilityChange", {
     currentThreadId: getCurrentThreadId(),
+    visibilityState: document.visibilityState,
+  });
+  reportThreadSourceRepro("frameHostVisibilityChange", {
+    currentThreadId: getCurrentThreadId(),
+    title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
     visibilityState: document.visibilityState,
   });
 });
@@ -512,6 +564,88 @@ function reportDebugLog(event: string, payload?: Record<string, unknown>) {
     },
     "*",
   );
+}
+
+function reportThreadSourceRepro(event: string, payload?: Record<string, unknown>) {
+  reportDebugLog(`repro.t3ThreadSource.${event}`, payload);
+}
+
+function installObservedThreadGlobals(): void {
+  observeThreadGlobal("__VSMUX_T3_ACTIVE_THREAD_ID__");
+  observeThreadGlobal("__VSMUX_T3_ACTIVE_THREAD_TITLE__");
+}
+
+function observeThreadGlobal(
+  key: "__VSMUX_T3_ACTIVE_THREAD_ID__" | "__VSMUX_T3_ACTIVE_THREAD_TITLE__",
+): void {
+  let value = window[key];
+  Object.defineProperty(window, key, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return value;
+    },
+    set(nextValue: string | undefined) {
+      const previousValue = value;
+      value = nextValue;
+      reportThreadSourceRepro("frameGlobalChanged", {
+        currentThreadId: key === "__VSMUX_T3_ACTIVE_THREAD_ID__" ? nextValue : getCurrentThreadId(),
+        globalKey: key,
+        hash: window.location.hash,
+        href: window.location.href,
+        nextValue,
+        previousValue,
+        title:
+          key === "__VSMUX_T3_ACTIVE_THREAD_TITLE__"
+            ? nextValue
+            : window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+      });
+    },
+  });
+  window[key] = value;
+}
+
+function installHistoryObservers(): void {
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
+
+  window.history.pushState = (...args) => {
+    originalPushState(...args);
+    reportThreadSourceRepro("frameHistoryPushState", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+  };
+
+  window.history.replaceState = (...args) => {
+    originalReplaceState(...args);
+    reportThreadSourceRepro("frameHistoryReplaceState", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+  };
+
+  window.addEventListener("hashchange", () => {
+    reportThreadSourceRepro("frameHashChange", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+  });
+
+  window.addEventListener("popstate", () => {
+    reportThreadSourceRepro("framePopState", {
+      currentThreadId: getCurrentThreadId(),
+      hash: window.location.hash,
+      href: window.location.href,
+      title: window.__VSMUX_T3_ACTIVE_THREAD_TITLE__,
+    });
+  });
 }
 
 function getCurrentThreadId(): string | undefined {

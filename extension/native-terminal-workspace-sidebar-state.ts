@@ -34,6 +34,7 @@ import {
 } from "./terminal-workspace-helpers";
 import type { PreviousSessionHistoryEntry } from "./previous-session-history";
 import { BROWSER_SIDEBAR_GROUP_ID } from "./live-browser-tabs";
+import { getT3SessionBoundThreadId } from "../shared/t3-session-metadata";
 import {
   isRunningSessionLifecycleState,
   resolveT3SessionLifecycleState,
@@ -59,6 +60,7 @@ type BuildSidebarMessageOptions = {
     activity: TerminalAgentStatus;
     agentName: string | undefined;
   };
+  getIsSessionReloading: (sessionId: string) => boolean;
   getSessionAgentLaunch: (sessionId: string) => PreviousSessionHistoryEntry["agentLaunch"];
   getLastTerminalActivityAt: (sessionId: string) => number | undefined;
   getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
@@ -92,6 +94,7 @@ type CreatePreviousSessionEntryOptions = Pick<
   | "browserHasLiveProjection"
   | "debuggingMode"
   | "getEffectiveSessionActivity"
+  | "getIsSessionReloading"
   | "getSessionAgentLaunch"
   | "getLastTerminalActivityAt"
   | "getSessionSnapshot"
@@ -111,6 +114,7 @@ type CreateSidebarSessionItemOptions = Pick<
   | "browserHasLiveProjection"
   | "debuggingMode"
   | "getEffectiveSessionActivity"
+  | "getIsSessionReloading"
   | "getSessionAgentLaunch"
   | "getLastTerminalActivityAt"
   | "getSessionSnapshot"
@@ -244,6 +248,7 @@ function buildBrowserSidebarGroup(browserTabs: readonly SidebarBrowserTab[]): Si
       lifecycleState: "running",
       isFocused: browserTab.isActive,
       isFavorite: false,
+      isReloading: false,
       isRunning: true,
       isVisible: browserTab.isActive,
       kind: "browser",
@@ -270,6 +275,7 @@ function buildSidebarItem(
     | "browserHasLiveProjection"
     | "debuggingMode"
     | "getEffectiveSessionActivity"
+    | "getIsSessionReloading"
     | "getSessionAgentLaunch"
     | "getLastTerminalActivityAt"
     | "getSessionSnapshot"
@@ -302,6 +308,7 @@ function buildSidebarItem(
       lifecycleState: "running",
       isFocused,
       isFavorite: false,
+      isReloading: false,
       isSleeping: false,
       isRunning: true,
       isVisible,
@@ -327,6 +334,7 @@ function buildSidebarItem(
       isRunning: activityState.isRunning,
       isSleeping,
     });
+    const boundThreadId = getT3SessionBoundThreadId(sessionRecord.t3);
     return {
       activity: isSleeping ? "idle" : activityState.activity,
       activityLabel: isSleeping ? undefined : getSessionActivityLabel(activityState.activity, "t3"),
@@ -337,13 +345,14 @@ function buildSidebarItem(
         ? "Sleeping"
         : (activityState.detail ??
           (activityState.activity !== "working" &&
-          !isPendingT3ThreadId(sessionRecord.t3.threadId) &&
-          sessionRecord.t3.threadId.trim()
-            ? `Thread ${sessionRecord.t3.threadId.slice(0, 8)}`
+          !isPendingT3ThreadId(boundThreadId) &&
+          boundThreadId.trim()
+            ? `Thread ${boundThreadId.slice(0, 8)}`
             : undefined)),
       lifecycleState,
       isFocused,
       isFavorite: sessionRecord.isFavorite === true,
+      isReloading: options.getIsSessionReloading(sessionRecord.sessionId),
       isSleeping,
       isRunning: isRunningSessionLifecycleState(lifecycleState),
       isVisible,
@@ -391,6 +400,7 @@ function buildSidebarItem(
     lifecycleState,
     isFocused,
     isFavorite: sessionRecord.isFavorite === true,
+    isReloading: options.getIsSessionReloading(sessionRecord.sessionId),
     isSleeping,
     isRunning: isRunningSessionLifecycleState(lifecycleState),
     isVisible,

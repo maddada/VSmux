@@ -203,10 +203,33 @@ describe("buildSidebarMessage", () => {
 
     expect(message.groups[1]?.sessions[0]).toEqual(
       expect.objectContaining({
+        isReloading: false,
         isPrimaryTitleTerminalTitle: true,
         lastInteractionAt: sessionRecord.createdAt,
         primaryTitle: "Claude Code / repo sweep",
         terminalTitle: undefined,
+      }),
+    );
+  });
+
+  test("should expose reloading sessions to the sidebar state", () => {
+    const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
+    const sessionRecord = createSessionRecord(1, 0);
+    workspaceSnapshot.groups[0].snapshot.sessions = [sessionRecord];
+    workspaceSnapshot.groups[0].snapshot.focusedSessionId = sessionRecord.sessionId;
+    workspaceSnapshot.groups[0].snapshot.visibleSessionIds = [sessionRecord.sessionId];
+
+    const message = getSidebarStateMessage(
+      buildSidebarMessage({
+        ...createBuildSidebarMessageOptions(workspaceSnapshot, []),
+        getIsSessionReloading: (sessionId) => sessionId === sessionRecord.sessionId,
+      }),
+    );
+
+    expect(message.groups[1]?.sessions[0]).toEqual(
+      expect.objectContaining({
+        isReloading: true,
+        sessionId: sessionRecord.sessionId,
       }),
     );
   });
@@ -667,6 +690,7 @@ describe("createPreviousSessionEntry", () => {
         activity: "idle",
         agentName: "codex",
       }),
+      getIsSessionReloading: () => false,
       getSessionAgentLaunch: () => undefined,
       getLastTerminalActivityAt: () => undefined,
       getSessionSnapshot: () => ({
@@ -734,6 +758,7 @@ function createPreviousSessionEntryOptions(
       activity: "idle",
       agentName: "codex",
     }),
+    getIsSessionReloading: () => false,
     getSessionAgentLaunch: () => undefined,
     getLastTerminalActivityAt: () => undefined,
     getSessionSnapshot: () => ({
@@ -785,6 +810,7 @@ function createBuildSidebarMessageOptions(
       activity: "idle",
       agentName: undefined,
     }),
+    getIsSessionReloading: () => false,
     getSessionAgentLaunch: () => undefined,
     getLastTerminalActivityAt: () => undefined,
     getSessionSnapshot: () => undefined,

@@ -12,6 +12,10 @@ import {
   releaseCachedT3Runtime,
   type CachedT3Runtime,
 } from "./t3-runtime-cache";
+import {
+  getT3ThreadChangeConfirmation,
+  shouldEmitT3ThreadChangeAfterConfirmation,
+} from "./t3-thread-change-confirmation";
 
 type T3ClipboardFilePayload = WorkspacePanelClipboardFilePayload;
 
@@ -46,6 +50,8 @@ const T3_FONT_SIZE_VARIABLE_NAMES = [
   "--app-font-size-ui",
 ] as const;
 const T3_CHAT_MARKDOWN_STYLE_ELEMENT_ID = "vsmux-t3-chat-markdown-zoom";
+const T3_THREAD_CHANGE_CONFIRMATION_POLL_MS = 50;
+const T3_THREAD_CHANGE_CONFIRMATION_TIMEOUT_MS = 1_500;
 
 export type T3PaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
@@ -116,6 +122,18 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const runtimeRef = useRef<CachedT3Runtime | null>(null);
+  const pendingThreadChangeConfirmationRef = useRef<
+    | {
+        observedAt: number;
+        sessionId: string;
+        threadId: string;
+        timeoutId?: number;
+        title?: string;
+        token: number;
+      }
+    | undefined
+  >(undefined);
+  const nextThreadChangeConfirmationTokenRef = useRef(0);
   const pendingExplicitComposerFocusRef = useRef(false);
   const pendingComposerFocusTimerRef = useRef<number | undefined>(undefined);
   const handledAutoFocusRequestIdRef = useRef<number | undefined>(undefined);
@@ -132,6 +150,137 @@ export const T3Pane: React.FC<T3PaneProps> = ({
   const emitWorkingStartedAtChanged = useEffectEvent(
     (payload: { sessionId: string; workingStartedAt?: string }) => {
       onWorkingStartedAtChanged(payload);
+    },
+  );
+  const clearPendingThreadChangeConfirmation = useEffectEvent((reason: string) => {
+    const pendingConfirmation = pendingThreadChangeConfirmationRef.current;
+    if (!pendingConfirmation) {
+      return;
+    }
+
+    if (pendingConfirmation.timeoutId !== undefined) {
+      window.clearTimeout(pendingConfirmation.timeoutId);
+    }
+
+    reportDebug("workspace.t3PaneThreadChangeConfirmationCleared", {
+      reason,
+      sessionId: pendingConfirmation.sessionId,
+      threadId: pendingConfirmation.threadId,
+    });
+    pendingThreadChangeConfirmationRef.current = undefined;
+  });
+  const scheduleConfirmedThreadChangeEmit = useEffectEvent(
+    (payload: { sessionId: string; threadId: string; title?: string }) => {
+      const existingConfirmation = pendingThreadChangeConfirmationRef.current;
+      if (
+        existingConfirmation &&
+        existingConfirmation.sessionId === payload.sessionId &&
+        existingConfirmation.threadId === payload.threadId
+      ) {
+        if (!existingConfirmation.title && payload.title) {
+          existingConfirmation.title = payload.title;
+        }
+        reportDebug("repro.t3ThreadSource.paneNavigationConfirmationDuplicateObserved", {
+          sessionId: payload.sessionId,
+          threadId: payload.threadId,
+          ...readFrameWindowState(iframeRef.current?.contentWindow),
+        });
+        return;
+      }
+
+      clearPendingThreadChangeConfirmation("superseded");
+
+      const token = ++nextThreadChangeConfirmationTokenRef.current;
+      const confirmation = {
+        observedAt: Date.now(),
+        sessionId: payload.sessionId,
+        threadId: payload.threadId,
+        title: payload.title,
+        token,
+      };
+      pendingThreadChangeConfirmationRef.current = confirmation;
+
+      reportDebug("repro.t3ThreadSource.paneAwaitingNavigationConfirmation", {
+        sessionId: payload.sessionId,
+        threadId: payload.threadId,
+        title: payload.title,
+        ...readFrameWindowState(iframeRef.current?.contentWindow),
+      });
+
+      const pollForConfirmation = () => {
+        const pendingConfirmation = pendingThreadChangeConfirmationRef.current;
+        if (!pendingConfirmation || pendingConfirmation.token !== token) {
+          return;
+        }
+
+        if (
+          !shouldEmitT3ThreadChangeAfterConfirmation({
+            isFocusedPane: isFocused,
+            isVisiblePane: pane.isVisible,
+          })
+        ) {
+          reportDebug("repro.t3ThreadSource.paneNavigationConfirmationAborted", {
+            isFocused,
+            isVisible: pane.isVisible,
+            reason: !pane.isVisible ? "paneHidden" : "paneNotFocused",
+            sessionId: pendingConfirmation.sessionId,
+            threadId: pendingConfirmation.threadId,
+            title: pendingConfirmation.title,
+            ...readFrameWindowState(iframeRef.current?.contentWindow),
+          });
+          pendingThreadChangeConfirmationRef.current = undefined;
+          return;
+        }
+
+        const frameWindow = iframeRef.current?.contentWindow;
+        const frameState = readFrameWindowState(frameWindow);
+        const navigationThreadId = readFrameNavigationThreadId(frameWindow);
+        const confirmation = getT3ThreadChangeConfirmation({
+          activeThreadId:
+            typeof frameState.activeThreadId === "string" ? frameState.activeThreadId : undefined,
+          navigationThreadId,
+          pendingThreadId: pendingConfirmation.threadId,
+        });
+        if (confirmation) {
+          reportDebug("repro.t3ThreadSource.paneNavigationConfirmed", {
+            confirmationSource: confirmation.confirmationSource,
+            confirmedThreadId: confirmation.confirmedThreadId,
+            navigationThreadId,
+            sessionId: pendingConfirmation.sessionId,
+            threadId: pendingConfirmation.threadId,
+            title: pendingConfirmation.title,
+            ...frameState,
+          });
+          pendingThreadChangeConfirmationRef.current = undefined;
+          emitThreadChanged({
+            sessionId: pendingConfirmation.sessionId,
+            threadId: pendingConfirmation.threadId,
+            title: pendingConfirmation.title,
+          });
+          return;
+        }
+
+        const elapsedMs = Date.now() - pendingConfirmation.observedAt;
+        if (elapsedMs >= T3_THREAD_CHANGE_CONFIRMATION_TIMEOUT_MS) {
+          reportDebug("repro.t3ThreadSource.paneNavigationConfirmationTimedOut", {
+            elapsedMs,
+            navigationThreadId,
+            sessionId: pendingConfirmation.sessionId,
+            threadId: pendingConfirmation.threadId,
+            title: pendingConfirmation.title,
+            ...frameState,
+          });
+          pendingThreadChangeConfirmationRef.current = undefined;
+          return;
+        }
+
+        pendingConfirmation.timeoutId = window.setTimeout(
+          pollForConfirmation,
+          T3_THREAD_CHANGE_CONFIRMATION_POLL_MS,
+        );
+      };
+
+      pollForConfirmation();
     },
   );
   const applyZoomPercent = useEffectEvent((reason: string) => {
@@ -357,8 +506,13 @@ export const T3Pane: React.FC<T3PaneProps> = ({
         window.clearTimeout(pendingComposerFocusTimerRef.current);
         pendingComposerFocusTimerRef.current = undefined;
       }
+      clearPendingThreadChangeConfirmation("unmount");
     };
   }, []);
+
+  useEffect(() => {
+    clearPendingThreadChangeConfirmation("paneChanged");
+  }, [clearPendingThreadChangeConfirmation, pane.renderNonce, pane.sessionId]);
 
   useEffect(() => {
     const wasFocused = previousIsFocusedRef.current;
@@ -696,7 +850,31 @@ export const T3Pane: React.FC<T3PaneProps> = ({
           typeof event.data.title === "string" && event.data.title.trim().length > 0
             ? event.data.title.trim()
             : undefined;
+        reportDebug("repro.t3ThreadSource.paneMessageObserved", {
+          eventOrigin: event.origin,
+          eventSessionId: sessionId,
+          eventThreadId: threadId,
+          eventTitle: title,
+          isFocused,
+          isVisible: pane.isVisible,
+          paneRenderNonce: pane.renderNonce,
+          paneSessionId: pane.sessionId,
+          paneThreadId: pane.sessionRecord.t3.threadId,
+          sourceMatchesIframe: event.source === iframeRef.current?.contentWindow,
+          ...readFrameWindowState(iframeRef.current?.contentWindow),
+        });
         if (!sessionId || !threadId || sessionId !== pane.sessionId) {
+          reportDebug("repro.t3ThreadSource.paneMessageIgnored", {
+            reason: !sessionId
+              ? "missingSessionId"
+              : !threadId
+                ? "missingThreadId"
+                : "sessionMismatch",
+            eventSessionId: sessionId,
+            eventThreadId: threadId,
+            paneSessionId: pane.sessionId,
+            paneThreadId: pane.sessionRecord.t3.threadId,
+          });
           return;
         }
 
@@ -705,7 +883,16 @@ export const T3Pane: React.FC<T3PaneProps> = ({
           threadId,
           title,
         });
-        emitThreadChanged({ sessionId, threadId, title });
+        reportDebug("repro.t3ThreadSource.paneThreadChangeQueuedForConfirmation", {
+          isFocused,
+          isVisible: pane.isVisible,
+          paneRenderNonce: pane.renderNonce,
+          sessionId,
+          threadId,
+          title,
+          ...readFrameWindowState(iframeRef.current?.contentWindow),
+        });
+        scheduleConfirmedThreadChangeEmit({ sessionId, threadId, title });
         return;
       }
 
@@ -1106,6 +1293,28 @@ function readFrameWindowState(frameWindow: Window | null | undefined): Record<st
       frameWindowAvailable: true,
       frameWindowStateError: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+function readFrameNavigationThreadId(frameWindow: Window | null | undefined): string | undefined {
+  if (!frameWindow) {
+    return undefined;
+  }
+
+  try {
+    const hash = frameWindow.location.hash.trim();
+    if (!hash) {
+      return undefined;
+    }
+
+    const normalizedHash = hash.startsWith("#") ? hash.slice(1) : hash;
+    const normalizedPath = normalizedHash.startsWith("/")
+      ? normalizedHash.slice(1)
+      : normalizedHash;
+    const firstSegment = normalizedPath.split(/[/?&#]/)[0]?.trim();
+    return firstSegment ? firstSegment : undefined;
+  } catch {
+    return undefined;
   }
 }
 

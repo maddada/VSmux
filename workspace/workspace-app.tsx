@@ -64,6 +64,7 @@ type WorkspaceStateMessage = WorkspacePanelHydrateMessage | WorkspacePanelSessio
 type WorkspaceShellStyle = CSSProperties & {
   "--workspace-active-pane-border-color"?: string;
   "--workspace-pane-gap": string;
+  paddingTop?: string;
 };
 
 type WorkspacePaneMeasuredBounds = {
@@ -109,6 +110,7 @@ let nextWorkspacePaneViewInstanceId = 0;
 let nextWorkspacePortalTargetId = 0;
 const DEFAULT_WORKSPACE_PANE_GAP_PX = 12;
 const SINGLE_PANE_WORKSPACE_INSET_PX = 1;
+const SINGLE_PANE_WORKSPACE_TOP_PADDING_EXTRA_PX = 2;
 
 const getInitialWorkspaceState = (): WorkspaceStateMessage | undefined => {
   if (typeof window === "undefined") {
@@ -149,6 +151,19 @@ export function getWorkspaceShellPaneGapPx(
   }
 
   return configuredPaneGap ?? DEFAULT_WORKSPACE_PANE_GAP_PX;
+}
+
+export function getWorkspaceShellPaddingTopPx(
+  visibleCount: number | undefined,
+  configuredPaneGap: number | undefined,
+): number {
+  const paneGapPx = getWorkspaceShellPaneGapPx(visibleCount, configuredPaneGap);
+
+  if (visibleCount !== 1) {
+    return paneGapPx;
+  }
+
+  return paneGapPx + SINGLE_PANE_WORKSPACE_TOP_PADDING_EXTRA_PX;
 }
 
 const summarizeWorkspacePaneState = (panes: WorkspacePanelPane[]) =>
@@ -801,12 +816,20 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     workspaceState?.visibleCount,
     workspaceState?.layoutAppearance.paneGap,
   );
+  const workspaceShellPaddingTopPx = getWorkspaceShellPaddingTopPx(
+    workspaceState?.visibleCount,
+    workspaceState?.layoutAppearance.paneGap,
+  );
   const workspaceShellStyle = useMemo(() => {
     const nextStyle: WorkspaceShellStyle = {
       "--workspace-active-pane-border-color":
         workspaceState?.layoutAppearance.activePaneBorderColor,
       "--workspace-pane-gap": `${String(workspaceShellPaneGapPx)}px`,
     };
+
+    if (workspaceShellPaddingTopPx !== workspaceShellPaneGapPx) {
+      nextStyle.paddingTop = `${String(workspaceShellPaddingTopPx)}px`;
+    }
 
     if (visiblePanes.length > 0) {
       nextStyle.gridTemplateColumns = getWorkspaceGridTemplateColumns(
@@ -820,6 +843,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     workspaceState?.layoutAppearance.activePaneBorderColor,
     workspaceState?.viewMode,
     workspaceShellPaneGapPx,
+    workspaceShellPaddingTopPx,
     visiblePanes.length,
   ]);
   const hiddenPaneInPlaceStyles = useMemo(() => {
@@ -1312,6 +1336,27 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     threadId: string;
     title?: string;
   }) => {
+    const pane = workspaceState?.panes.find(
+      (candidate) => candidate.sessionId === payload.sessionId,
+    );
+    postWorkspaceDebugLog(
+      workspaceState?.debuggingMode,
+      "repro.t3ThreadSource.workspacePostToExtension",
+      {
+        activeGroupId: workspaceState?.activeGroupId,
+        focusedSessionId: workspaceState?.focusedSessionId,
+        isFocusedPane: workspaceState?.focusedSessionId === payload.sessionId,
+        paneKind: pane?.kind,
+        paneRenderNonce: pane?.renderNonce,
+        paneThreadId: pane?.kind === "t3" ? pane.sessionRecord.t3.threadId : undefined,
+        paneVisible: pane?.isVisible,
+        sessionId: payload.sessionId,
+        threadId: payload.threadId,
+        title: payload.title,
+        visibilityState: document.visibilityState,
+        workspaceHasFocus: document.hasFocus(),
+      },
+    );
     postWorkspaceDebugLog(workspaceState?.debuggingMode, "workspace.t3ThreadChanged", payload);
     postToExtension({
       sessionId: payload.sessionId,

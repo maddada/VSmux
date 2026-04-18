@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import {
   buildSessionTitleTooltip,
@@ -5,6 +7,8 @@ import {
   getSessionCardTitleTooltip,
   getSessionTitleTooltipOptions,
   getSessionTooltipSecondaryText,
+  SessionCardContent,
+  SessionFloatingAgentIcon,
 } from "./session-card-content";
 
 describe("buildSessionTitleTooltip", () => {
@@ -248,5 +252,78 @@ describe("getSessionTooltipSecondaryText", () => {
         terminalTitle: undefined,
       }),
     ).toBe("Needs attention");
+  });
+});
+
+describe("SessionCardContent", () => {
+  test("should render a spinner instead of the header agent icon while reloading", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionCardContent, {
+        session: {
+          activity: "idle",
+          activityLabel: undefined,
+          agentIcon: "codex",
+          alias: "00",
+          column: 0,
+          isFocused: false,
+          isReloading: true,
+          isRunning: true,
+          isVisible: true,
+          row: 0,
+          sessionId: "session-1",
+          shortcutLabel: "1",
+        },
+        showCloseButton: false,
+        showDebugSessionNumbers: false,
+        showHotkeys: false,
+      }),
+    );
+
+    expect(markup).toContain("session-header-reloading-icon");
+    expect(markup).not.toContain("session-header-agent-icon");
+  });
+
+  test("should keep the reloading spinner visible on hover instead of swapping to last active time", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionCardContent, {
+        session: {
+          activity: "idle",
+          activityLabel: undefined,
+          agentIcon: "codex",
+          alias: "00",
+          column: 0,
+          isFocused: false,
+          isReloading: true,
+          isRunning: true,
+          isVisible: true,
+          lastInteractionAt: "2026-04-18T10:00:00.000Z",
+          row: 0,
+          sessionId: "session-1",
+          shortcutLabel: "1",
+        },
+        showCloseButton: false,
+        showDebugSessionNumbers: false,
+        showHotkeys: false,
+      }),
+    );
+
+    expect(markup).toContain('data-default-trailing-display="icon"');
+    expect(markup).toContain('data-hover-trailing-display="icon"');
+    expect(markup).toContain("session-last-interaction-time");
+    expect(markup).toContain("session-header-reloading-icon");
+  });
+});
+
+describe("SessionFloatingAgentIcon", () => {
+  test("should keep showing the floating agent icon instead of a reload spinner", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionFloatingAgentIcon, {
+        agentIcon: "codex",
+        isReloading: true,
+      }),
+    );
+
+    expect(markup).toContain("session-floating-agent-icon");
+    expect(markup).not.toContain("session-floating-reloading-icon");
   });
 });
