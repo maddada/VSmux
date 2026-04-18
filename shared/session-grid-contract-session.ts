@@ -248,10 +248,14 @@ export function createSessionRecord(
       createdAt,
       displayId,
       kind: "browser",
+      legacyGroupTitle: options.legacyGroupTitle,
       row: position.row,
       sessionId,
       slotIndex,
       title,
+      workspaceFolderId: options.workspaceFolderId,
+      workspaceFolderName: options.workspaceFolderName,
+      workspaceFolderPath: options.workspaceFolderPath,
     };
   }
 
@@ -262,11 +266,15 @@ export function createSessionRecord(
       createdAt,
       displayId,
       kind: "t3",
+      legacyGroupTitle: options.legacyGroupTitle,
       row: position.row,
       sessionId,
       slotIndex,
       t3: options.t3,
       title,
+      workspaceFolderId: options.workspaceFolderId,
+      workspaceFolderName: options.workspaceFolderName,
+      workspaceFolderPath: options.workspaceFolderPath,
     };
   }
 
@@ -276,11 +284,15 @@ export function createSessionRecord(
     createdAt,
     displayId,
     kind: "terminal",
+    legacyGroupTitle: options?.legacyGroupTitle,
     row: position.row,
     sessionId,
     slotIndex,
     terminalEngine: normalizeTerminalEngine(options?.terminalEngine),
     title,
+    workspaceFolderId: options?.workspaceFolderId,
+    workspaceFolderName: options?.workspaceFolderName,
+    workspaceFolderPath: options?.workspaceFolderPath,
   };
 }
 

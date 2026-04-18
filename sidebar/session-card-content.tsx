@@ -146,6 +146,7 @@ export function getSessionCardTitleTooltip({
     | "alias"
     | "detail"
     | "kind"
+    | "legacyGroupTitle"
     | "isPrimaryTitleTerminalTitle"
     | "primaryTitle"
     | "sessionKind"
@@ -265,19 +266,33 @@ export function buildSessionTitleTooltip({
 }
 
 export function getSessionTooltipSecondaryText(
-  session: Pick<SidebarSessionItem, "activityLabel" | "agentIcon" | "detail" | "terminalTitle">,
+  session: Pick<
+    SidebarSessionItem,
+    "activityLabel" | "agentIcon" | "detail" | "legacyGroupTitle" | "terminalTitle"
+  >,
 ): string | undefined {
+  const lines: string[] = [];
   const detail = stripAgentTooltipText(session.detail, session.agentIcon);
   if (detail) {
-    return detail;
+    lines.push(detail);
   }
 
   const terminalTitle = stripAgentTooltipText(session.terminalTitle, session.agentIcon);
   if (terminalTitle) {
-    return terminalTitle;
+    lines.push(terminalTitle);
   }
 
-  return session.activityLabel?.trim() || undefined;
+  const activityLabel = session.activityLabel?.trim();
+  if (activityLabel) {
+    lines.push(activityLabel);
+  }
+
+  const legacyGroupTitle = session.legacyGroupTitle?.trim();
+  if (legacyGroupTitle) {
+    lines.push(`Legacy group: ${legacyGroupTitle}`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
 export function getSessionTitleTooltipOptions({

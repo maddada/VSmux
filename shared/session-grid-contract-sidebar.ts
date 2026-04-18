@@ -61,6 +61,10 @@ export type SidebarSessionItem = {
   primaryTitle?: string;
   isPrimaryTitleTerminalTitle?: boolean;
   terminalTitle?: string;
+  legacyGroupTitle?: string;
+  workspaceFolderId?: string;
+  workspaceFolderName?: string;
+  workspaceFolderPath?: string;
   alias: string;
   shortcutLabel: string;
   row: number;
@@ -103,6 +107,9 @@ export type SidebarSessionGroup = {
   title: string;
   viewMode: TerminalViewMode;
   visibleCount: VisibleSessionCount;
+  workspaceFolderId?: string;
+  workspaceFolderName?: string;
+  workspaceFolderPath?: string;
 };
 
 export type SidebarHudState = {

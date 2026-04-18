@@ -28,7 +28,7 @@ import type {
 import {
   createDisconnectedSessionSnapshot,
   getDefaultShell,
-  getDefaultWorkspaceCwd,
+  getSessionWorkspaceCwd,
   getWorkspaceStorageKey,
 } from "./terminal-workspace-helpers";
 import { focusEditorGroupByIndex, moveActiveEditorToGroup } from "./terminal-workspace-environment";
@@ -805,7 +805,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     const terminal = vscode.window.createTerminal({
-      cwd: getDefaultWorkspaceCwd(),
+      cwd: getSessionWorkspaceCwd(sessionRecord),
       env: this.createTerminalEnvironment(sessionRecord.sessionId),
       iconPath: new vscode.ThemeIcon("terminal"),
       location: {

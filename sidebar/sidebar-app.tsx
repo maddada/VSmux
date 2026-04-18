@@ -54,7 +54,7 @@ import {
 import { logSidebarDebug } from "./sidebar-debug";
 import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { scrollElementIntoViewIfNeeded } from "./scroll-into-view-if-needed";
-import { resetSidebarStore, useSidebarStore } from "./sidebar-store";
+import { resetSidebarStore, useSidebarStore, type SidebarGroupRecord } from "./sidebar-store";
 import {
   getClientPoint,
   getSidebarDropData,
@@ -170,6 +170,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const sessionGroupsPanelRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const groupIdsRef = useRef<string[]>([]);
+  const groupsByIdRef = useRef<Record<string, SidebarGroupRecord>>({});
   const sessionIdsByGroupRef = useRef<SessionIdsByGroup>({});
   const previousBrowserSessionCountsByGroupRef = useRef<Record<string, number>>({});
   const previousNormalizedSessionSearchQueryRef = useRef("");
@@ -201,6 +202,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     createSessionOnSidebarDoubleClick,
     debuggingMode,
     groupOrder,
+    groupsById,
     previousSessions,
     sectionVisibility,
     showHotkeysOnSessionCards,
@@ -218,6 +220,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       createSessionOnSidebarDoubleClick: state.hud.createSessionOnSidebarDoubleClick,
       debuggingMode: state.hud.debuggingMode,
       groupOrder: state.groupOrder,
+      groupsById: state.groupsById,
       previousSessions: state.previousSessions,
       sectionVisibility: state.hud.sectionVisibility,
       showHotkeysOnSessionCards: state.hud.showHotkeysOnSessionCards,
@@ -375,6 +378,13 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     if (event.data.type !== "hydrate" && event.data.type !== "sessionState") {
       return;
     }
+
+    postSidebarReproLog("repro.sidebarHydrate.received", {
+      collapsedSections: event.data.hud.collapsedSections,
+      focusedSessionTitle: event.data.hud.focusedSessionTitle,
+      messageType: event.data.type,
+      revision: event.data.revision,
+    });
 
     postSidebarOrderReproLog(vscode, "repro.sidebarOrder.webview.messageReceived", {
       agentIds: event.data.hud.agents.map((agent) => agent.agentId),
@@ -671,10 +681,19 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     () => createDragStructureKey(displayedWorkspaceGroupIds, displayedWorkspaceSessionIdsByGroup),
     [displayedWorkspaceGroupIds, displayedWorkspaceSessionIdsByGroup],
   );
+  const supportsLegacyGroupCreation = useMemo(
+    () =>
+      displayedWorkspaceGroupIds.every((groupId) => !groupsById[groupId]?.workspaceFolderId),
+    [displayedWorkspaceGroupIds, groupsById],
+  );
 
   useEffect(() => {
     groupIdsRef.current = displayedWorkspaceGroupIds;
   }, [displayedWorkspaceGroupIds]);
+
+  useEffect(() => {
+    groupsByIdRef.current = groupsById;
+  }, [groupsById]);
 
   useEffect(() => {
     sessionIdsByGroupRef.current = displayedWorkspaceSessionIdsByGroup;
@@ -776,6 +795,14 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     });
   });
 
+  const postSidebarReproLog = useEffectEvent((event: string, details: unknown) => {
+    vscode.postMessage({
+      details,
+      event,
+      type: "sidebarDebugLog",
+    });
+  });
+
   const unlockCompletionSoundPlayback = useEffectEvent(() => {
     void prepareCompletionSoundPlayback((soundEvent, details) => {
       postSidebarDebugLog(soundEvent, details);
@@ -842,6 +869,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
       const resolvedSessionDropTarget = resolveSessionDropTargetFromPoint(
         getDragNativeEvent(event),
+        groupsByIdRef.current,
         sessionIdsByGroupRef.current,
         getSidebarDropData(event.operation.target),
         sourceData,
@@ -902,6 +930,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
       sourceData?.kind === "session"
         ? resolveSessionDropTargetFromPoint(
             nativeEvent,
+            groupsByIdRef.current,
             currentSessionIdsByGroup,
             targetData,
             sourceData,
@@ -1376,6 +1405,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             isVisible={shouldShowActionsPanel}
             onBrowserCommandRun={() => expandGroups(browserGroupIds)}
             onToggleCollapsed={(collapsed) => {
+              postSidebarReproLog("repro.sidebarCollapse.toggleRequested", {
+                nextCollapsed: collapsed,
+                previousCollapsed: collapsedSections.actions,
+                section: "actions",
+              });
               setSectionCollapsed("actions", collapsed);
               vscode.postMessage({
                 collapsed,
@@ -1410,6 +1444,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             isCollapsed={collapsedSections.agents}
             isVisible={shouldShowAgentsPanel}
             onToggleCollapsed={(collapsed) => {
+              postSidebarReproLog("repro.sidebarCollapse.toggleRequested", {
+                nextCollapsed: collapsed,
+                previousCollapsed: collapsedSections.agents,
+                section: "agents",
+              });
               setSectionCollapsed("agents", collapsed);
               vscode.postMessage({
                 collapsed,
@@ -1525,7 +1564,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                   showHotkeys={showHotkeysOnSessionCards}
                 />
               ) : null}
-              {!isSessionSearchOpen ? (
+              {!isSessionSearchOpen && supportsLegacyGroupCreation ? (
                 <div className="group-list group-create-list">
                   <div className="group group-create-shell" data-empty-space-blocking="true">
                     <div className="group-head">
@@ -2140,6 +2179,7 @@ function renderOverflowMenuToolbarButton({
 
 function resolveSessionDropTargetFromPoint(
   nativeEvent: Event | undefined,
+  groupsById: Record<string, SidebarGroupRecord>,
   sessionIdsByGroup: SessionIdsByGroup,
   targetData: ReturnType<typeof getSidebarDropData>,
   sourceData: Extract<ReturnType<typeof getSidebarDropData>, { kind: "session" }> | undefined,
@@ -2166,10 +2206,38 @@ function resolveSessionDropTargetFromPoint(
       continue;
     }
 
+    if (!canDropSessionIntoGroup(groupsById, sourceData?.groupId, candidate.groupId)) {
+      continue;
+    }
+
     return candidate;
   }
 
   return null;
+}
+
+function canDropSessionIntoGroup(
+  groupsById: Record<string, SidebarGroupRecord>,
+  sourceGroupId: string | undefined,
+  targetGroupId: string,
+): boolean {
+  if (!sourceGroupId || sourceGroupId === targetGroupId) {
+    return true;
+  }
+
+  const sourceGroup = groupsById[sourceGroupId];
+  const targetGroup = groupsById[targetGroupId];
+  if (!sourceGroup || !targetGroup) {
+    return false;
+  }
+
+  const sourceFolderId = sourceGroup.workspaceFolderId?.trim();
+  const targetFolderId = targetGroup.workspaceFolderId?.trim();
+  if (!sourceFolderId || !targetFolderId) {
+    return true;
+  }
+
+  return sourceFolderId === targetFolderId;
 }
 
 function isSourceSessionDropTarget(

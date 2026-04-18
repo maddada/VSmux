@@ -55,16 +55,23 @@ export type T3SessionMetadata = {
   workspaceRoot: string;
 };
 
+export type WorkspaceFolderAssociation = {
+  workspaceFolderId?: string;
+  workspaceFolderName?: string;
+  workspaceFolderPath?: string;
+};
+
 export type BrowserSessionMetadata = {
   url: string;
 };
 
-export type BaseSessionRecord = {
+export type BaseSessionRecord = WorkspaceFolderAssociation & {
   kind: SessionKind;
   sessionId: string;
   displayId: string;
   title: string;
   alias: string;
+  legacyGroupTitle?: string;
   isFavorite?: boolean;
   isSleeping?: boolean;
   slotIndex: number;
@@ -90,25 +97,25 @@ export type BrowserSessionRecord = BaseSessionRecord & {
 
 export type SessionRecord = BrowserSessionRecord | TerminalSessionRecord | T3SessionRecord;
 
+type CreateSessionRecordBaseOptions = WorkspaceFolderAssociation & {
+  displayId?: string;
+  legacyGroupTitle?: string;
+  title?: string;
+};
+
 export type CreateSessionRecordOptions =
-  | {
+  | (CreateSessionRecordBaseOptions & {
       browser: BrowserSessionMetadata;
-      displayId?: string;
       kind: "browser";
-      title?: string;
-    }
-  | {
-      displayId?: string;
+    })
+  | (CreateSessionRecordBaseOptions & {
       kind?: "terminal";
       terminalEngine?: TerminalEngine;
-      title?: string;
-    }
-  | {
-      displayId?: string;
+    })
+  | (CreateSessionRecordBaseOptions & {
       kind: "t3";
       t3: T3SessionMetadata;
-      title?: string;
-    };
+    });
 
 export type SessionGridSnapshot = {
   focusedSessionId?: string;
@@ -119,7 +126,7 @@ export type SessionGridSnapshot = {
   viewMode: TerminalViewMode;
 };
 
-export type SessionGroupRecord = {
+export type SessionGroupRecord = WorkspaceFolderAssociation & {
   groupId: string;
   snapshot: SessionGridSnapshot;
   title: string;

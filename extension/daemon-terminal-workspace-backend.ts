@@ -33,7 +33,7 @@ import {
   createBlockedSessionSnapshot,
   createDisconnectedSessionSnapshot,
   getDefaultShell,
-  getDefaultWorkspaceCwd,
+  getSessionWorkspaceCwd,
 } from "./terminal-workspace-environment";
 import { indexWorkspaceTerminalSnapshotsBySessionId } from "./terminal-daemon-session-scope";
 import { getWorkspaceStorageKey } from "./terminal-workspace-environment";
@@ -214,7 +214,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
     const createOrAttachResult: TerminalCreateOrAttachResponse = await this.runtime.createOrAttach({
       cols: 120,
-      cwd: getDefaultWorkspaceCwd(),
+      cwd: getSessionWorkspaceCwd(sessionRecord),
       rows: 34,
       sessionId: sessionRecord.sessionId,
       sessionStateFilePath: this.getSessionAgentStateFilePath(sessionRecord.sessionId),

@@ -412,6 +412,9 @@ function toSidebarGroupRecord(group: SidebarSessionGroup): SidebarGroupRecord {
     title: group.title,
     viewMode: group.viewMode,
     visibleCount: group.visibleCount,
+    workspaceFolderId: group.workspaceFolderId,
+    workspaceFolderName: group.workspaceFolderName,
+    workspaceFolderPath: group.workspaceFolderPath,
   };
 }
 
@@ -424,7 +427,10 @@ function haveSameSidebarGroupRecord(left: SidebarGroupRecord, right: SidebarGrou
     left.layoutVisibleCount === right.layoutVisibleCount &&
     left.title === right.title &&
     left.viewMode === right.viewMode &&
-    left.visibleCount === right.visibleCount
+    left.visibleCount === right.visibleCount &&
+    left.workspaceFolderId === right.workspaceFolderId &&
+    left.workspaceFolderName === right.workspaceFolderName &&
+    left.workspaceFolderPath === right.workspaceFolderPath
   );
 }
 
@@ -444,6 +450,7 @@ function haveSameSidebarSessionItem(left: SidebarSessionItem, right: SidebarSess
     left.isVisible === right.isVisible &&
     left.isPrimaryTitleTerminalTitle === right.isPrimaryTitleTerminalTitle &&
     left.kind === right.kind &&
+    left.legacyGroupTitle === right.legacyGroupTitle &&
     left.lastInteractionAt === right.lastInteractionAt &&
     left.primaryTitle === right.primaryTitle &&
     left.row === right.row &&
@@ -451,7 +458,10 @@ function haveSameSidebarSessionItem(left: SidebarSessionItem, right: SidebarSess
     left.sessionKind === right.sessionKind &&
     left.sessionNumber === right.sessionNumber &&
     left.shortcutLabel === right.shortcutLabel &&
-    left.terminalTitle === right.terminalTitle
+    left.terminalTitle === right.terminalTitle &&
+    left.workspaceFolderId === right.workspaceFolderId &&
+    left.workspaceFolderName === right.workspaceFolderName &&
+    left.workspaceFolderPath === right.workspaceFolderPath
   );
 }
 

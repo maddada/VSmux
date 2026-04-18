@@ -42,6 +42,11 @@ import {
   toggleFullscreenSessionInSimpleWorkspace,
 } from "../shared/simple-grouped-session-workspace-state";
 import { logVSmuxDebug } from "./vsmux-debug-log";
+import {
+  shouldUseWorkspaceFolderGroups,
+  syncWorkspaceSnapshotWithFolders,
+  type WorkspaceFolderDescriptor,
+} from "./workspace-folder-groups";
 
 const WORKSPACE_SNAPSHOT_KEY = "VSmux.sessionGridSnapshot";
 
@@ -73,7 +78,13 @@ export class SessionGridStore {
   public async createSession(
     options?: CreateSessionRecordOptions,
   ): Promise<SessionRecord | undefined> {
-    const result = createSessionInSimpleWorkspace(this.snapshot, options);
+    const activeGroup = getActiveGroup(this.snapshot);
+    const result = createSessionInSimpleWorkspace(this.snapshot, {
+      ...options,
+      workspaceFolderId: options?.workspaceFolderId ?? activeGroup?.workspaceFolderId,
+      workspaceFolderName: options?.workspaceFolderName ?? activeGroup?.workspaceFolderName,
+      workspaceFolderPath: options?.workspaceFolderPath ?? activeGroup?.workspaceFolderPath,
+    });
     this.snapshot = result.snapshot;
     await this.persist();
     return result.session;
@@ -345,6 +356,15 @@ export class SessionGridStore {
     targetIndex?: number,
   ): Promise<boolean> {
     const previousSnapshot = this.snapshot;
+    const sourceGroup = getGroupForSession(previousSnapshot, sessionId);
+    const targetGroup = getGroupById(previousSnapshot, groupId);
+    if (
+      sourceGroup?.workspaceFolderId &&
+      targetGroup?.workspaceFolderId &&
+      sourceGroup.workspaceFolderId !== targetGroup.workspaceFolderId
+    ) {
+      return false;
+    }
     const previousGroupIdsBySession = Object.fromEntries(
       previousSnapshot.groups.flatMap((group) =>
         group.snapshot.sessions.map((session) => [session.sessionId, group.groupId] as const),
@@ -373,6 +393,10 @@ export class SessionGridStore {
   }
 
   public async createGroupFromSession(sessionId: string): Promise<string | undefined> {
+    const sourceGroup = getGroupForSession(this.snapshot, sessionId);
+    if (sourceGroup?.workspaceFolderId) {
+      return undefined;
+    }
     const previousSnapshot = this.snapshot;
     const result = createGroupFromSessionInSimpleWorkspace(this.snapshot, sessionId);
     this.snapshot = result.snapshot;
@@ -390,6 +414,9 @@ export class SessionGridStore {
   }
 
   public async createGroup(): Promise<string | undefined> {
+    if (this.snapshot.groups.some((group) => group.workspaceFolderId)) {
+      return undefined;
+    }
     const previousSnapshot = this.snapshot;
     const result = createGroupInSimpleWorkspace(this.snapshot);
     this.snapshot = result.snapshot;
@@ -413,6 +440,23 @@ export class SessionGridStore {
 
   private async persist(): Promise<void> {
     await this.context.workspaceState.update(WORKSPACE_SNAPSHOT_KEY, this.snapshot);
+  }
+
+  public async syncWorkspaceFolders(
+    folders: readonly WorkspaceFolderDescriptor[],
+  ): Promise<boolean> {
+    if (!shouldUseWorkspaceFolderGroups(folders)) {
+      return false;
+    }
+
+    const nextSnapshot = syncWorkspaceSnapshotWithFolders(this.snapshot, folders);
+    if (JSON.stringify(nextSnapshot) === JSON.stringify(this.snapshot)) {
+      return false;
+    }
+
+    this.snapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot(nextSnapshot);
+    await this.persist();
+    return true;
   }
 }
 

@@ -19,6 +19,8 @@ export type AgentManagerXWorkspaceSession = {
   isVisible: boolean;
   kind: AgentManagerXSessionKind;
   lastActiveAt: string;
+  projectName?: string;
+  projectPath?: string;
   sessionId: string;
   status: AgentManagerXSessionStatus;
   terminalTitle?: string;
@@ -208,6 +210,11 @@ export class AgentManagerXBridgeClient implements vscode.Disposable {
       typeof parsed.sessionId === "string" &&
       parsed.workspaceId === this.latestSnapshot?.workspaceId
     ) {
+      this.options.onLog?.("repro.agentManagerXBridge.messageReceived", {
+        sessionId: parsed.sessionId,
+        type: parsed.type,
+        workspaceId: parsed.workspaceId,
+      });
       if (parsed.type === "focusSession") {
         void Promise.resolve(this.options.onFocusSession(parsed.sessionId));
         return;

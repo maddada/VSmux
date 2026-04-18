@@ -832,6 +832,9 @@ function normalizeGroup(group: SessionGroupRecord, index: number): SessionGroupR
     groupId: group.groupId?.trim() || `group-${index + 1}`,
     snapshot: normalizeGroupSnapshot(group.snapshot),
     title: group.title?.trim() || (index === 0 ? DEFAULT_MAIN_GROUP_TITLE : `Group ${index + 1}`),
+    workspaceFolderId: group.workspaceFolderId?.trim() || undefined,
+    workspaceFolderName: group.workspaceFolderName?.trim() || undefined,
+    workspaceFolderPath: group.workspaceFolderPath?.trim() || undefined,
   };
 }
 
@@ -847,6 +850,9 @@ function prepareGroupForDisplayIdNormalization(
       sessions: group.snapshot.sessions.filter((session) => session.kind !== "browser"),
     },
     title: group.title?.trim() || (index === 0 ? DEFAULT_MAIN_GROUP_TITLE : `Group ${index + 1}`),
+    workspaceFolderId: group.workspaceFolderId?.trim() || undefined,
+    workspaceFolderName: group.workspaceFolderName?.trim() || undefined,
+    workspaceFolderPath: group.workspaceFolderPath?.trim() || undefined,
   };
 }
 
@@ -1120,6 +1126,9 @@ function createEmptyGroup(groupId: string, title: string): SessionGroupRecord {
     groupId,
     snapshot: createDefaultSessionGridSnapshot(),
     title,
+    workspaceFolderId: undefined,
+    workspaceFolderName: undefined,
+    workspaceFolderPath: undefined,
   };
 }
 

@@ -1,1 +1,5 @@
-export function logAgentTilerFocusTrace(_event: string, _details?: unknown): void {}
+import { logVSmuxReproTrace } from "./vsmux-debug-log";
+
+export function logAgentTilerFocusTrace(event: string, details?: unknown): void {
+  logVSmuxReproTrace(`repro.agentTilerFocus.${event}`, details);
+}

@@ -224,6 +224,9 @@ function buildSidebarGroup(
     title: group.title,
     viewMode: presentedSnapshot.viewMode,
     visibleCount: presentedSnapshot.visibleCount,
+    workspaceFolderId: group.workspaceFolderId,
+    workspaceFolderName: group.workspaceFolderName,
+    workspaceFolderPath: group.workspaceFolderPath,
   };
 }
 
@@ -314,6 +317,9 @@ function buildSidebarItem(
       sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
       shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
       terminalTitle: undefined,
+      workspaceFolderId: sessionRecord.workspaceFolderId,
+      workspaceFolderName: sessionRecord.workspaceFolderName,
+      workspaceFolderPath: sessionRecord.workspaceFolderPath,
     };
   }
 
@@ -357,6 +363,10 @@ function buildSidebarItem(
       sessionNumber: getDebuggingSessionNumber(sessionRecord, options.debuggingMode),
       shortcutLabel: getSessionShortcutLabel(sessionRecord.slotIndex, options.platform),
       terminalTitle: hasCustomTitle ? visibleT3Title : undefined,
+      legacyGroupTitle: sessionRecord.legacyGroupTitle,
+      workspaceFolderId: sessionRecord.workspaceFolderId,
+      workspaceFolderName: sessionRecord.workspaceFolderName,
+      workspaceFolderPath: sessionRecord.workspaceFolderPath,
     };
   }
 
@@ -397,6 +407,7 @@ function buildSidebarItem(
     isPrimaryTitleTerminalTitle:
       Boolean(visibleTerminalTitle) && (!visiblePrimaryTitle || shouldPreferTerminalTitle),
     kind: "workspace",
+    legacyGroupTitle: sessionRecord.legacyGroupTitle,
     lastInteractionAt:
       getIsoTimestampFromMs(options.getLastTerminalActivityAt(sessionRecord.sessionId)) ??
       sessionRecord.createdAt,
@@ -413,6 +424,9 @@ function buildSidebarItem(
       : visiblePrimaryTitle
         ? visibleTerminalTitle
         : undefined,
+    workspaceFolderId: sessionRecord.workspaceFolderId,
+    workspaceFolderName: sessionRecord.workspaceFolderName,
+    workspaceFolderPath: sessionRecord.workspaceFolderPath,
   };
 }
 

@@ -192,6 +192,7 @@ export function SessionGroupSection({
   const visibleCountButtonRef = useRef<HTMLButtonElement>(null);
   const debugInstanceIdRef = useRef(createSessionGroupDebugInstanceId());
   const isBrowserGroup = group?.kind === "browser";
+  const isWorkspaceFolderGroup = Boolean(group?.workspaceFolderId);
   const debuggingMode = useSidebarStore((state) => state.hud.debuggingMode);
   const postGroupDebugLog = useEffectEvent((event: string, details: Record<string, unknown>) => {
     if (!debuggingMode) {
@@ -212,7 +213,7 @@ export function SessionGroupSection({
     accept: ["group", "session"],
     collisionPriority: CollisionPriority.Low,
     data: createGroupDropData(groupId),
-    disabled: isBrowserGroup || draggingDisabled,
+    disabled: isBrowserGroup || draggingDisabled || isWorkspaceFolderGroup,
     id: groupId,
     index,
     plugins: [SortableKeyboardPlugin],
@@ -421,7 +422,7 @@ export function SessionGroupSection({
   }, [openControlMenu]);
 
   const submitRename = () => {
-    if (isBrowserGroup) {
+    if (isBrowserGroup || isWorkspaceFolderGroup) {
       return;
     }
 
@@ -577,6 +578,10 @@ export function SessionGroupSection({
             return;
           }
 
+          if (isWorkspaceFolderGroup) {
+            return;
+          }
+
           event.preventDefault();
           event.stopPropagation();
           setContextMenuPosition(
@@ -637,8 +642,8 @@ export function SessionGroupSection({
                 </button>
                 <div
                   className="group-title-handle"
-                  data-draggable={String(!isBrowserGroup)}
-                  ref={isBrowserGroup ? undefined : sortable.handleRef}
+                  data-draggable={String(!isBrowserGroup && !isWorkspaceFolderGroup)}
+                  ref={isBrowserGroup || isWorkspaceFolderGroup ? undefined : sortable.handleRef}
                 >
                   <button
                     aria-controls={isCollapsed ? undefined : sessionsRegionId}
@@ -831,8 +836,11 @@ export function SessionGroupSection({
                 className="session-context-menu-item"
                 onClick={() => {
                   setContextMenuPosition(undefined);
-                  setIsEditing(true);
+                  if (!isWorkspaceFolderGroup) {
+                    setIsEditing(true);
+                  }
                 }}
+                disabled={isWorkspaceFolderGroup}
                 role="menuitem"
                 type="button"
               >
@@ -870,7 +878,7 @@ export function SessionGroupSection({
               <div className="session-context-menu-divider" role="separator" />
               <button
                 className="session-context-menu-item session-context-menu-item-danger"
-                disabled={!canClose}
+                disabled={!canClose || isWorkspaceFolderGroup}
                 onClick={requestCloseGroup}
                 role="menuitem"
                 type="button"

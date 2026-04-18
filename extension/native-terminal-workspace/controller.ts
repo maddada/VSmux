@@ -106,8 +106,9 @@ import { SessionGridStore } from "../session-grid-store";
 import { SessionSidebarViewProvider } from "../session-sidebar-view";
 import {
   getDefaultShell,
-  getDefaultWorkspaceCwd,
   getErrorMessage,
+  getGroupWorkspaceCwd,
+  getSessionWorkspaceCwd,
   getWorkspaceId,
   focusEditorGroupByIndex,
 } from "../terminal-workspace-environment";
@@ -258,6 +259,10 @@ import {
   type AgentManagerXWorkspaceSnapshotMessage,
 } from "../agent-manager-x-bridge";
 import type { TerminalAgentStatus } from "../../shared/terminal-host-protocol";
+import {
+  getWorkspaceFolderDescriptors,
+  shouldUseWorkspaceFolderGroups,
+} from "../workspace-folder-groups";
 
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
@@ -284,6 +289,7 @@ export type NativeTerminalWorkspaceDebugState = {
 type SidebarCommandTerminalOptions = {
   closeOnExit?: boolean;
   command?: string;
+  cwd?: string;
   location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions;
 };
 
@@ -536,6 +542,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.sidebarProvider = new SessionSidebarViewProvider({
       onMessage: async (message) => this.handleSidebarMessage(message),
     });
+    void this.syncWorkspaceFolders();
 
     this.disposables.push(
       this.backend,
@@ -544,6 +551,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.workspaceAssetServer,
       this.workspacePanel,
       this.sidebarProvider,
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        void this.syncWorkspaceFolders();
+      }),
       this.backend.onDidChangeSessions(() => {
         void (async () => {
           await this.syncKnownSessionActivities(false);
@@ -712,8 +722,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     );
   }
 
-  public async createSession(): Promise<void> {
-    const sessionRecord = await this.createTerminalSession();
+  public async createSession(options?: { groupId?: string }): Promise<void> {
+    const sessionRecord = await this.createTerminalSession({ groupId: options?.groupId });
     if (!sessionRecord) {
       return;
     }
@@ -1095,7 +1105,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           async (progress) => {
             progress.report({ message: "Generating session name..." });
             return resolveSessionRenameTitle({
-              cwd: getDefaultWorkspaceCwd(),
+              cwd: getSessionWorkspaceCwd(this.store.getSession(sessionId)),
               settings: generator,
               title: trimmedTitle,
             });
@@ -1137,7 +1147,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.pendingFirstPromptAutoRenameBySessionId.add(sessionId);
     try {
       const resolvedTitle = await resolveSessionRenameTitleFromPrompt({
-        cwd: getDefaultWorkspaceCwd(),
+        cwd: getSessionWorkspaceCwd(sessionRecord),
         prompt: pendingPrompt,
         settings: generator,
       });
@@ -1718,6 +1728,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const terminal = this.createSidebarCommandTerminal(commandButton.name, {
         closeOnExit: true,
         command,
+        cwd: getGroupWorkspaceCwd(this.store.getActiveGroup()),
       });
       terminal.show(true);
       this.observeSidebarCommandTerminalExit(terminal, {
@@ -1728,6 +1739,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const terminal = this.createSidebarCommandTerminal(commandButton.name, {
+      cwd: getGroupWorkspaceCwd(this.store.getActiveGroup()),
       location: vscode.TerminalLocation.Panel,
     });
     terminal.show(true);
@@ -1754,7 +1766,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
 
     try {
-      const cwd = getDefaultWorkspaceCwd();
+      const cwd = getGroupWorkspaceCwd(this.store.getActiveGroup());
       const status = await getGitStatusDetails(cwd);
       const needsCommit = action === "commit" || status.hasWorkingTreeChanges;
       const shouldPromptForCommit =
@@ -1887,7 +1899,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         async (progress) =>
           runSidebarGitActionWorkflow({
             action,
-            cwd: getDefaultWorkspaceCwd(),
+            cwd: getGroupWorkspaceCwd(this.store.getActiveGroup()),
             generator,
             onProgress: (message) => progress.report({ message }),
             preparedCommit,
@@ -1953,7 +1965,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.afterStateChange({ sidebarAlreadyRefreshed: true });
 
     const normalizedCwd = input.cwd?.trim();
-    if (normalizedCwd && normalizedCwd !== getDefaultWorkspaceCwd()) {
+    if (normalizedCwd && normalizedCwd !== getSessionWorkspaceCwd(sessionRecord)) {
       await this.backend.writeText(
         sessionRecord.sessionId,
         `cd ${quoteShellLiteral(normalizedCwd)}`,
@@ -2079,7 +2091,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     section: SidebarCollapsibleSection,
     collapsed: boolean,
   ): Promise<void> {
+    logVSmuxReproTrace("repro.sidebarCollapse.persistRequested", {
+      collapsed,
+      currentCollapsedSections: getSidebarSectionCollapseState(this.context, this.workspaceId),
+      section,
+      workspaceId: this.workspaceId,
+    });
     await saveSidebarSectionCollapsed(this.context, this.workspaceId, section, collapsed);
+    logVSmuxReproTrace("repro.sidebarCollapse.persisted", {
+      collapsed,
+      nextCollapsedSections: getSidebarSectionCollapseState(this.context, this.workspaceId),
+      section,
+      workspaceId: this.workspaceId,
+    });
     await this.refreshSidebar("hydrate");
   }
 
@@ -2327,8 +2351,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async createSessionInGroup(groupId: string): Promise<void> {
-    await this.store.focusGroup(groupId);
-    await this.createSession();
+    await this.createSession({ groupId });
   }
 
   public async closeGroup(groupId: string): Promise<void> {
@@ -2389,6 +2412,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {
     if (message.type === "sidebarDebugLog") {
       logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
+      if (message.event.startsWith("repro.")) {
+        logVSmuxReproTrace(`sidebar.webview.${message.event}`, message.details);
+      }
       if (message.event.startsWith("repro.sidebarOrder.")) {
         this.logSidebarOrderTrace(`sidebar.webview.${message.event}`, message.details);
       }
@@ -2510,12 +2536,31 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     type: SidebarHydrateMessage["type"] | SidebarSessionStateMessage["type"] = "sessionState",
   ): Promise<void> {
     const revision = ++this.nextSidebarRevision;
+    logVSmuxReproTrace("repro.sidebarHydrate.refreshRequested", {
+      activeSnapshot: this.describeActiveSnapshot(),
+      collapsedSections: getSidebarSectionCollapseState(this.context, this.workspaceId),
+      revision,
+      type,
+      workspaceId: this.workspaceId,
+    });
     await this.sidebarProvider.postMessage(await this.createSidebarMessage(type, revision));
     await this.publishAgentManagerXSnapshot();
   }
 
   private async publishAgentManagerXSnapshot(): Promise<void> {
-    this.agentManagerXBridge.updateSnapshot(await this.createAgentManagerXWorkspaceSnapshot());
+    const snapshot = await this.createAgentManagerXWorkspaceSnapshot();
+    logVSmuxReproTrace("repro.agentManagerX.snapshotPublished", {
+      focusedSessionIds: snapshot.sessions
+        .filter((session) => session.isFocused)
+        .map((session) => session.sessionId),
+      sessionCount: snapshot.sessions.length,
+      t3SessionIds: snapshot.sessions
+        .filter((session) => session.kind === "t3")
+        .map((session) => session.sessionId),
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    });
+    this.agentManagerXBridge.updateSnapshot(snapshot);
   }
 
   private async applyCodexTerminalTitleFromWelcome(): Promise<void> {
@@ -2588,7 +2633,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async createAgentManagerXWorkspaceSnapshot(): Promise<AgentManagerXWorkspaceSnapshotMessage> {
-    const workspacePath = getDefaultWorkspaceCwd();
+    const workspacePath = getGroupWorkspaceCwd(this.store.getActiveGroup());
     const workspaceSnapshot = this.getPresentedWorkspaceSnapshot();
     const sessionActivityContext = this.createSessionActivityContext();
     const sessions = workspaceSnapshot.groups.flatMap((group) =>
@@ -2636,6 +2681,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       isVisible: sidebarSession.isVisible,
       kind: sidebarSession.sessionKind === "t3" ? "t3" : "terminal",
       lastActiveAt: sidebarSession.lastInteractionAt ?? new Date(0).toISOString(),
+      projectName: sidebarSession.workspaceFolderName?.trim() || undefined,
+      projectPath: sidebarSession.workspaceFolderPath?.trim() || undefined,
       sessionId: sidebarSession.sessionId,
       status: sidebarSession.activity,
       terminalTitle: sidebarSession.terminalTitle,
@@ -2644,6 +2691,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async focusSessionFromAgentManagerX(sessionId: string): Promise<void> {
+    logVSmuxReproTrace("repro.agentManagerX.focusRequested", {
+      activeSnapshot: this.describeActiveSnapshot(),
+      requestedSessionId: sessionId,
+      targetGroup: this.describeFocusTraceGroup(this.store.getSessionGroup(sessionId)),
+    });
     await this.focusSession(sessionId, "sidebar");
   }
 
@@ -3301,7 +3353,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const runtime = this.getOrCreateT3Runtime();
     const sessionRecord = await this.store.createSession({
       kind: "t3",
-      t3: createPendingT3Metadata(runtime.getServerOrigin()),
+      t3: createPendingT3Metadata(
+        runtime.getServerOrigin(),
+        getGroupWorkspaceCwd(this.store.getActiveGroup()),
+      ),
       title: "T3 Code",
     });
     if (!sessionRecord) {
@@ -3364,10 +3419,31 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return refreshedSession && isT3Session(refreshedSession) ? refreshedSession : sessionRecord;
   }
 
+  private async syncWorkspaceFolders(): Promise<void> {
+    const folders = getWorkspaceFolderDescriptors();
+    if (!shouldUseWorkspaceFolderGroups(folders)) {
+      await this.refreshSidebar();
+      return;
+    }
+
+    const changed = await this.store.syncWorkspaceFolders(folders);
+    if (changed) {
+      await this.afterStateChange();
+      return;
+    }
+
+    await this.refreshSidebar();
+  }
+
   private async createTerminalSession(options?: {
+    groupId?: string;
     terminalEngine?: TerminalEngine;
     title?: string;
   }): Promise<SessionRecord | undefined> {
+    if (options?.groupId) {
+      await this.store.focusGroup(options.groupId);
+    }
+
     return this.store.createSession({
       terminalEngine: options?.terminalEngine ?? getDefaultTerminalEngine(),
       title: options?.title,
@@ -4539,12 +4615,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     name: string,
     options: SidebarCommandTerminalOptions = {},
   ): vscode.Terminal {
-    const { closeOnExit = false, command, location = vscode.TerminalLocation.Panel } = options;
+    const {
+      closeOnExit = false,
+      command,
+      cwd = getGroupWorkspaceCwd(this.store.getActiveGroup()),
+      location = vscode.TerminalLocation.Panel,
+    } = options;
 
     if (closeOnExit && command) {
       const shellPath = getDefaultShell();
       return vscode.window.createTerminal({
-        cwd: getDefaultWorkspaceCwd(),
+        cwd,
         iconPath: new vscode.ThemeIcon("terminal"),
         isTransient: true,
         location,
@@ -4555,7 +4636,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     return vscode.window.createTerminal({
-      cwd: getDefaultWorkspaceCwd(),
+      cwd,
       iconPath: new vscode.ThemeIcon("terminal"),
       isTransient: true,
       location,
@@ -4725,7 +4806,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const nextState = await loadSidebarGitState(
-      getDefaultWorkspaceCwd(),
+      getGroupWorkspaceCwd(this.store.getActiveGroup()),
       getPrimarySidebarGitAction(this.context, this.workspaceId),
       this.gitActionInProgress,
     );
@@ -5897,13 +5978,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
 type TerminalSurfaceEnsureResult = "created-terminal" | "existing-live-terminal" | "non-terminal";
 
-function createPendingT3Metadata(serverOrigin: string) {
+function createPendingT3Metadata(serverOrigin: string, workspaceRoot: string) {
   const pendingId = `pending-${randomUUID()}`;
   return {
     projectId: pendingId,
     serverOrigin,
     threadId: pendingId,
-    workspaceRoot: getDefaultWorkspaceCwd(),
+    workspaceRoot,
   };
 }
 

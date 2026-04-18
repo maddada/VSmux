@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as os from "node:os";
 import * as vscode from "vscode";
-import type { SessionGridSnapshot } from "../shared/session-grid-contract";
+import type { SessionGridSnapshot, SessionGroupRecord, SessionRecord } from "../shared/session-grid-contract";
 import type {
   TerminalAgentStatus,
   TerminalSessionSnapshot,
@@ -90,6 +90,16 @@ export function getDefaultShell(): string {
 
 export function getDefaultWorkspaceCwd(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
+}
+
+export function getGroupWorkspaceCwd(group: Pick<SessionGroupRecord, "workspaceFolderPath"> | undefined): string {
+  return group?.workspaceFolderPath?.trim() || getDefaultWorkspaceCwd();
+}
+
+export function getSessionWorkspaceCwd(
+  session: Pick<SessionRecord, "workspaceFolderPath"> | undefined,
+): string {
+  return session?.workspaceFolderPath?.trim() || getDefaultWorkspaceCwd();
 }
 
 export function getErrorMessage(error: unknown): string {
