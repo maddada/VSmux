@@ -111,6 +111,20 @@ export class WorkspacePanelManager implements vscode.Disposable {
     return this.panel?.visible ?? false;
   }
 
+  public isFocused(): boolean {
+    return this.panelFocusContext;
+  }
+
+  public isActiveEditorTab(
+    activeGroup: vscode.TabGroup | undefined = vscode.window.tabGroups.activeTabGroup,
+  ): boolean {
+    if (activeGroup?.viewColumn === undefined) {
+      return false;
+    }
+
+    return getTabWebviewViewType(activeGroup.activeTab?.input) === WORKSPACE_PANEL_TYPE;
+  }
+
   public getWebview(): vscode.Webview {
     return this.getOrCreatePanel().webview;
   }

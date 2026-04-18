@@ -748,6 +748,42 @@ describe("WorkspacePanelManager", () => {
 
     manager.dispose();
   });
+
+  test("should detect when the VSmux webview is the active editor tab", () => {
+    const manager = new WorkspacePanelManager({
+      context: createMockContext(),
+      onMessage: vi.fn(),
+    });
+
+    expect(
+      manager.isActiveEditorTab({
+        activeTab: {
+          input: new vscode.TabInputWebview("vsmux.workspace"),
+        },
+        viewColumn: 1,
+      } as never),
+    ).toBe(true);
+
+    expect(
+      manager.isActiveEditorTab({
+        activeTab: {
+          input: new vscode.TabInputWebview("workbench.welcomePage"),
+        },
+        viewColumn: 1,
+      } as never),
+    ).toBe(false);
+
+    expect(
+      manager.isActiveEditorTab({
+        activeTab: {
+          input: new vscode.TabInputWebview("vsmux.workspace"),
+        },
+        viewColumn: undefined,
+      } as never),
+    ).toBe(false);
+
+    manager.dispose();
+  });
 });
 
 function createMockContext() {

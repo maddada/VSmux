@@ -572,10 +572,6 @@ export function SortableSessionCard({
 
   const requestFocusSession = () => {
     const shouldAcknowledgeAttention = session.activity === "attention";
-    if (session.isFocused && !session.isSleeping && !shouldAcknowledgeAttention) {
-      return;
-    }
-
     vscode.postMessage({
       details: {
         activity: session.activity,

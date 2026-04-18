@@ -1,5 +1,5 @@
 type CreateSessionFocusPlanOptions = {
-  isWorkspacePanelVisible: boolean;
+  isWorkspacePanelActiveEditorTab: boolean;
   source?: "sidebar" | "workspace";
 };
 
@@ -8,10 +8,10 @@ type SessionFocusPlan = {
 };
 
 export function createSessionFocusPlan({
-  isWorkspacePanelVisible,
+  isWorkspacePanelActiveEditorTab,
   source,
 }: CreateSessionFocusPlanOptions): SessionFocusPlan {
   return {
-    shouldRevealWorkspacePanel: source === "sidebar" && !isWorkspacePanelVisible,
+    shouldRevealWorkspacePanel: source === "sidebar" && !isWorkspacePanelActiveEditorTab,
   };
 }

@@ -5588,7 +5588,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     source: "sidebar" | "workspace" | undefined,
   ): Promise<void> {
     const focusPlan = createSessionFocusPlan({
-      isWorkspacePanelVisible: this.workspacePanel.isVisible(),
+      isWorkspacePanelActiveEditorTab: this.workspacePanel.isActiveEditorTab(),
       source,
     });
 

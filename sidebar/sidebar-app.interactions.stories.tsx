@@ -685,6 +685,18 @@ export const SessionCardActions: Story = {
       await expectMessage({ sessionId: "session-3", type: "focusSession" });
     });
 
+    await step(
+      "still emit focus when clicking the already-focused session card again",
+      async () => {
+        resetSidebarStoryMessages();
+
+        const sessionCard = await findSessionCard();
+        await userEvent.click(sessionCard);
+
+        await expectMessage({ sessionId: "session-3", type: "focusSession" });
+      },
+    );
+
     await step("rename a session with a double click", async () => {
       resetSidebarStoryMessages();
 
