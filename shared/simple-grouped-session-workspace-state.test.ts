@@ -24,6 +24,60 @@ import {
 } from "./simple-grouped-session-workspace-state";
 
 describe("normalizeSimpleGroupedSessionWorkspaceSnapshot", () => {
+  test("should backfill boundThreadId for legacy T3 sessions", () => {
+    const snapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot({
+      activeGroupId: DEFAULT_MAIN_GROUP_ID,
+      groups: [
+        {
+          groupId: DEFAULT_MAIN_GROUP_ID,
+          snapshot: {
+            focusedSessionId: "session-1",
+            fullscreenRestoreVisibleCount: undefined,
+            sessions: [
+              {
+                ...createSessionRecord(1, 0, {
+                  kind: "t3",
+                  t3: {
+                    projectId: "project-1",
+                    serverOrigin: "http://127.0.0.1:3774",
+                    threadId: "thread-1",
+                    workspaceRoot: "/workspace",
+                  },
+                  title: "T3 Code",
+                }),
+                t3: {
+                  projectId: "project-1",
+                  serverOrigin: "http://127.0.0.1:3774",
+                  threadId: "thread-1",
+                  workspaceRoot: "/workspace",
+                },
+              },
+            ],
+            viewMode: "grid",
+            visibleCount: 1,
+            visibleSessionIds: ["session-1"],
+          },
+          title: "Main",
+        },
+      ],
+      nextGroupNumber: 2,
+      nextSessionDisplayId: 1,
+      nextSessionNumber: 2,
+    });
+
+    expect(snapshot.groups[0]?.snapshot.sessions[0]).toEqual(
+      expect.objectContaining({
+        t3: {
+          boundThreadId: "thread-1",
+          projectId: "project-1",
+          serverOrigin: "http://127.0.0.1:3774",
+          threadId: "thread-1",
+          workspaceRoot: "/workspace",
+        },
+      }),
+    );
+  });
+
   test("should drop browser sessions and keep a usable main group", () => {
     const snapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot({
       activeGroupId: DEFAULT_MAIN_GROUP_ID,
@@ -580,6 +634,7 @@ describe("setT3SessionMetadataInSimpleWorkspace", () => {
       expect.objectContaining({
         sessionId: normalizedSessionId,
         t3: {
+          boundThreadId: "thread-456",
           projectId: "project-123",
           serverOrigin: "http://127.0.0.1:3773",
           threadId: "thread-456",

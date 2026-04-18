@@ -3,6 +3,7 @@ import {
   type SessionGridSnapshot,
   type SessionRecord,
 } from "../../shared/session-grid-contract";
+import { getT3SessionBoundThreadId } from "../../shared/t3-session-metadata";
 import type { TerminalAgentStatus } from "../../shared/terminal-host-protocol";
 import {
   getTitleDerivedSessionActivityFromTransition,
@@ -129,7 +130,9 @@ export async function acknowledgeSessionAttention(
 ): Promise<boolean> {
   const sessionRecord = context.getSession(sessionId);
   if (sessionRecord && isT3Session(sessionRecord)) {
-    const acknowledgedAttention = context.acknowledgeT3Thread(sessionRecord.t3.threadId);
+    const acknowledgedAttention = context.acknowledgeT3Thread(
+      getT3SessionBoundThreadId(sessionRecord.t3),
+    );
     if (acknowledgedAttention) {
       await context.refreshSidebar();
     }

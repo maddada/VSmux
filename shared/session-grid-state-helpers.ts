@@ -11,6 +11,7 @@ import {
   type SessionRecord,
   type VisibleSessionCount,
 } from "./session-grid-contract";
+import { normalizeT3SessionMetadata } from "./t3-session-metadata";
 
 export function dedupeSessionIds(sessionIds: readonly string[]): string[] {
   const uniqueSessionIds = new Set<string>();
@@ -231,12 +232,14 @@ export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
       alias,
       displayId,
       kind: "t3",
-      t3: {
+      t3: normalizeT3SessionMetadata({
+        boundThreadId:
+          typeof session.t3.boundThreadId === "string" ? session.t3.boundThreadId : undefined,
         projectId: session.t3.projectId,
         serverOrigin: session.t3.serverOrigin,
         threadId: session.t3.threadId,
         workspaceRoot: session.t3.workspaceRoot,
-      },
+      }),
       title,
     };
   }

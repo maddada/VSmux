@@ -12,6 +12,7 @@ export const MIN_WORKING_DURATION_BEFORE_LAST_ACTIVITY_MS = 7_000;
 type SessionActivityContext = {
   cancelPendingCompletionSound: (sessionId: string) => void;
   getActivitySuppressedUntil?: (sessionRecord: SessionRecord) => number | undefined;
+  getAttentionSuppressedUntil?: (sessionRecord: SessionRecord) => number | undefined;
   getSessionSnapshot: (sessionId: string) => TerminalSessionSnapshot | undefined;
   getT3ActivityState: (sessionRecord: SessionRecord) => {
     activity: TerminalAgentStatus;
@@ -117,6 +118,21 @@ export function getEffectiveSessionActivity(
     const workingStartedAt = context.workingStartedAtBySessionId.get(sessionId);
     const workingDurationMs =
       workingStartedAt === undefined ? undefined : Math.max(0, now - workingStartedAt);
+    const attentionSuppressedUntil = context.getAttentionSuppressedUntil?.(sessionRecord);
+    if (
+      attentionSuppressedUntil !== undefined &&
+      Number.isFinite(attentionSuppressedUntil) &&
+      now < attentionSuppressedUntil
+    ) {
+      const suppressedActivity =
+        context.lastKnownActivityBySessionId.get(sessionId) === "working" ? "working" : "idle";
+      return {
+        activity: suppressedActivity,
+        agentName: sessionSnapshot.agentName,
+        workingDurationMs,
+      };
+    }
+
     if (
       (!shouldTrustNativeAgentStatus && workingStartedAt === undefined) ||
       (!shouldTrustNativeAgentStatus &&

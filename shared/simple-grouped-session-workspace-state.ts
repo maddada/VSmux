@@ -23,7 +23,9 @@ import {
   claimNextSessionDisplayId,
   normalizeWorkspaceSessionDisplayIds,
 } from "./grouped-session-workspace-state-helpers";
+import { normalizeSessionRecord } from "./session-grid-state-helpers";
 import { reorderGroupSessions } from "./session-order-reorder";
+import { normalizeT3SessionMetadata } from "./t3-session-metadata";
 
 type WorkspaceMutationResult = {
   changed: boolean;
@@ -500,7 +502,7 @@ export function setT3SessionMetadataInSimpleWorkspace(
 
     return {
       ...session,
-      t3,
+      t3: normalizeT3SessionMetadata(t3),
     };
   });
 }
@@ -1028,13 +1030,14 @@ function getStableVisibleIds(
 }
 
 function withCanonicalSessionId(session: SessionRecord): SessionRecord {
+  const normalizedSession = normalizeSessionRecord(session);
   const canonicalSessionId = createCanonicalSessionId(session.displayId);
-  if (session.sessionId === canonicalSessionId) {
-    return session;
+  if (normalizedSession.sessionId === canonicalSessionId) {
+    return normalizedSession;
   }
 
   return {
-    ...session,
+    ...normalizedSession,
     sessionId: canonicalSessionId,
   };
 }

@@ -10,6 +10,9 @@ import type {
   ExtensionToSidebarMessage,
   SidebarToExtensionMessage,
 } from "../shared/session-grid-contract";
+import { getDebuggingMode } from "./native-terminal-workspace/settings";
+import { appendT3CloseSessionReproLog } from "./t3-close-session-repro-log";
+import { getDefaultWorkspaceCwd } from "./terminal-workspace-environment";
 
 const EXTENSION_ID = "maddada.VSmux";
 
@@ -21,6 +24,8 @@ type SessionSidebarViewOptions = {
 export class SessionSidebarViewProvider implements vscode.Disposable, vscode.WebviewViewProvider {
   private readonly disposables: vscode.Disposable[] = [];
   private messageQueue: Promise<void> = Promise.resolve();
+  private nextQueuedMessageId = 0;
+  private queuedSidebarMessageCount = 0;
   private view: vscode.WebviewView | undefined;
   private latestMessage: ExtensionToSidebarMessage | undefined;
 
@@ -85,14 +90,124 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           return;
         }
 
-        if (shouldBypassSidebarMessageQueue(message)) {
-          void Promise.resolve(this.options.onMessage(message)).catch(() => undefined);
+        const shouldBypassQueue = shouldBypassSidebarMessageQueue(message);
+        const queueMessageId = this.nextQueuedMessageId + 1;
+        if (message.type === "closeSession") {
+          this.logCloseSessionRepro("sessionSidebarView.closeSession.received", {
+            bypassQueue: shouldBypassQueue,
+            queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+            sessionId: message.sessionId,
+          });
+        }
+
+        if (shouldBypassQueue) {
+          if (message.type === "closeSession") {
+            this.logCloseSessionRepro("sessionSidebarView.closeSession.bypassDispatchStart", {
+              queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+              sessionId: message.sessionId,
+            });
+          }
+          void Promise.resolve(this.options.onMessage(message))
+            .then(() => {
+              if (message.type === "closeSession") {
+                this.logCloseSessionRepro(
+                  "sessionSidebarView.closeSession.bypassDispatchComplete",
+                  {
+                    queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                    sessionId: message.sessionId,
+                  },
+                );
+              }
+            })
+            .catch((error) => {
+              if (message.type === "closeSession") {
+                this.logCloseSessionRepro("sessionSidebarView.closeSession.bypassDispatchFailed", {
+                  error: getErrorMessage(error),
+                  queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                  sessionId: message.sessionId,
+                });
+              }
+            });
           return;
+        }
+
+        this.nextQueuedMessageId = queueMessageId;
+        this.queuedSidebarMessageCount += 1;
+        this.logCloseSessionRepro("sessionSidebarView.queue.enqueued", {
+          message: describeQueuedSidebarMessage(message),
+          queueMessageId,
+          queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+        });
+        if (message.type === "closeSession") {
+          this.logCloseSessionRepro("sessionSidebarView.closeSession.enqueued", {
+            queueMessageId,
+            queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+            sessionId: message.sessionId,
+          });
         }
 
         this.messageQueue = this.messageQueue
           .catch(() => undefined)
-          .then(() => this.options.onMessage(message));
+          .then(async () => {
+            this.logCloseSessionRepro("sessionSidebarView.queue.dispatchStart", {
+              message: describeQueuedSidebarMessage(message),
+              queueMessageId,
+              queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+            });
+            if (message.type === "closeSession") {
+              this.logCloseSessionRepro("sessionSidebarView.closeSession.dispatchStart", {
+                queueMessageId,
+                queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                sessionId: message.sessionId,
+              });
+            }
+
+            try {
+              await this.options.onMessage(message);
+              this.logCloseSessionRepro("sessionSidebarView.queue.dispatchComplete", {
+                message: describeQueuedSidebarMessage(message),
+                queueMessageId,
+                queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+              });
+              if (message.type === "closeSession") {
+                this.logCloseSessionRepro("sessionSidebarView.closeSession.dispatchComplete", {
+                  queueMessageId,
+                  queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                  sessionId: message.sessionId,
+                });
+              }
+            } catch (error) {
+              this.logCloseSessionRepro("sessionSidebarView.queue.dispatchFailed", {
+                error: getErrorMessage(error),
+                message: describeQueuedSidebarMessage(message),
+                queueMessageId,
+                queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+              });
+              if (message.type === "closeSession") {
+                this.logCloseSessionRepro("sessionSidebarView.closeSession.dispatchFailed", {
+                  error: getErrorMessage(error),
+                  queueMessageId,
+                  queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                  sessionId: message.sessionId,
+                });
+              }
+              throw error;
+            } finally {
+              this.queuedSidebarMessageCount = Math.max(0, this.queuedSidebarMessageCount - 1);
+              this.logCloseSessionRepro("sessionSidebarView.queue.settled", {
+                message: describeQueuedSidebarMessage(message),
+                queueMessageId,
+                queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+              });
+              if (message.type === "closeSession") {
+                this.logCloseSessionRepro("sessionSidebarView.closeSession.queueSettled", {
+                  queueMessageId,
+                  queuedSidebarMessageCount: this.queuedSidebarMessageCount,
+                  sessionId: message.sessionId,
+                });
+              }
+            }
+          });
       }),
     );
 
@@ -102,10 +217,18 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
       void webviewView.webview.postMessage(this.latestMessage);
     }
   }
+
+  private logCloseSessionRepro(event: string, details: Record<string, unknown>): void {
+    if (!getDebuggingMode()) {
+      return;
+    }
+    void appendT3CloseSessionReproLog(getDefaultWorkspaceCwd(), event, details);
+  }
 }
 
 export function shouldBypassSidebarMessageQueue(message: SidebarToExtensionMessage): boolean {
   switch (message.type) {
+    case "closeSession":
     case "focusSession":
     case "sidebarDebugLog":
     case "runSidebarGitAction":
@@ -192,6 +315,32 @@ function getExtensionUri(): vscode.Uri | undefined {
 
 function getNonce(): string {
   return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function describeQueuedSidebarMessage(
+  message: SidebarToExtensionMessage,
+): Record<string, string | undefined> {
+  return {
+    groupId:
+      "groupId" in message && typeof message.groupId === "string" ? message.groupId : undefined,
+    historyId:
+      "historyId" in message && typeof message.historyId === "string"
+        ? message.historyId
+        : undefined,
+    requestId:
+      "requestId" in message && typeof message.requestId === "string"
+        ? message.requestId
+        : undefined,
+    sessionId:
+      "sessionId" in message && typeof message.sessionId === "string"
+        ? message.sessionId
+        : undefined,
+    type: message.type,
+  };
 }
 
 export function isSidebarMessage(candidate: unknown): candidate is SidebarToExtensionMessage {

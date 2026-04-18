@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getT3SessionSurfaceTitle, type T3SessionRecord } from "../../shared/session-grid-contract";
+import { getT3SessionBoundThreadId } from "../../shared/t3-session-metadata";
 
 export const T3_PANEL_TYPE = "VSmux.t3Session";
 
@@ -20,9 +21,13 @@ export function getRenderKey(sessionRecord: T3SessionRecord): string {
     sessionRecord.alias,
     sessionRecord.t3.projectId,
     sessionRecord.t3.serverOrigin,
-    sessionRecord.t3.threadId,
+    getT3SessionBoundThreadId(sessionRecord.t3),
     sessionRecord.t3.workspaceRoot,
   ].join("|");
+}
+
+export function getHtmlCacheKey(sessionRecord: T3SessionRecord): string {
+  return ["ready", getRenderKey(sessionRecord)].join(":");
 }
 
 export function getObservedPanelViewColumn(panelTitle: string): vscode.ViewColumn | undefined {

@@ -6,5 +6,8 @@ export function shouldSkipSessionForIndicatorProtectedGroupAction(
   return session.activity === "working" || session.activity === "attention";
 }
 
-export const shouldSkipSessionForGroupFullReload =
-  shouldSkipSessionForIndicatorProtectedGroupAction;
+export function shouldSkipSessionForGroupFullReload(
+  session: Pick<SidebarSessionItem, "activity" | "isSleeping">,
+): boolean {
+  return session.isSleeping === true || shouldSkipSessionForIndicatorProtectedGroupAction(session);
+}

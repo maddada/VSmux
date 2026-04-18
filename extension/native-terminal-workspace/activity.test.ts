@@ -155,6 +155,35 @@ describe("syncKnownSessionActivities", () => {
     expect(lastKnownActivityBySessionId.get(session.sessionId)).toBe("idle");
     vi.useRealTimers();
   });
+
+  test("should keep showing working during temporary escape suppression before attention", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const session = createSessionRecord(1, 0);
+    const context = {
+      cancelPendingCompletionSound: vi.fn(),
+      getAttentionSuppressedUntil: () => Date.now() + 2_000,
+      getSessionSnapshot: () => createSnapshot(session.sessionId, "attention"),
+      getT3ActivityState: () => ({ activity: "idle" as const, isRunning: false }),
+      lastKnownActivityBySessionId: new Map<string, TerminalSessionSnapshot["agentStatus"]>([
+        [session.sessionId, "working"],
+      ]),
+      queueCompletionSound: vi.fn(),
+      workingStartedAtBySessionId: new Map<string, number>([
+        [session.sessionId, Date.now() - MIN_WORKING_DURATION_BEFORE_ATTENTION_MS],
+      ]),
+      workspaceId: "workspace-1",
+    };
+
+    const activity = getEffectiveSessionActivity(
+      context,
+      session,
+      createSnapshot(session.sessionId, "attention"),
+    );
+
+    expect(activity.activity).toBe("working");
+    vi.useRealTimers();
+  });
 });
 
 describe("getEffectiveSessionActivity", () => {

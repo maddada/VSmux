@@ -21,6 +21,7 @@ const RECONNECT_DELAY_MS = 1_500;
 const REFRESH_DEBOUNCE_MS = 100;
 const SNAPSHOT_POLL_INTERVAL_MS = 2_500;
 type T3ActivityMonitorOptions = {
+  getSnapshot?: () => SnapshotResponse | Promise<SnapshotResponse>;
   getWebSocketUrl?: () => string | Promise<string>;
 };
 
@@ -170,6 +171,11 @@ export class T3ActivityMonitor implements vscode.Disposable {
   }
 
   private async requestSnapshot(): Promise<SnapshotResponse> {
+    if (this.options.getSnapshot) {
+      logVSmuxDebug("t3.activityMonitor.requestSnapshot.fetch");
+      return await this.options.getSnapshot();
+    }
+
     const socket = await this.connect();
     const requestId = createT3RpcRequestId();
     logVSmuxDebug("t3.activityMonitor.requestSnapshot.sent", {

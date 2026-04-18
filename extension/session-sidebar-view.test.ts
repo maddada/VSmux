@@ -103,6 +103,15 @@ describe("isSidebarMessage", () => {
 });
 
 describe("shouldBypassSidebarMessageQueue", () => {
+  test("should bypass closeSession messages", () => {
+    expect(
+      shouldBypassSidebarMessageQueue({
+        sessionId: "session-7",
+        type: "closeSession",
+      }),
+    ).toBe(true);
+  });
+
   test("should bypass focusSession messages", () => {
     expect(
       shouldBypassSidebarMessageQueue({

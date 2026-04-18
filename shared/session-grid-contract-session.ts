@@ -22,6 +22,7 @@ import {
   type TerminalViewMode,
   type VisibleSessionCount,
 } from "./session-grid-contract-core";
+import { normalizeT3SessionMetadata } from "./t3-session-metadata";
 
 const LEADING_TERMINAL_TITLE_STATUS_MARKER_PATTERN = /^[\s\u2800-\u28ff·•⋅◦✳*✦◇🤖🔔]+/u;
 const LEADING_TERMINAL_TITLE_PREFIX_PATTERN = /^(?:OC\s*\|\s*)+/iu;
@@ -265,7 +266,7 @@ export function createSessionRecord(
       row: position.row,
       sessionId,
       slotIndex,
-      t3: options.t3,
+      t3: normalizeT3SessionMetadata(options.t3),
       title,
     };
   }

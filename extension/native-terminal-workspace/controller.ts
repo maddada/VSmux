@@ -78,6 +78,10 @@ import { shouldPreserveLastActivityForTerminalWrite } from "./last-activity-cont
 import { createSessionFocusPlan } from "./session-focus";
 import { createSessionRenamePlan } from "./session-rename";
 import {
+  hasTerminalFrontendConnectionAfterReload,
+  shouldAwaitWorkspaceTerminalFrontendConnection,
+} from "./terminal-frontend-attachment";
+import {
   PreviousSessionHistory,
   type PreviousSessionHistoryEntry,
 } from "../previous-session-history";
@@ -132,16 +136,17 @@ import {
 } from "../codex-terminal-title-config";
 import { dispatchSidebarMessage } from "./sidebar-message-dispatch";
 import { getVscodeWorkspaceLogLabel } from "../../shared/vscode-workspace-log-context";
-import {
-  shouldSkipSessionForGroupFullReload,
-  shouldSkipSessionForIndicatorProtectedGroupAction,
-} from "./full-reload";
+import { shouldSkipSessionForIndicatorProtectedGroupAction } from "./full-reload";
 import {
   getAutoSleepCheckIntervalMs,
   hasReachedAutoSleepTimeout,
   shouldAutoSleepSidebarSession,
 } from "./auto-sleep";
 import { finalizeRestoredPreviousSession } from "./restore-previous-session";
+import {
+  clearReusedSessionCloseState,
+  finalizeClosingSessionCloseState,
+} from "./session-close-state";
 import {
   getWorkspacePaneSessionRecords,
   sortWorkspacePaneSessionRecords,
@@ -194,6 +199,8 @@ import {
   getSidebarActiveSessionsSortMode,
   saveSidebarActiveSessionsSortMode,
 } from "../sidebar-active-sessions-sort-preferences";
+import { appendT3CloseSessionReproLog } from "../t3-close-session-repro-log";
+import { appendT3ThreadBindingReproLog } from "../t3-thread-binding-repro-log";
 import {
   COMPLETION_BELL_ENABLED_KEY,
   PRIMARY_SESSIONS_CONTAINER_ID,
@@ -251,26 +258,42 @@ import {
   createT3BrowserAccessSource,
   createT3IframeSource,
 } from "../t3-webview-manager/html";
+import { getHtmlCacheKey as getT3PaneHtmlReadyCacheKey } from "../t3-webview-manager/helpers";
 import { playCloseTerminalOnExitSound } from "../terminal-exit-sound";
+import {
+  getT3SessionBoundThreadId,
+  setT3SessionBoundThreadId,
+} from "../../shared/t3-session-metadata";
 import {
   AgentManagerXBridgeClient,
   type AgentManagerXWorkspaceSession,
   type AgentManagerXWorkspaceSnapshotMessage,
 } from "../agent-manager-x-bridge";
 import type { TerminalAgentStatus } from "../../shared/terminal-host-protocol";
+import {
+  T3_THREAD_INITIAL_BOUND_THREAD_CONFIRMATION_MS,
+  T3_THREAD_CHANGE_STARTUP_SUPPRESSION_MS,
+  evaluateT3ThreadChangeGuard,
+} from "./t3-thread-change-guard";
 
 const SHORTCUT_LABEL_PLATFORM = process.platform === "darwin" ? "mac" : "default";
 const COMMAND_TERMINAL_EXIT_POLL_MS = 250;
 const COMPLETION_SOUND_CONFIRMATION_DELAY_MS = 1_000;
 const DONE_ATTENTION_FOCUS_DWELL_MS = 1_200;
 const DONE_ATTENTION_MIN_NOTICE_MS = 3_000;
+const ESCAPE_ATTENTION_SUPPRESSION_MS = 2_000;
 const FORK_RENAME_DELAY_MS = 4_000;
 const WORKSPACE_RENAME_TOAST_DURATION_MS = 3_000;
 const SIMPLE_BROWSER_OPEN_COMMAND = "simpleBrowser.api.open";
 const TOGGLE_MAXIMIZE_EDITOR_GROUP_COMMAND = "workbench.action.toggleMaximizeEditorGroup";
 const FULL_RELOAD_SUPPORTED_AGENTS_LABEL = "Codex, Claude, and OpenCode";
+const FULL_RELOAD_FRONTEND_CONNECT_TIMEOUT_MS = 12_000;
+const FULL_RELOAD_FRONTEND_CONNECT_POLL_MS = 100;
 const SIDEBAR_ORDER_REPRO_TAG = "SIDEBAR_ORDER_REPRO";
+const AUTO_SUBMIT_STAGED_RENAME_DELAY_MS = 180;
+
 const MAX_NATIVE_CLIPBOARD_OUTPUT_BYTES = 64 * 1024 * 1024;
+const RECENTLY_CLOSED_T3_SESSION_GRACE_MS = 30_000;
 const execFileAsync = promisify(execFile);
 
 export { SESSIONS_VIEW_ID } from "./settings";
@@ -287,12 +310,20 @@ type SidebarCommandTerminalOptions = {
   location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions;
 };
 
+type CloseSessionSource =
+  | "agent-manager-x"
+  | "internal"
+  | "kill-t3-runtime-session"
+  | "sidebar"
+  | "workspace";
+
 export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly backend: DaemonTerminalWorkspaceBackend;
   private readonly disposables: vscode.Disposable[] = [];
   private hasApprovedUntrustedShells = vscode.workspace.isTrusted;
-  private pendingReconcileRequest: { version: number } | undefined;
+  private lastRequestedReconcileReason = "initial";
   private reconcileRequestVersion = 0;
+  private completedReconcileVersion = 0;
   private reconcileRunner: Promise<void> | undefined;
   private suppressedObservedFocusDepth = 0;
   private readonly sidebarAgentIconBySessionId = new Map<string, SidebarAgentIcon>();
@@ -304,11 +335,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly store: SessionGridStore;
   private readonly terminalTitleBySessionId = new Map<string, string>();
   private readonly terminalPaneRenderNonceBySessionId = new Map<string, number>();
+  private readonly reloadingSessionIds = new Set<string>();
   private readonly lastPostedSidebarPresentationBySessionId = new Map<
     string,
     {
       activity: string;
       activityLabel: string | undefined;
+      isReloading: boolean | undefined;
       lifecycleState: string | undefined;
       isPrimaryTitleTerminalTitle: boolean | undefined;
       lastInteractionAt: string | undefined;
@@ -321,6 +354,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     "idle" | "working" | "attention"
   >();
   private readonly activitySuppressedUntilBySessionId = new Map<string, number>();
+  private readonly attentionSuppressedUntilBySessionId = new Map<string, number>();
   private readonly frozenLastActivityAtBySessionId = new Map<string, number | null>();
   private readonly lastActivityIgnoreUntilBySessionId = new Map<string, number>();
   private readonly lastActivityOverrideAtBySessionId = new Map<string, number>();
@@ -332,7 +366,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly pendingDeferredAttentionAcknowledgementBySessionId = new Map<
     string,
     {
-      reason: "click" | "focusDwell" | "typing";
+      reason: "click" | "escape" | "focusDwell" | "typing";
       timeout: NodeJS.Timeout;
     }
   >();
@@ -348,6 +382,18 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private autoSleepPass: Promise<void> | undefined;
   private readonly loggedTitleSymbolKeys = new Set<string>();
   private readonly pendingT3SessionIds = new Set<string>();
+  private readonly closingSessionIds = new Set<string>();
+  private readonly recentlyClosedSessionExpiryBySessionId = new Map<string, number>();
+  private readonly t3ThreadChangeInFlightBySessionId = new Set<string>();
+  private readonly t3InitialBoundThreadConfirmationExpiryBySessionId = new Map<string, number>();
+  private readonly t3StartupRestoreReloadedSessionIds = new Set<string>();
+  private readonly lastAcceptedT3ThreadChangeBySessionId = new Map<
+    string,
+    {
+      at: number;
+      threadId: string;
+    }
+  >();
   private readonly t3PaneHtmlBySessionId = new Map<string, { cacheKey: string; html: string }>();
   private readonly t3PaneRenderNonceBySessionId = new Map<string, number>();
   private readonly t3ActivityMonitor: T3ActivityMonitor;
@@ -388,6 +434,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       workspaceId: this.workspaceId,
     });
     this.t3ActivityMonitor = new T3ActivityMonitor({
+      getSnapshot: () => this.getOrCreateT3Runtime().fetchActivitySnapshot(),
       getWebSocketUrl: () => this.getOrCreateT3Runtime().createAuthenticatedWebSocketUrl(),
     });
     this.agentManagerXBridge = new AgentManagerXBridgeClient({
@@ -470,6 +517,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           if (message.event.startsWith("repro.")) {
             logVSmuxReproTrace(event, message.details);
           }
+          if (message.event.startsWith("repro.t3ThreadSource.")) {
+            this.logT3CloseSessionRepro(event, message.details);
+          }
           return;
         }
 
@@ -484,7 +534,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         }
 
         if (message.type === "closeSession") {
-          await this.closeSession(message.sessionId);
+          await this.closeSession(message.sessionId, "workspace");
           return;
         }
 
@@ -651,7 +701,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.hasCompletedInitialActivityHydration = true;
     await this.runAutoSleepPass();
     this.syncSurfaceManagers();
-    await this.reconcileProjectedSessions();
+    await this.reconcileProjectedSessions("initialize");
     await this.refreshSidebar("hydrate");
     await this.publishAgentManagerXSnapshot();
   }
@@ -772,6 +822,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       source === "sidebar" &&
       sessionRecord.kind === "terminal" &&
       !this.backend.hasAttachedTerminal(sessionRecord.sessionId);
+    const shouldEnsureHiddenT3Session =
+      sessionRecord.kind === "t3" && !this.isSessionVisibleInWorkspace(sessionRecord.sessionId);
     let terminalSurfaceEnsureResult: TerminalSurfaceEnsureResult = "non-terminal";
     const changed = await this.store.focusSession(sessionId);
     if (changed || previousFocusedSessionId !== sessionId) {
@@ -812,6 +864,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
     if (shouldReattachDetachedTerminal) {
       terminalSurfaceEnsureResult = await this.createSurfaceIfNeeded(sessionRecord);
+    }
+    if (shouldEnsureHiddenT3Session) {
+      await this.createSurfaceIfNeeded(sessionRecord);
     }
     if (shouldReattachDetachedTerminal && terminalSurfaceEnsureResult === "created-terminal") {
       logVSmuxDebug("controller.focusSession.explicitTerminalCreateOrAttach", {
@@ -986,8 +1041,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const archivedSessions = this.getAllSessionRecords()
       .map((sessionRecord) => this.createArchivedSessionEntry(sessionRecord))
       .filter((entry): entry is PreviousSessionHistoryEntry => entry !== undefined);
+    const t3SessionIds = this.getAllSessionRecords()
+      .filter((sessionRecord): sessionRecord is T3SessionRecord => isT3Session(sessionRecord))
+      .map((sessionRecord) => sessionRecord.sessionId);
 
     for (const sessionRecord of this.getAllSessionRecords()) {
+      if (isT3Session(sessionRecord)) {
+        this.closingSessionIds.add(sessionRecord.sessionId);
+        this.prepareSessionForClose(sessionRecord);
+      }
       await this.disposeSurface(sessionRecord);
       if (sessionRecord.kind === "terminal") {
         this.retireTerminalPaneRuntimeGeneration(sessionRecord.sessionId);
@@ -1001,7 +1063,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
     await this.persistSessionAgentLaunchState();
     await this.store.reset();
-    await this.afterStateChange();
+    try {
+      await this.afterStateChange();
+    } finally {
+      for (const sessionId of t3SessionIds) {
+        this.finalizeClosingSessionState(sessionId, true);
+      }
+    }
   }
 
   public async restartSession(sessionId: string): Promise<void> {
@@ -1010,12 +1078,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    if (sessionRecord.kind === "terminal") {
-      const restartedSessionRecord = await this.prepareSessionForTerminalRecreate(sessionRecord);
-      await this.backend.restartSession(restartedSessionRecord);
-    }
+    await this.setSessionReloading(sessionId, true);
+    try {
+      if (sessionRecord.kind === "terminal") {
+        const restartedSessionRecord = await this.prepareSessionForTerminalRecreate(sessionRecord);
+        await this.backend.restartSession(restartedSessionRecord);
+      }
 
-    await this.afterStateChange();
+      await this.afterStateChange();
+    } finally {
+      await this.setSessionReloading(sessionId, false);
+    }
   }
 
   public async restartSessionFromCommand(sessionId?: string): Promise<void> {
@@ -1026,13 +1099,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   public async renameSession(sessionId: string, title: string): Promise<void> {
-    const sessionRecord = this.store.getSession(sessionId);
-    const renamePlan = sessionRecord
-      ? createSessionRenamePlan(sessionRecord, this.getActiveSnapshot().focusedSessionId)
-      : undefined;
     const changed = await this.store.setSessionTitle(sessionId, title);
 
     const renamedSessionRecord = this.store.getSession(sessionId);
+    const isCodexTerminalSession =
+      renamedSessionRecord?.kind === "terminal" && this.isCodexTerminalSession(sessionId);
+    const renamePlan = renamedSessionRecord
+      ? createSessionRenamePlan(renamedSessionRecord, this.getActiveSnapshot().focusedSessionId)
+      : undefined;
     if (renamedSessionRecord?.kind === "terminal") {
       await this.backend.renameSession(renamedSessionRecord);
       const normalizedRenameTitle =
@@ -1042,21 +1116,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         `/rename ${normalizedRenameTitle}`,
         false,
       );
-      if (sessionId === this.getActiveSnapshot().focusedSessionId) {
+      if (!isCodexTerminalSession && sessionId === this.getActiveSnapshot().focusedSessionId) {
         await this.requestWorkspaceTerminalScrollToBottom(sessionId);
       }
-      await this.workspacePanel.postMessage({
-        confirmOnTerminalEnterSessionId: sessionId,
-        confirmedMessage: "Thread name synced into Agent CLI.",
-        confirmedTitle: "Thread renamed",
-        expiresAt: Date.now() + WORKSPACE_RENAME_TOAST_DURATION_MS,
-        message: "Hit enter to sync the name into Agent CLI",
-        title: "Name staged in terminal",
-        type: "showToast",
-      });
+      if (isCodexTerminalSession) {
+        await this.submitStagedRenameInAgentCli(sessionId);
+      } else {
+        await this.workspacePanel.postMessage({
+          confirmOnTerminalEnterSessionId: sessionId,
+          confirmedMessage: "Thread name synced into Agent CLI.",
+          confirmedTitle: "Thread renamed",
+          expiresAt: Date.now() + WORKSPACE_RENAME_TOAST_DURATION_MS,
+          message: "Hit enter to sync the name into Agent CLI",
+          title: "Name staged in terminal",
+          type: "showToast",
+        });
+      }
     }
 
-    if (renamePlan?.shouldFocusRenamedSession) {
+    if (renamePlan?.shouldFocusRenamedSession && !isCodexTerminalSession) {
       await this.focusSession(sessionId, "sidebar");
       if (renamePlan.shouldScrollRenamedSessionToBottom) {
         await this.requestWorkspaceTerminalScrollToBottom(sessionId);
@@ -1188,33 +1266,154 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
   }
 
-  public async closeSession(sessionId: string): Promise<void> {
+  public async closeSession(
+    sessionId: string,
+    source: CloseSessionSource = "internal",
+  ): Promise<void> {
     const sessionRecord = this.store.getSession(sessionId);
+    this.logT3CloseSessionRepro("controller.closeSession.start", {
+      sessionId,
+      sessionKind:
+        sessionRecord?.kind ?? (isBrowserSidebarSessionId(sessionId) ? "browser" : "missing"),
+      source,
+      threadId: sessionRecord && isT3Session(sessionRecord) ? sessionRecord.t3.threadId : undefined,
+      title: sessionRecord?.title,
+    });
+
     if (!sessionRecord) {
       if (isBrowserSidebarSessionId(sessionId)) {
+        this.logT3CloseSessionRepro("controller.closeSession.browserFallback", {
+          sessionId,
+          source,
+        });
         await this.closeLiveBrowserTab(sessionId);
+        this.logT3CloseSessionRepro("controller.closeSession.browserFallbackComplete", {
+          sessionId,
+          source,
+        });
+      } else {
+        this.logT3CloseSessionRepro("controller.closeSession.missing", {
+          sessionId,
+          source,
+        });
       }
       return;
     }
 
-    const archivedSession = this.createArchivedSessionEntry(sessionRecord);
-    const removed = await this.store.removeSession(sessionId);
-    if (!removed) {
+    if (this.isSessionClosing(sessionId)) {
+      this.logT3CloseSessionRepro("controller.closeSession.alreadyClosing", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+        threadId: isT3Session(sessionRecord) ? sessionRecord.t3.threadId : undefined,
+      });
       return;
     }
-    await this.refreshSidebarFromCurrentState();
-    await this.disposeSurface(sessionRecord);
-    if (sessionRecord.kind === "terminal") {
-      this.retireTerminalPaneRuntimeGeneration(sessionId);
+
+    this.closingSessionIds.add(sessionId);
+    this.prepareSessionForClose(sessionRecord);
+    let rememberAsRecentlyClosed = false;
+
+    try {
+      const archivedSession = this.createArchivedSessionEntry(sessionRecord);
+      const removed = await this.store.removeSession(sessionId);
+      this.logT3CloseSessionRepro("controller.closeSession.removeResult", {
+        archivedSession: Boolean(archivedSession),
+        remainingSessionCount: this.getAllSessionRecords().length,
+        removed,
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+      if (!removed) {
+        return;
+      }
+
+      rememberAsRecentlyClosed = isT3Session(sessionRecord);
+
+      await this.refreshSidebarFromCurrentState();
+      this.logT3CloseSessionRepro("controller.closeSession.afterSidebarRefresh", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+
+      await this.disposeSurface(sessionRecord);
+      this.logT3CloseSessionRepro("controller.closeSession.afterSurfaceDispose", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+
+      if (sessionRecord.kind === "terminal") {
+        this.retireTerminalPaneRuntimeGeneration(sessionId);
+      }
+
+      await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
+      await this.deletePersistedSessionStateIfNeeded(sessionRecord);
+      this.logT3CloseSessionRepro("controller.closeSession.afterRuntimeCleanup", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+
+      this.clearSessionPresentationState(sessionId);
+      this.logT3CloseSessionRepro("controller.closeSession.afterPresentationCleanup", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+
+      if (archivedSession) {
+        await this.previousSessionHistory.append([archivedSession]);
+        this.logT3CloseSessionRepro("controller.closeSession.afterArchiveAppend", {
+          historyId: archivedSession.historyId,
+          sessionId,
+          sessionKind: sessionRecord.kind,
+          source,
+        });
+      }
+
+      this.logT3CloseSessionRepro("controller.closeSession.beforePersistAgentLaunchState", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+      await this.persistSessionAgentLaunchState();
+      this.logT3CloseSessionRepro("controller.closeSession.afterPersistAgentLaunchState", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+
+      this.logT3CloseSessionRepro("controller.closeSession.beforeAfterStateChange", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+      await this.afterStateChange({ sidebarAlreadyRefreshed: true });
+      this.logT3CloseSessionRepro("controller.closeSession.afterAfterStateChange", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+      this.logT3CloseSessionRepro("controller.closeSession.complete", {
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+      });
+    } catch (error) {
+      this.logT3CloseSessionRepro("controller.closeSession.failed", {
+        error: getErrorMessage(error),
+        sessionId,
+        sessionKind: sessionRecord.kind,
+        source,
+        threadId: isT3Session(sessionRecord) ? sessionRecord.t3.threadId : undefined,
+      });
+      throw error;
+    } finally {
+      this.finalizeClosingSessionState(sessionId, rememberAsRecentlyClosed);
     }
-    await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
-    await this.deletePersistedSessionStateIfNeeded(sessionRecord);
-    this.clearSessionPresentationState(sessionId);
-    if (archivedSession) {
-      await this.previousSessionHistory.append([archivedSession]);
-    }
-    await this.persistSessionAgentLaunchState();
-    await this.afterStateChange({ sidebarAlreadyRefreshed: true });
   }
 
   public async setSessionSleeping(sessionId: string, sleeping: boolean): Promise<void> {
@@ -1403,21 +1602,44 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    const didResume = await this.runProgrammaticTerminalResume(sessionRecord, resumeAction, {
-      beforeWrite: async () => {
-        this.retireTerminalPaneRuntimeGeneration(sessionId);
-        await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
-        const reloadedSessionRecord = await this.prepareSessionForTerminalRecreate(sessionRecord);
-        await this.backend.restartSession(reloadedSessionRecord);
-      },
-    });
-    if (!didResume) {
-      void vscode.window.showWarningMessage(
-        "VSmux launched OpenCode but could not confirm it was ready to restore the session during full reload.",
+    await this.setSessionReloading(sessionId, true);
+    try {
+      const shouldAwaitFrontendConnection = this.shouldAwaitTerminalFrontendConnection(sessionId);
+      const wasAttachedBeforeReload =
+        shouldAwaitFrontendConnection &&
+        this.backend.getSessionSnapshot(sessionId)?.isAttached === true;
+      this.retireTerminalPaneRuntimeGeneration(sessionId);
+      await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
+      const reloadedSessionRecord = await this.prepareSessionForTerminalRecreate(sessionRecord);
+      await this.backend.restartSession(reloadedSessionRecord);
+      await this.afterStateChange();
+      const didReconnectFrontend = await this.waitForTerminalFrontendConnectionAfterReload(
+        sessionId,
+        wasAttachedBeforeReload,
       );
-      return;
+      if (!didReconnectFrontend) {
+        void vscode.window.showWarningMessage(
+          "VSmux could not confirm the workspace terminal reconnected after full reload, so it skipped the automatic restore.",
+        );
+        return;
+      }
+
+      const latestSessionRecord = this.store.getSession(sessionId);
+      if (!latestSessionRecord || latestSessionRecord.kind !== "terminal") {
+        return;
+      }
+
+      const didResume = await this.runProgrammaticTerminalResume(latestSessionRecord, resumeAction);
+      if (!didResume) {
+        void vscode.window.showWarningMessage(
+          "VSmux launched OpenCode but could not confirm it was ready to restore the session during full reload.",
+        );
+        return;
+      }
+      await this.afterStateChange();
+    } finally {
+      await this.setSessionReloading(sessionId, false);
     }
-    await this.afterStateChange();
   }
 
   public async fullReloadGroup(groupId: string): Promise<void> {
@@ -1431,6 +1653,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const terminalSessions = group.snapshot.sessions.filter(
       (sessionRecord): sessionRecord is SessionRecord => sessionRecord.kind === "terminal",
     );
+    let skippedSleepingCount = 0;
     let skippedUnsupportedCount = 0;
     let skippedIndicatorCount = 0;
     const fullReloadPlans = terminalSessions.flatMap((sessionRecord) => {
@@ -1445,17 +1668,35 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         workspaceSnapshot,
         sessionActivityContext,
       );
-      if (sidebarSession && shouldSkipSessionForGroupFullReload(sidebarSession)) {
+      if (sidebarSession?.isSleeping) {
+        skippedSleepingCount += 1;
+        return [];
+      }
+
+      if (sidebarSession && shouldSkipSessionForIndicatorProtectedGroupAction(sidebarSession)) {
         skippedIndicatorCount += 1;
         return [];
       }
 
-      return [{ resumeAction, sessionRecord }];
+      const shouldAwaitFrontendConnection = this.shouldAwaitTerminalFrontendConnection(
+        sessionRecord.sessionId,
+      );
+      return [
+        {
+          resumeAction,
+          sessionRecord,
+          shouldAwaitFrontendConnection,
+          wasAttachedBeforeReload:
+            shouldAwaitFrontendConnection &&
+            this.backend.getSessionSnapshot(sessionRecord.sessionId)?.isAttached === true,
+        },
+      ];
     });
     if (fullReloadPlans.length === 0) {
       void vscode.window.showInformationMessage(
         this.getFullReloadGroupSkippedMessage({
           reloadedCount: 0,
+          skippedSleepingCount,
           skippedIndicatorCount,
           skippedUnsupportedCount,
         }) ??
@@ -1465,27 +1706,49 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     let failedResumeCount = 0;
-    for (const plan of fullReloadPlans) {
-      const didResume = await this.runProgrammaticTerminalResume(
-        plan.sessionRecord,
-        plan.resumeAction,
-        {
-          beforeWrite: async () => {
-            this.bumpTerminalPaneRenderNonce(plan.sessionRecord.sessionId);
-            await this.destroyWorkspaceTerminalRuntimeIfNeeded(plan.sessionRecord);
-            const reloadedSessionRecord = await this.prepareSessionForTerminalRecreate(
-              plan.sessionRecord,
-            );
-            await this.backend.restartSession(reloadedSessionRecord);
-          },
-        },
-      );
-      if (!didResume) {
-        failedResumeCount += 1;
+    const reloadingSessionIds = fullReloadPlans.map((plan) => plan.sessionRecord.sessionId);
+    await this.setSessionsReloading(reloadingSessionIds, true);
+    try {
+      for (const plan of fullReloadPlans) {
+        this.bumpTerminalPaneRenderNonce(plan.sessionRecord.sessionId);
+        await this.destroyWorkspaceTerminalRuntimeIfNeeded(plan.sessionRecord);
+        const reloadedSessionRecord = await this.prepareSessionForTerminalRecreate(
+          plan.sessionRecord,
+        );
+        plan.sessionRecord = reloadedSessionRecord;
+        await this.backend.restartSession(reloadedSessionRecord);
       }
-    }
 
-    await this.afterStateChange();
+      await this.afterStateChange();
+
+      const didReconnectBySessionId = new Map<string, boolean>();
+      await Promise.all(
+        fullReloadPlans.map(async (plan) => {
+          const didReconnect = await this.waitForTerminalFrontendConnectionAfterReload(
+            plan.sessionRecord.sessionId,
+            plan.wasAttachedBeforeReload,
+          );
+          didReconnectBySessionId.set(plan.sessionRecord.sessionId, didReconnect);
+        }),
+      );
+
+      for (const plan of fullReloadPlans) {
+        if (!didReconnectBySessionId.get(plan.sessionRecord.sessionId)) {
+          failedResumeCount += 1;
+          continue;
+        }
+
+        const didResume = await this.runProgrammaticTerminalResume(
+          plan.sessionRecord,
+          plan.resumeAction,
+        );
+        if (!didResume) {
+          failedResumeCount += 1;
+        }
+      }
+    } finally {
+      await this.setSessionsReloading(reloadingSessionIds, false);
+    }
 
     if (failedResumeCount > 0) {
       void vscode.window.showWarningMessage(
@@ -1493,9 +1756,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       );
     }
 
-    if (skippedIndicatorCount > 0 || skippedUnsupportedCount > 0) {
+    if (skippedSleepingCount > 0 || skippedIndicatorCount > 0 || skippedUnsupportedCount > 0) {
       const skippedMessage = this.getFullReloadGroupSkippedMessage({
         reloadedCount: fullReloadPlans.length,
+        skippedSleepingCount,
         skippedIndicatorCount,
         skippedUnsupportedCount,
       });
@@ -1518,8 +1782,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       placeHolder: "Paste a T3 thread id",
       prompt: "Set Thread ID",
       validateInput: (value) => (value.trim().length > 0 ? undefined : "Thread ID is required."),
-      value: sessionRecord.t3.threadId,
-      valueSelection: [0, sessionRecord.t3.threadId.length],
+      value: getT3SessionBoundThreadId(sessionRecord.t3),
+      valueSelection: [0, getT3SessionBoundThreadId(sessionRecord.t3).length],
     });
     if (nextThreadId === undefined) {
       return;
@@ -1535,14 +1799,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId || normalizedThreadId === sessionRecord.t3.threadId) {
+    if (!normalizedThreadId || normalizedThreadId === getT3SessionBoundThreadId(sessionRecord.t3)) {
       return;
     }
 
-    const changed = await this.store.setT3SessionMetadata(sessionId, {
-      ...sessionRecord.t3,
-      threadId: normalizedThreadId,
-    });
+    const changed = await this.store.setT3SessionMetadata(
+      sessionId,
+      setT3SessionBoundThreadId(sessionRecord.t3, normalizedThreadId),
+    );
     if (!changed) {
       return;
     }
@@ -1915,6 +2179,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     if (agentId === "t3") {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.requested", {
+        agentId,
+        command: agentCommand,
+        knownT3Sessions: summarizeT3SessionsForThreadBindingRepro(this.getAllSessionRecords()),
+        source: "runSidebarAgent",
+      });
       await this.createT3Session(agentCommand);
       return;
     }
@@ -1998,9 +2268,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         : await this.createTerminalSession({
             title: archivedSession.sessionRecord.title,
           });
+    if (archivedSession.sessionRecord.kind === "t3") {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.restorePreviousSession", {
+        historyId,
+        restoredSessionId: restoredSession?.sessionId,
+        threadId: archivedSession.sessionRecord.t3.threadId,
+        title: archivedSession.sessionRecord.title,
+      });
+    }
     if (!restoredSession) {
       return;
     }
+
+    this.clearReusedSessionCloseState(restoredSession.sessionId);
 
     if (archivedSession.agentIcon) {
       this.sidebarAgentIconBySessionId.set(restoredSession.sessionId, archivedSession.agentIcon);
@@ -2340,44 +2620,68 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const archivedSessions = group.snapshot.sessions
       .map((sessionRecord) => this.createArchivedSessionEntry(sessionRecord))
       .filter((entry): entry is PreviousSessionHistoryEntry => entry !== undefined);
+    const t3SessionIds = group.snapshot.sessions
+      .filter((sessionRecord): sessionRecord is T3SessionRecord => isT3Session(sessionRecord))
+      .map((sessionRecord) => sessionRecord.sessionId);
+    for (const sessionRecord of group.snapshot.sessions) {
+      if (isT3Session(sessionRecord)) {
+        this.closingSessionIds.add(sessionRecord.sessionId);
+        this.prepareSessionForClose(sessionRecord);
+      }
+    }
     await this.store.removeGroup(groupId);
     await deleteWorkspacePaneOrderPreference(this.context, this.workspaceId, groupId);
     await this.refreshSidebarFromCurrentState();
-    for (const sessionRecord of group.snapshot.sessions) {
-      await this.disposeSurface(sessionRecord);
-      if (sessionRecord.kind === "terminal") {
-        this.retireTerminalPaneRuntimeGeneration(sessionRecord.sessionId);
+    try {
+      for (const sessionRecord of group.snapshot.sessions) {
+        await this.disposeSurface(sessionRecord);
+        if (sessionRecord.kind === "terminal") {
+          this.retireTerminalPaneRuntimeGeneration(sessionRecord.sessionId);
+        }
+        await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
+        await this.deletePersistedSessionStateIfNeeded(sessionRecord);
+        this.clearSessionPresentationState(sessionRecord.sessionId);
       }
-      await this.destroyWorkspaceTerminalRuntimeIfNeeded(sessionRecord);
-      await this.deletePersistedSessionStateIfNeeded(sessionRecord);
-      this.clearSessionPresentationState(sessionRecord.sessionId);
+      if (archivedSessions.length > 0) {
+        await this.previousSessionHistory.append(archivedSessions);
+      }
+      await this.persistSessionAgentLaunchState();
+      await this.afterStateChange({ sidebarAlreadyRefreshed: true });
+    } finally {
+      for (const sessionId of t3SessionIds) {
+        this.finalizeClosingSessionState(sessionId, true);
+      }
     }
-    if (archivedSessions.length > 0) {
-      await this.previousSessionHistory.append(archivedSessions);
-    }
-    await this.persistSessionAgentLaunchState();
-    await this.afterStateChange({ sidebarAlreadyRefreshed: true });
   }
 
   private async afterStateChange(options?: {
     sidebarAlreadyRefreshed?: boolean;
     workspaceAlreadyRefreshed?: boolean;
   }): Promise<void> {
+    this.logT3CloseSessionRepro("controller.afterStateChange.start", {
+      sidebarAlreadyRefreshed: options?.sidebarAlreadyRefreshed ?? false,
+      workspaceAlreadyRefreshed: options?.workspaceAlreadyRefreshed ?? false,
+    });
     await this.syncT3ActivityMonitor();
+    this.logT3CloseSessionRepro("controller.afterStateChange.afterSyncT3ActivityMonitor");
     if (options?.sidebarAlreadyRefreshed) {
       this.clearObservedSidebarFocusState();
       this.syncSurfaceManagers();
+      this.logT3CloseSessionRepro("controller.afterStateChange.reusedSidebarRefresh");
     } else {
       await this.refreshSidebarFromCurrentState();
+      this.logT3CloseSessionRepro("controller.afterStateChange.afterSidebarRefresh");
     }
     if (!options?.workspaceAlreadyRefreshed) {
       await this.refreshWorkspacePanel();
+      this.logT3CloseSessionRepro("controller.afterStateChange.afterWorkspaceRefresh");
     }
     logVSmuxDebug("controller.afterStateChange", {
       activeGroupId: this.store.getSnapshot().activeGroupId,
       snapshot: this.describeActiveSnapshot(),
     });
-    await this.reconcileProjectedSessions();
+    this.scheduleProjectedSessionsReconcile("afterStateChange");
+    this.logT3CloseSessionRepro("controller.afterStateChange.reconcileScheduled");
   }
 
   private async refreshSidebarFromCurrentState(): Promise<void> {
@@ -2386,9 +2690,22 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar();
   }
 
+  private logT3CloseSessionRepro(event: string, details?: unknown): void {
+    const shouldLogThreadBindingRepro = shouldLogT3ThreadBindingReproEvent(event);
+    if (getDebuggingMode()) {
+      void appendT3CloseSessionReproLog(getDefaultWorkspaceCwd(), event, details);
+    }
+    if (shouldLogThreadBindingRepro) {
+      void appendT3ThreadBindingReproLog(getDefaultWorkspaceCwd(), event, details);
+    }
+  }
+
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {
     if (message.type === "sidebarDebugLog") {
       logVSmuxDebug(`sidebar.webview.${message.event}`, message.details);
+      if (message.event.startsWith("repro.t3CloseSession.")) {
+        this.logT3CloseSessionRepro(`sidebar.webview.${message.event}`, message.details);
+      }
       if (message.event.startsWith("repro.sidebarOrder.")) {
         this.logSidebarOrderTrace(`sidebar.webview.${message.event}`, message.details);
       }
@@ -2401,7 +2718,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       clearGeneratedPreviousSessions: async () => this.clearGeneratedPreviousSessions(),
       clearStartupSidebarRefreshes: () => {},
       closeGroup: async (groupId) => this.closeGroup(groupId),
-      closeSession: async (sessionId) => this.closeSession(sessionId),
+      closeSession: async (sessionId) => this.closeSession(sessionId, "sidebar"),
       confirmSidebarGitCommit: async (requestId, subject) =>
         this.confirmSidebarGitCommit(requestId, subject),
       copyResumeCommand: async (sessionId) => this.copyResumeCommand(sessionId),
@@ -2648,7 +2965,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async closeSessionFromAgentManagerX(sessionId: string): Promise<void> {
-    await this.closeSession(sessionId);
+    await this.closeSession(sessionId, "agent-manager-x");
   }
 
   private async refreshDaemonSessions(): Promise<void> {
@@ -2685,6 +3002,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       debuggingMode: getDebuggingMode(),
       getEffectiveSessionActivity: (sessionRecord, sessionSnapshot) =>
         getEffectiveSessionActivity(sessionActivityContext, sessionRecord, sessionSnapshot),
+      getIsSessionReloading: (sessionId) => this.isSessionReloading(sessionId),
       getSessionAgentLaunch: (sessionId) => this.sessionAgentLaunchBySessionId.get(sessionId),
       getLastTerminalActivityAt: (sessionId) => this.getLastTerminalActivityAtForSidebar(sessionId),
       getSessionSnapshot: (sessionId) => this.backend.getSessionSnapshot(sessionId),
@@ -2825,7 +3143,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async killT3RuntimeSession(sessionId: string): Promise<void> {
-    await this.closeSession(sessionId);
+    await this.closeSession(sessionId, "kill-t3-runtime-session");
     await this.refreshDaemonSessions();
   }
 
@@ -2866,6 +3184,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const nextSidebarPresentation = {
         activity: sidebarSession.activity,
         activityLabel: sidebarSession.activityLabel,
+        isReloading: sidebarSession.isReloading,
         lifecycleState: sidebarSession.lifecycleState,
         isPrimaryTitleTerminalTitle: sidebarSession.isPrimaryTitleTerminalTitle,
         lastInteractionAt: sidebarSession.lastInteractionAt,
@@ -2875,6 +3194,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const payloadChanged =
         previousSidebarPresentation?.activity !== nextSidebarPresentation.activity ||
         previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel ||
+        previousSidebarPresentation?.isReloading !== nextSidebarPresentation.isReloading ||
         previousSidebarPresentation?.lifecycleState !== nextSidebarPresentation.lifecycleState ||
         previousSidebarPresentation?.isPrimaryTitleTerminalTitle !==
           nextSidebarPresentation.isPrimaryTitleTerminalTitle ||
@@ -2888,6 +3208,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         activityLabel: sidebarSession.activityLabel,
         activityLabelChanged:
           previousSidebarPresentation?.activityLabel !== nextSidebarPresentation.activityLabel,
+        isReloading: sidebarSession.isReloading,
+        isReloadingChanged:
+          previousSidebarPresentation?.isReloading !== nextSidebarPresentation.isReloading,
         lifecycleState: sidebarSession.lifecycleState,
         lifecycleStateChanged:
           previousSidebarPresentation?.lifecycleState !== nextSidebarPresentation.lifecycleState,
@@ -3110,27 +3433,63 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     this.browserEditorGroupIsMaximized = true;
   }
 
-  private async reconcileProjectedSessions(): Promise<void> {
-    const version = ++this.reconcileRequestVersion;
-    this.pendingReconcileRequest = { version };
-    if (!this.reconcileRunner) {
-      this.reconcileRunner = this.runReconcileLoop();
+  private scheduleProjectedSessionsReconcile(reason: string): void {
+    void this.enqueueProjectedSessionsReconcile(reason);
+  }
+
+  private async reconcileProjectedSessions(reason: string): Promise<void> {
+    const requestedVersion = this.enqueueProjectedSessionsReconcile(reason);
+    while (this.completedReconcileVersion < requestedVersion) {
+      const runner = this.reconcileRunner;
+      if (!runner) {
+        return;
+      }
+      await runner;
     }
-    await this.reconcileRunner;
+  }
+
+  private enqueueProjectedSessionsReconcile(reason: string): number {
+    const version = ++this.reconcileRequestVersion;
+    this.lastRequestedReconcileReason = reason;
+    logVSmuxDebug("controller.reconcile.requested", {
+      reason,
+      version,
+    });
+    this.ensureReconcileRunner();
+    return version;
+  }
+
+  private ensureReconcileRunner(): void {
+    if (this.reconcileRunner) {
+      return;
+    }
+
+    this.reconcileRunner = this.runReconcileLoop().finally(() => {
+      this.reconcileRunner = undefined;
+      if (this.completedReconcileVersion < this.reconcileRequestVersion) {
+        this.ensureReconcileRunner();
+      }
+    });
   }
 
   private async runReconcileLoop(): Promise<void> {
-    try {
-      while (this.pendingReconcileRequest) {
-        const request = this.pendingReconcileRequest;
-        this.pendingReconcileRequest = undefined;
-        logVSmuxDebug("controller.reconcile.dequeue", {
-          version: request.version,
+    while (this.completedReconcileVersion < this.reconcileRequestVersion) {
+      const requestVersion = this.reconcileRequestVersion;
+      const requestReason = this.lastRequestedReconcileReason;
+      logVSmuxDebug("controller.reconcile.dequeue", {
+        reason: requestReason,
+        version: requestVersion,
+      });
+      try {
+        await this.reconcileProjectedSessionsNow(requestVersion);
+      } catch (error) {
+        logVSmuxDebug("controller.reconcile.failed", {
+          error: getErrorMessage(error),
+          reason: requestReason,
+          version: requestVersion,
         });
-        await this.reconcileProjectedSessionsNow(request.version);
       }
-    } finally {
-      this.reconcileRunner = undefined;
+      this.completedReconcileVersion = Math.max(this.completedReconcileVersion, requestVersion);
     }
   }
 
@@ -3149,7 +3508,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const activeSnapshot = this.getActiveSnapshot();
       const visibleSessions = activeSnapshot.visibleSessionIds
         .map((sessionId) => this.store.getSession(sessionId))
-        .filter((session): session is SessionRecord => session !== undefined);
+        .filter(
+          (session): session is SessionRecord =>
+            session !== undefined && !this.isSessionClosing(session.sessionId),
+        );
       logVSmuxDebug("controller.reconcile.start", {
         snapshot: this.describeActiveSnapshot(),
         version: requestVersion,
@@ -3213,7 +3575,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     } finally {
       this.suppressedObservedFocusDepth = Math.max(0, this.suppressedObservedFocusDepth - 1);
       logVSmuxDebug("controller.reconcile.focusEventsResumed", {
-        pendingReconcile: this.pendingReconcileRequest !== undefined,
+        pendingReconcile: this.completedReconcileVersion < this.reconcileRequestVersion,
         suppressedObservedFocusDepth: this.suppressedObservedFocusDepth,
       });
     }
@@ -3276,8 +3638,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async ensureT3Ready(sessionRecord: T3SessionRecord): Promise<void> {
+    if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+      logVSmuxDebug("controller.ensureT3Ready.ignored", {
+        reason: "sessionClosing",
+        sessionId: sessionRecord.sessionId,
+        threadId: sessionRecord.t3.threadId,
+      });
+      return;
+    }
+
     const runtime = this.getOrCreateT3Runtime();
     const nextMetadata = await runtime.ensureThreadSession(sessionRecord.t3, sessionRecord.title);
+    if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+      logVSmuxDebug("controller.ensureT3Ready.ignored", {
+        reason: "sessionClosingAfterEnsure",
+        sessionId: sessionRecord.sessionId,
+        threadId: sessionRecord.t3.threadId,
+      });
+      return;
+    }
     const metadataChanged = !haveSameT3SessionMetadata(sessionRecord.t3, nextMetadata);
     let resolvedSessionRecord: T3SessionRecord = sessionRecord;
     if (metadataChanged) {
@@ -3298,6 +3677,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async createT3Session(startupCommand: string): Promise<T3SessionRecord | undefined> {
+    this.logT3CloseSessionRepro("controller.t3SessionCreate.start", {
+      source: "createT3Session",
+      startupCommand,
+    });
     const runtime = this.getOrCreateT3Runtime();
     const sessionRecord = await this.store.createSession({
       kind: "t3",
@@ -3305,9 +3688,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       title: "T3 Code",
     });
     if (!sessionRecord) {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.storeRejected", {
+        source: "createT3Session",
+        startupCommand,
+      });
       return undefined;
     }
 
+    this.clearReusedSessionCloseState(sessionRecord.sessionId);
+    this.markT3SessionAwaitingInitialBoundThreadConfirmation(sessionRecord.sessionId);
+    this.t3StartupRestoreReloadedSessionIds.delete(sessionRecord.sessionId);
     this.sidebarAgentIconBySessionId.set(sessionRecord.sessionId, "t3");
     this.pendingT3SessionIds.add(sessionRecord.sessionId);
     const createdAtMs = Date.parse(sessionRecord.createdAt);
@@ -3318,8 +3708,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.workspacePanel.reveal();
     this.enqueueWorkspaceAutoFocus(sessionRecord.sessionId, "sidebar");
     await this.afterStateChange();
+    const createdSessionRecord = isT3Session(sessionRecord) ? sessionRecord : undefined;
+    this.logT3CloseSessionRepro("controller.t3SessionCreate.pendingSessionCreated", {
+      serverOrigin: createdSessionRecord?.t3.serverOrigin,
+      sessionId: sessionRecord.sessionId,
+      source: "createT3Session",
+      startupCommand,
+      title: sessionRecord.title,
+    });
     void this.finishCreatingT3Session(sessionRecord.sessionId, startupCommand);
-    return isT3Session(sessionRecord) ? sessionRecord : undefined;
+    return createdSessionRecord;
   }
 
   private findBoundT3Session(
@@ -3330,9 +3728,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return (
         isT3Session(sessionRecord) &&
         !isPendingT3Metadata(sessionRecord.t3) &&
+        !this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId) &&
         sessionRecord.sessionId !== options?.excludeSessionId &&
         sessionRecord.t3.serverOrigin === metadata.serverOrigin &&
-        sessionRecord.t3.threadId === metadata.threadId
+        getT3SessionBoundThreadId(sessionRecord.t3) === getT3SessionBoundThreadId(metadata)
       );
     });
   }
@@ -3342,15 +3741,28 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     title?: string,
   ): Promise<T3SessionRecord | undefined> {
     const normalizedTitle = normalizeTerminalTitle(title) ?? "T3 Code";
+    this.logT3CloseSessionRepro("controller.t3SessionCreate.start", {
+      metadata,
+      source: "createBoundT3Session",
+      title: normalizedTitle,
+    });
     const sessionRecord = await this.store.createSession({
       kind: "t3",
       t3: metadata,
       title: normalizedTitle,
     });
     if (!sessionRecord || !isT3Session(sessionRecord)) {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.storeRejected", {
+        metadata,
+        source: "createBoundT3Session",
+        title: normalizedTitle,
+      });
       return undefined;
     }
 
+    this.clearReusedSessionCloseState(sessionRecord.sessionId);
+    this.markT3SessionAwaitingInitialBoundThreadConfirmation(sessionRecord.sessionId);
+    this.t3StartupRestoreReloadedSessionIds.delete(sessionRecord.sessionId);
     this.sidebarAgentIconBySessionId.set(sessionRecord.sessionId, "t3");
     const createdAtMs = Date.parse(sessionRecord.createdAt);
     this.lastActivityOverrideAtBySessionId.set(
@@ -3360,6 +3772,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.workspacePanel.reveal();
     this.enqueueWorkspaceAutoFocus(sessionRecord.sessionId, "sidebar");
     await this.afterStateChange();
+    this.logT3CloseSessionRepro("controller.t3SessionCreate.complete", {
+      metadata,
+      sessionId: sessionRecord.sessionId,
+      source: "createBoundT3Session",
+      title: normalizedTitle,
+    });
     const refreshedSession = this.store.getSession(sessionRecord.sessionId);
     return refreshedSession && isT3Session(refreshedSession) ? refreshedSession : sessionRecord;
   }
@@ -3368,10 +3786,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     terminalEngine?: TerminalEngine;
     title?: string;
   }): Promise<SessionRecord | undefined> {
-    return this.store.createSession({
+    const sessionRecord = await this.store.createSession({
       terminalEngine: options?.terminalEngine ?? getDefaultTerminalEngine(),
       title: options?.title,
     });
+    if (sessionRecord) {
+      this.clearReusedSessionCloseState(sessionRecord.sessionId);
+    }
+    return sessionRecord;
   }
 
   private resolveFindPreviousSessionAgent():
@@ -3566,6 +3988,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     sessionId: string,
     workingStartedAt: string | undefined,
   ): Promise<void> {
+    if (this.isSessionClosingOrRecentlyClosed(sessionId)) {
+      logVSmuxDebug("controller.t3WorkingStartedAtChanged.ignored", {
+        reason: "sessionClosing",
+        sessionId,
+        workingStartedAt,
+      });
+      return;
+    }
+
     const sessionRecord = this.store.getSession(sessionId);
     if (!sessionRecord || !isT3Session(sessionRecord)) {
       return;
@@ -3596,18 +4027,27 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async syncT3ActivityMonitor(): Promise<void> {
     const hasLiveT3Sessions = this.getAllSessionRecords().some(
-      (sessionRecord) => sessionRecord.kind === "t3" && !isPendingT3Metadata(sessionRecord.t3),
+      (sessionRecord) =>
+        sessionRecord.kind === "t3" &&
+        !isPendingT3Metadata(sessionRecord.t3) &&
+        !this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId),
     );
     await this.t3ActivityMonitor.setEnabled(hasLiveT3Sessions);
   }
 
   private clearSessionPresentationState(sessionId: string): void {
     this.activitySuppressedUntilBySessionId.delete(sessionId);
+    this.attentionSuppressedUntilBySessionId.delete(sessionId);
     this.clearAttentionAcknowledgementState(sessionId);
     this.frozenLastActivityAtBySessionId.delete(sessionId);
     this.lastActivityIgnoreUntilBySessionId.delete(sessionId);
     this.pendingT3SessionIds.delete(sessionId);
     this.t3PaneHtmlBySessionId.delete(sessionId);
+    this.t3PaneRenderNonceBySessionId.delete(sessionId);
+    this.t3ThreadChangeInFlightBySessionId.delete(sessionId);
+    this.t3InitialBoundThreadConfirmationExpiryBySessionId.delete(sessionId);
+    this.t3StartupRestoreReloadedSessionIds.delete(sessionId);
+    this.lastAcceptedT3ThreadChangeBySessionId.delete(sessionId);
     this.sidebarAgentIconBySessionId.delete(sessionId);
     this.sessionAgentLaunchBySessionId.delete(sessionId);
     this.terminalTitleBySessionId.delete(sessionId);
@@ -3698,6 +4138,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           candidateSessionRecord,
           sessionSnapshot,
         ),
+      getIsSessionReloading: (sessionId) => this.isSessionReloading(sessionId),
       getSessionAgentLaunch: (sessionId) => this.sessionAgentLaunchBySessionId.get(sessionId),
       getLastTerminalActivityAt: (sessionId) => this.getLastTerminalActivityAtForSidebar(sessionId),
       getSessionSnapshot: (sessionId) => this.backend.getSessionSnapshot(sessionId),
@@ -3719,6 +4160,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private createSessionActivityContext(): Parameters<typeof getEffectiveSessionActivity>[0] {
     return {
       cancelPendingCompletionSound: (sessionId) => this.clearPendingCompletionSound(sessionId),
+      getAttentionSuppressedUntil: (sessionRecord) =>
+        this.getAttentionSuppressedUntil(sessionRecord),
       getActivitySuppressedUntil: (sessionRecord) => this.getActivitySuppressedUntil(sessionRecord),
       getSessionSnapshot: (sessionId) => this.backend.getSessionSnapshot(sessionId),
       getT3ActivityState: (sessionRecord) => this.getT3ActivityState(sessionRecord),
@@ -3743,6 +4186,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           candidateSessionRecord,
           sessionSnapshot,
         ),
+      getIsSessionReloading: (candidateSessionId) => this.isSessionReloading(candidateSessionId),
       getSessionAgentLaunch: (candidateSessionId) =>
         this.sessionAgentLaunchBySessionId.get(candidateSessionId),
       getLastTerminalActivityAt: (candidateSessionId) =>
@@ -3900,6 +4344,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.backend.writeText(sessionId, data, shouldExecute);
   }
 
+  private async submitStagedRenameInAgentCli(sessionId: string): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, AUTO_SUBMIT_STAGED_RENAME_DELAY_MS));
+    this.preserveSessionLastActivity(sessionId);
+    await this.backend.writeText(sessionId, "\r", false);
+  }
+
   private async runProgrammaticTerminalResume(
     sessionRecord: SessionRecord,
     action: ProgrammaticTerminalResumeAction | DetachedResumeAction,
@@ -3984,16 +4434,39 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return effectiveSuppressedUntil > 0 ? effectiveSuppressedUntil : undefined;
   }
 
+  private getAttentionSuppressedUntil(sessionRecord: SessionRecord): number | undefined {
+    if (sessionRecord.kind !== "terminal") {
+      return undefined;
+    }
+
+    const suppressedUntil = this.attentionSuppressedUntilBySessionId.get(sessionRecord.sessionId);
+    if (
+      suppressedUntil !== undefined &&
+      Number.isFinite(suppressedUntil) &&
+      suppressedUntil <= Date.now()
+    ) {
+      this.attentionSuppressedUntilBySessionId.delete(sessionRecord.sessionId);
+      return undefined;
+    }
+
+    return suppressedUntil;
+  }
+
   private getFullReloadGroupSkippedMessage({
     reloadedCount,
+    skippedSleepingCount,
     skippedIndicatorCount,
     skippedUnsupportedCount,
   }: {
     reloadedCount: number;
+    skippedSleepingCount: number;
     skippedIndicatorCount: number;
     skippedUnsupportedCount: number;
   }): string | undefined {
     const skippedReasons: string[] = [];
+    if (skippedSleepingCount > 0) {
+      skippedReasons.push(`${String(skippedSleepingCount)} sleeping`);
+    }
     if (skippedIndicatorCount > 0) {
       skippedReasons.push(`${String(skippedIndicatorCount)} showing Running or Done indicators`);
     }
@@ -4369,10 +4842,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async acknowledgeSessionAttentionFromWorkspace(
     sessionId: string,
-    reason: "click" | "focusDwell" | "typing",
+    reason: "click" | "escape" | "focusDwell" | "typing",
   ): Promise<void> {
     const sessionRecord = this.store.getSession(sessionId);
     if (!sessionRecord) {
+      return;
+    }
+
+    if (reason === "escape") {
+      this.suppressSessionAttentionFromEscape(sessionRecord);
       return;
     }
 
@@ -4414,11 +4892,40 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.afterStateChange();
   }
 
+  private suppressSessionAttentionFromEscape(sessionRecord: SessionRecord): void {
+    if (sessionRecord.kind !== "terminal") {
+      return;
+    }
+
+    const sessionId = sessionRecord.sessionId;
+    const backendActivity = this.backend.getSessionSnapshot(sessionId)?.agentStatus;
+    const previousActivity = this.lastKnownActivityBySessionId.get(sessionId);
+    if (backendActivity !== "working" && previousActivity !== "working") {
+      return;
+    }
+
+    const suppressedUntil = Date.now() + ESCAPE_ATTENTION_SUPPRESSION_MS;
+    this.attentionSuppressedUntilBySessionId.set(
+      sessionId,
+      Math.max(this.attentionSuppressedUntilBySessionId.get(sessionId) ?? 0, suppressedUntil),
+    );
+    logVSmuxDebug("controller.escapeAttentionSuppression.started", {
+      previousActivity,
+      sessionId,
+      snapshotAgentStatus: backendActivity,
+      suppressedUntil: new Date(suppressedUntil).toISOString(),
+    });
+  }
+
   private getSidebarAgentIconForSession(sessionId: string): SidebarAgentIcon | undefined {
     return (
       this.sidebarAgentIconBySessionId.get(sessionId) ??
       getSidebarAgentIconById(this.backend.getSessionSnapshot(sessionId)?.agentName)
     );
+  }
+
+  private isCodexTerminalSession(sessionId: string): boolean {
+    return this.getSidebarAgentIconForSession(sessionId) === "codex";
   }
 
   private async persistSessionAgentLaunchState(): Promise<void> {
@@ -4616,6 +5123,70 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private getAllSessionRecords(): SessionRecord[] {
     return this.store.getSnapshot().groups.flatMap((group) => group.snapshot.sessions);
+  }
+
+  private isSessionClosing(sessionId: string): boolean {
+    return this.closingSessionIds.has(sessionId);
+  }
+
+  private isSessionRecentlyClosed(sessionId: string, now = Date.now()): boolean {
+    const expiresAt = this.recentlyClosedSessionExpiryBySessionId.get(sessionId);
+    if (expiresAt === undefined) {
+      return false;
+    }
+
+    if (expiresAt <= now) {
+      this.recentlyClosedSessionExpiryBySessionId.delete(sessionId);
+      return false;
+    }
+
+    return true;
+  }
+
+  private isSessionClosingOrRecentlyClosed(sessionId: string, now = Date.now()): boolean {
+    return this.isSessionClosing(sessionId) || this.isSessionRecentlyClosed(sessionId, now);
+  }
+
+  private clearReusedSessionCloseState(sessionId: string): void {
+    clearReusedSessionCloseState(
+      {
+        closingSessionIds: this.closingSessionIds,
+        recentlyClosedSessionExpiryBySessionId: this.recentlyClosedSessionExpiryBySessionId,
+      },
+      sessionId,
+    );
+  }
+
+  private clearPendingWorkspaceAutoFocusRequest(sessionId: string): void {
+    if (this.pendingWorkspaceAutoFocusRequest?.sessionId === sessionId) {
+      this.pendingWorkspaceAutoFocusRequest = undefined;
+    }
+  }
+
+  private prepareSessionForClose(sessionRecord: SessionRecord): void {
+    this.clearPendingWorkspaceAutoFocusRequest(sessionRecord.sessionId);
+    if (!isT3Session(sessionRecord)) {
+      return;
+    }
+
+    this.pendingT3SessionIds.delete(sessionRecord.sessionId);
+    this.invalidateT3PaneHtml(sessionRecord.sessionId);
+    this.bumpT3PaneRenderNonce(sessionRecord.sessionId);
+    this.t3ThreadChangeInFlightBySessionId.delete(sessionRecord.sessionId);
+  }
+
+  private finalizeClosingSessionState(sessionId: string, rememberAsRecentlyClosed: boolean): void {
+    finalizeClosingSessionCloseState({
+      hasReusedLiveSession: this.store.getSession(sessionId) !== undefined,
+      recentlyClosedGraceMs: RECENTLY_CLOSED_T3_SESSION_GRACE_MS,
+      rememberAsRecentlyClosed,
+      sessionCloseStateStore: {
+        closingSessionIds: this.closingSessionIds,
+        recentlyClosedSessionExpiryBySessionId: this.recentlyClosedSessionExpiryBySessionId,
+      },
+      sessionId,
+    });
+    this.t3ThreadChangeInFlightBySessionId.delete(sessionId);
   }
 
   private restartAutoSleepTimer(): void {
@@ -4868,6 +5439,69 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return false;
   }
 
+  private shouldAwaitTerminalFrontendConnection(sessionId: string): boolean {
+    return shouldAwaitWorkspaceTerminalFrontendConnection({
+      isSessionVisibleInWorkspace: this.isSessionVisibleInWorkspace(sessionId),
+      isWorkspacePanelVisible: this.workspacePanel.isVisible(),
+    });
+  }
+
+  private async waitForTerminalFrontendConnectionAfterReload(
+    sessionId: string,
+    wasAttachedBeforeReload: boolean,
+  ): Promise<boolean> {
+    if (!this.shouldAwaitTerminalFrontendConnection(sessionId)) {
+      return true;
+    }
+
+    let sawDetachedSinceReload = !wasAttachedBeforeReload;
+    logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.start", {
+      sessionId,
+      wasAttachedBeforeReload,
+    });
+    const deadlineAt = Date.now() + FULL_RELOAD_FRONTEND_CONNECT_TIMEOUT_MS;
+    while (Date.now() < deadlineAt) {
+      if (!this.shouldAwaitTerminalFrontendConnection(sessionId)) {
+        logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.skipped", {
+          reason: "panelHiddenOrSessionNoLongerVisible",
+          sessionId,
+          wasAttachedBeforeReload,
+        });
+        return true;
+      }
+
+      const isAttached = this.backend.getSessionSnapshot(sessionId)?.isAttached === true;
+      if (!isAttached) {
+        sawDetachedSinceReload = true;
+      }
+
+      if (
+        hasTerminalFrontendConnectionAfterReload({
+          isAttached,
+          sawDetachedSinceReload,
+          wasAttachedBeforeReload,
+        })
+      ) {
+        logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.ready", {
+          sawDetachedSinceReload,
+          sessionId,
+          wasAttachedBeforeReload,
+        });
+        return true;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, FULL_RELOAD_FRONTEND_CONNECT_POLL_MS));
+    }
+
+    logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.timeout", {
+      isAttached: this.backend.getSessionSnapshot(sessionId)?.isAttached === true,
+      sawDetachedSinceReload,
+      sessionId,
+      wasAttachedBeforeReload,
+    });
+    return false;
+  }
+
   private describeActiveSnapshot(): {
     activeGroupId: string;
     focusedSessionId?: string;
@@ -5038,6 +5672,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const panes = (
       await Promise.all(
         activeGroupSessions.map(async (sessionRecord) => {
+          if (this.isSessionClosing(sessionRecord.sessionId)) {
+            return undefined;
+          }
+
           if (sessionRecord.kind === "terminal") {
             const snapshot = this.backend.getSessionSnapshot(sessionRecord.sessionId);
             const effectiveActivity = snapshot
@@ -5208,12 +5846,66 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return activeSnapshot.visibleSessionIds.includes(sessionId);
   }
 
+  private isSessionReloading(sessionId: string): boolean {
+    return this.reloadingSessionIds.has(sessionId);
+  }
+
+  private async setSessionReloading(sessionId: string, isReloading: boolean): Promise<void> {
+    await this.setSessionsReloading([sessionId], isReloading);
+  }
+
+  private async setSessionsReloading(
+    sessionIds: readonly string[],
+    isReloading: boolean,
+  ): Promise<void> {
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    let changed = false;
+
+    for (const sessionId of uniqueSessionIds) {
+      if (isReloading) {
+        if (this.reloadingSessionIds.has(sessionId)) {
+          continue;
+        }
+        this.reloadingSessionIds.add(sessionId);
+        changed = true;
+        continue;
+      }
+
+      if (this.reloadingSessionIds.delete(sessionId)) {
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    await Promise.all(
+      uniqueSessionIds.map(async (sessionId) => {
+        await this.postSessionPresentationMessage(sessionId);
+      }),
+    );
+    await this.refreshSidebar();
+  }
+
   private getPendingSidebarAgentIds(): string[] {
     return this.pendingT3SessionIds.size > 0 ? ["t3"] : [];
   }
 
   private async finishCreatingT3Session(sessionId: string, startupCommand: string): Promise<void> {
     try {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.finishStart", {
+        sessionId,
+        startupCommand,
+      });
+      if (this.isSessionClosingOrRecentlyClosed(sessionId)) {
+        this.logT3CloseSessionRepro("controller.t3SessionCreate.finishIgnored", {
+          reason: "sessionClosing",
+          sessionId,
+          startupCommand,
+        });
+        return;
+      }
       const runtime = this.t3Runtime ?? new T3RuntimeManager(this.context);
       this.t3Runtime = runtime;
       const sessionMetadata = await runtime.createThreadSession(
@@ -5221,24 +5913,54 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         startupCommand,
         "T3 Code",
       );
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.runtimeCreated", {
+        sessionId,
+        sessionMetadata,
+        startupCommand,
+      });
       const sessionRecord = this.store.getSession(sessionId);
       if (
         !sessionRecord ||
         sessionRecord.kind !== "t3" ||
         !this.pendingT3SessionIds.has(sessionId)
       ) {
+        this.logT3CloseSessionRepro("controller.t3SessionCreate.finishIgnored", {
+          hasPendingSession: this.pendingT3SessionIds.has(sessionId),
+          sessionId,
+          sessionKind: sessionRecord?.kind,
+          startupCommand,
+        });
         return;
       }
 
       this.pendingT3SessionIds.delete(sessionId);
       this.invalidateT3PaneHtml(sessionId);
       await this.store.setT3SessionMetadata(sessionId, sessionMetadata);
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.metadataApplied", {
+        sessionId,
+        sessionMetadata,
+        startupCommand,
+      });
       const refreshedSession = this.store.getSession(sessionId);
       if (refreshedSession && isT3Session(refreshedSession)) {
         await this.syncT3SessionTitleFromRuntime(refreshedSession, runtime);
+        this.logT3CloseSessionRepro("controller.t3SessionCreate.titleSynced", {
+          sessionId,
+          startupCommand,
+          title: refreshedSession.title,
+        });
       }
       await this.afterStateChange();
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.finishComplete", {
+        sessionId,
+        startupCommand,
+      });
     } catch (error) {
+      this.logT3CloseSessionRepro("controller.t3SessionCreate.finishFailed", {
+        error: getErrorMessage(error),
+        sessionId,
+        startupCommand,
+      });
       const hadPendingSession = this.pendingT3SessionIds.delete(sessionId);
       const sessionRecord = this.store.getSession(sessionId);
       if (hadPendingSession && sessionRecord) {
@@ -5295,6 +6017,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async requestT3SessionBrowserAccess(sessionId: string): Promise<void> {
+    this.logT3CloseSessionRepro("controller.t3BrowserAccess.requested", {
+      sessionId,
+    });
     const sessionRecord = await this.resolveOrCreateBrowserAccessT3Session(sessionId);
     if (!sessionRecord) {
       void vscode.window.showErrorMessage("Could not start T3 Code for remote access.");
@@ -5336,13 +6061,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     for (const sessionId of candidateSessionIds) {
       const sessionRecord = this.store.getSession(sessionId);
-      if (sessionRecord && isT3Session(sessionRecord)) {
+      if (
+        sessionRecord &&
+        isT3Session(sessionRecord) &&
+        !this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)
+      ) {
         return sessionRecord;
       }
     }
 
-    return this.getAllSessionRecords().find((sessionRecord): sessionRecord is T3SessionRecord =>
-      isT3Session(sessionRecord),
+    return this.getAllSessionRecords().find(
+      (sessionRecord): sessionRecord is T3SessionRecord =>
+        isT3Session(sessionRecord) &&
+        !this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId),
     );
   }
 
@@ -5351,10 +6082,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   ): Promise<T3SessionRecord | undefined> {
     const existingSession = this.resolveBrowserAccessT3Session(preferredSessionId);
     if (existingSession) {
+      this.logT3CloseSessionRepro("controller.t3BrowserAccess.reusedSession", {
+        preferredSessionId,
+        sessionId: existingSession.sessionId,
+        threadId: existingSession.t3.threadId,
+      });
       return existingSession;
     }
 
     const startupCommand = getSidebarAgentButtonById("t3")?.command?.trim() ?? "npx --yes t3";
+    this.logT3CloseSessionRepro("controller.t3BrowserAccess.creatingSession", {
+      preferredSessionId,
+      startupCommand,
+    });
     const createdSession = await this.createT3Session(startupCommand);
     if (createdSession) {
       return createdSession;
@@ -5484,13 +6224,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return `pending:${sessionRecord.sessionId}`;
     }
 
-    return [
-      "ready",
-      sessionRecord.sessionId,
-      sessionRecord.t3.projectId,
-      sessionRecord.t3.workspaceRoot,
-      sessionRecord.t3.serverOrigin,
-    ].join(":");
+    return [sessionRecord.sessionId, getT3PaneHtmlReadyCacheKey(sessionRecord)].join(":");
   }
 
   private invalidateT3PaneHtml(sessionId: string): void {
@@ -5597,6 +6331,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     reason: string,
     options?: { autoFocus?: boolean },
   ): Promise<void> {
+    if (this.isSessionClosingOrRecentlyClosed(sessionId)) {
+      logVSmuxDebug("controller.reloadT3Session.ignored", {
+        reason: "sessionClosing",
+        requestedReason: reason,
+        sessionId,
+      });
+      return;
+    }
+
     const sessionRecord = this.store.getSession(sessionId);
     if (!sessionRecord || !isT3Session(sessionRecord)) {
       logVSmuxDebug("controller.reloadT3Session.ignored", {
@@ -5608,30 +6351,35 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const shouldAutoFocus = options?.autoFocus ?? true;
-    if (shouldAutoFocus) {
-      this.enqueueWorkspaceAutoFocus(sessionId, "reload");
+    await this.setSessionReloading(sessionId, true);
+    try {
+      if (shouldAutoFocus) {
+        this.enqueueWorkspaceAutoFocus(sessionId, "reload");
+      }
+      this.invalidateT3PaneHtml(sessionId);
+      this.bumpT3PaneRenderNonce(sessionId);
+      logVSmuxDebug("controller.reloadT3Session.start", {
+        reason,
+        renderNonce: this.getT3PaneRenderNonce(sessionId),
+        sessionId,
+        shouldAutoFocus,
+        threadId: sessionRecord.t3.threadId,
+      });
+      await this.refreshWorkspacePanel();
+      const refreshedSessionRecord = this.store.getSession(sessionId);
+      logVSmuxDebug("controller.reloadT3Session.complete", {
+        reason,
+        renderNonce: this.getT3PaneRenderNonce(sessionId),
+        sessionId,
+        shouldAutoFocus,
+        threadId:
+          refreshedSessionRecord && isT3Session(refreshedSessionRecord)
+            ? refreshedSessionRecord.t3.threadId
+            : undefined,
+      });
+    } finally {
+      await this.setSessionReloading(sessionId, false);
     }
-    this.invalidateT3PaneHtml(sessionId);
-    this.bumpT3PaneRenderNonce(sessionId);
-    logVSmuxDebug("controller.reloadT3Session.start", {
-      reason,
-      renderNonce: this.getT3PaneRenderNonce(sessionId),
-      sessionId,
-      shouldAutoFocus,
-      threadId: sessionRecord.t3.threadId,
-    });
-    await this.refreshWorkspacePanel();
-    const refreshedSessionRecord = this.store.getSession(sessionId);
-    logVSmuxDebug("controller.reloadT3Session.complete", {
-      reason,
-      renderNonce: this.getT3PaneRenderNonce(sessionId),
-      sessionId,
-      shouldAutoFocus,
-      threadId:
-        refreshedSessionRecord && isT3Session(refreshedSessionRecord)
-          ? refreshedSessionRecord.t3.threadId
-          : undefined,
-    });
   }
 
   private async preserveT3SessionBindingByCreatingSiblingSession(
@@ -5639,18 +6387,33 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     threadId: string,
     title?: string,
   ): Promise<boolean> {
-    const nextMetadata = {
-      ...sessionRecord.t3,
-      threadId,
-    };
+    if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+      logVSmuxDebug("controller.t3SessionBinding.threadNavigationIgnored", {
+        reason: "sessionClosing",
+        sessionId: sessionRecord.sessionId,
+        threadId,
+      });
+      return false;
+    }
+
+    const nextMetadata = setT3SessionBoundThreadId(sessionRecord.t3, threadId);
     const existingSession = this.findBoundT3Session(nextMetadata, {
       excludeSessionId: sessionRecord.sessionId,
     });
     const normalizedTitle = normalizeTerminalTitle(title);
+    const currentBoundThreadId = getT3SessionBoundThreadId(sessionRecord.t3);
 
     logVSmuxDebug("controller.t3SessionBinding.threadNavigationDetected", {
       currentSessionId: sessionRecord.sessionId,
-      currentThreadId: sessionRecord.t3.threadId,
+      currentThreadId: currentBoundThreadId,
+      nextThreadId: threadId,
+      reusedSessionId: existingSession?.sessionId,
+      title: normalizedTitle,
+    });
+    this.logT3CloseSessionRepro("controller.t3SessionBinding.threadNavigationDetected", {
+      currentSessionId: sessionRecord.sessionId,
+      currentThreadId: currentBoundThreadId,
+      knownT3Sessions: summarizeT3SessionsForThreadBindingRepro(this.getAllSessionRecords()),
       nextThreadId: threadId,
       reusedSessionId: existingSession?.sessionId,
       title: normalizedTitle,
@@ -5658,16 +6421,36 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     let targetSessionId = existingSession?.sessionId;
     if (existingSession) {
+      this.logT3CloseSessionRepro("controller.t3ThreadChanged.reusedSiblingSession", {
+        currentSessionId: sessionRecord.sessionId,
+        nextThreadId: threadId,
+        reusedSessionId: existingSession.sessionId,
+        title: normalizedTitle,
+      });
       if (normalizedTitle) {
         await this.applyT3SessionTitle(existingSession.sessionId, normalizedTitle);
       }
       await this.focusSession(existingSession.sessionId, "workspace");
     } else {
+      this.logT3CloseSessionRepro("controller.t3ThreadChanged.creatingSiblingSession", {
+        currentSessionId: sessionRecord.sessionId,
+        nextThreadId: threadId,
+        title: normalizedTitle,
+      });
       const createdSession = await this.createBoundT3Session(nextMetadata, normalizedTitle);
       targetSessionId = createdSession?.sessionId;
       if (createdSession && !normalizedTitle) {
         await this.syncT3SessionTitleFromRuntime(createdSession);
       }
+    }
+
+    if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+      logVSmuxDebug("controller.t3SessionBinding.threadNavigationIgnored", {
+        reason: "sessionClosingAfterTargetResolution",
+        sessionId: sessionRecord.sessionId,
+        threadId,
+      });
+      return false;
     }
 
     await this.reloadT3Session(sessionRecord.sessionId, "thread-switch-restored-binding", {
@@ -5676,6 +6459,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     if (!targetSessionId) {
       logVSmuxDebug("controller.t3SessionBinding.threadNavigationIgnored", {
+        reason: "targetSessionUnavailable",
+        sessionId: sessionRecord.sessionId,
+        threadId,
+      });
+      this.logT3CloseSessionRepro("controller.t3SessionBinding.threadNavigationIgnored", {
         reason: "targetSessionUnavailable",
         sessionId: sessionRecord.sessionId,
         threadId,
@@ -5693,43 +6481,158 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     threadId: string,
     title?: string,
   ): Promise<void> {
-    const normalizedThreadId = threadId.trim();
     const normalizedTitle = normalizeTerminalTitle(title);
+    const now = Date.now();
+    this.logT3CloseSessionRepro("controller.t3ThreadChanged.received", {
+      sessionId,
+      threadId: threadId.trim(),
+      title: normalizedTitle,
+    });
     const sessionRecord = this.store.getSession(sessionId);
     if (!sessionRecord || !isT3Session(sessionRecord) || isPendingT3Metadata(sessionRecord.t3)) {
       logVSmuxDebug("controller.t3SessionTitle.threadChangedIgnored", {
         reason: "sessionUnavailable",
         sessionId,
+        threadId: threadId.trim(),
+        title: normalizedTitle,
+      });
+      return;
+    }
+
+    const activeSnapshot = this.getActiveSnapshot();
+    const lastAcceptedThreadChange = this.lastAcceptedT3ThreadChangeBySessionId.get(sessionId);
+    const currentBoundThreadId = getT3SessionBoundThreadId(sessionRecord.t3);
+    const sessionCreatedAt = Date.parse(sessionRecord.createdAt);
+    const awaitingInitialBoundThreadConfirmation =
+      this.isT3SessionAwaitingInitialBoundThreadConfirmation(sessionId, now);
+    const guardResult = evaluateT3ThreadChangeGuard({
+      currentThreadId: currentBoundThreadId,
+      isClosing: this.isSessionClosingOrRecentlyClosed(sessionId, now),
+      isFocused: activeSnapshot.focusedSessionId === sessionId,
+      isInFlight: this.t3ThreadChangeInFlightBySessionId.has(sessionId),
+      isVisible: activeSnapshot.visibleSessionIds.includes(sessionId),
+      lastAcceptedAt: lastAcceptedThreadChange?.at,
+      lastAcceptedThreadId: lastAcceptedThreadChange?.threadId,
+      nextThreadId: threadId,
+      now,
+      requiresInitialBoundThreadConfirmation: awaitingInitialBoundThreadConfirmation,
+      sessionCreatedAt: Number.isFinite(sessionCreatedAt) ? sessionCreatedAt : undefined,
+    });
+    const normalizedThreadId = guardResult.nextThreadId;
+
+    if (guardResult.reason === "emptyThreadId") {
+      logVSmuxDebug("controller.t3SessionTitle.threadChangedIgnored", {
+        reason: guardResult.reason,
+        sessionId,
+        title: normalizedTitle,
+      });
+      return;
+    }
+
+    const threadChanged = normalizedThreadId !== currentBoundThreadId;
+    let mutated = false;
+
+    if (!threadChanged) {
+      this.confirmT3SessionInitialBoundThread(sessionId, normalizedThreadId);
+    }
+
+    if (threadChanged) {
+      if (!guardResult.allow) {
+        const sessionAgeMs =
+          Number.isFinite(sessionCreatedAt) && sessionCreatedAt <= now
+            ? now - sessionCreatedAt
+            : undefined;
+        this.logT3CloseSessionRepro("controller.t3ThreadChanged.bindingPreservationSkipped", {
+          previousThreadId: currentBoundThreadId,
+          reason: guardResult.reason,
+          sessionAgeMs,
+          sessionId,
+          startupSuppressionMs: T3_THREAD_CHANGE_STARTUP_SUPPRESSION_MS,
+          threadId: normalizedThreadId,
+          title: normalizedTitle,
+        });
+        logVSmuxDebug("controller.t3SessionTitle.threadChangedIgnored", {
+          reason: guardResult.reason,
+          sessionId,
+          threadId: normalizedThreadId,
+          title: normalizedTitle,
+        });
+        if (
+          guardResult.reason === "awaitingInitialBoundThreadConfirmation" ||
+          guardResult.reason === "sessionBootstrapping"
+        ) {
+          const hasReloadedDuringStartup = this.t3StartupRestoreReloadedSessionIds.has(sessionId);
+          if (hasReloadedDuringStartup) {
+            this.logT3CloseSessionRepro(
+              "controller.t3ThreadChanged.startupThreadRestoreReloadSkipped",
+              {
+                previousThreadId: currentBoundThreadId,
+                sessionAgeMs,
+                sessionId,
+                startupConfirmationPending: awaitingInitialBoundThreadConfirmation,
+                threadId: normalizedThreadId,
+                title: normalizedTitle,
+              },
+            );
+          } else {
+            this.t3StartupRestoreReloadedSessionIds.add(sessionId);
+            this.logT3CloseSessionRepro("controller.t3ThreadChanged.startupThreadRestoreReload", {
+              previousThreadId: currentBoundThreadId,
+              sessionAgeMs,
+              sessionId,
+              startupConfirmationPending: awaitingInitialBoundThreadConfirmation,
+              threadId: normalizedThreadId,
+              title: normalizedTitle,
+            });
+            await this.reloadT3Session(sessionId, "startup-thread-restore-blocked");
+          }
+        }
+        return;
+      }
+
+      this.t3ThreadChangeInFlightBySessionId.add(sessionId);
+      this.lastAcceptedT3ThreadChangeBySessionId.set(sessionId, {
+        at: now,
+        threadId: normalizedThreadId,
+      });
+      this.logT3CloseSessionRepro("controller.t3ThreadChanged.bindingPreservationStart", {
+        previousThreadId: currentBoundThreadId,
+        sessionId,
         threadId: normalizedThreadId,
         title: normalizedTitle,
       });
+      try {
+        const handledByBindingPreservation =
+          await this.preserveT3SessionBindingByCreatingSiblingSession(
+            sessionRecord,
+            normalizedThreadId,
+            normalizedTitle,
+          );
+        this.logT3CloseSessionRepro("controller.t3ThreadChanged.bindingPreservationResult", {
+          handledByBindingPreservation,
+          previousThreadId: currentBoundThreadId,
+          sessionId,
+          threadId: normalizedThreadId,
+          title: normalizedTitle,
+        });
+        logVSmuxDebug("controller.t3SessionTitle.threadChanged", {
+          handledByBindingPreservation,
+          nextThreadId: normalizedThreadId,
+          previousThreadId: currentBoundThreadId,
+          sessionId,
+          title: normalizedTitle,
+        });
+      } finally {
+        this.t3ThreadChangeInFlightBySessionId.delete(sessionId);
+      }
       return;
     }
 
-    if (!normalizedThreadId) {
+    if (this.isSessionClosingOrRecentlyClosed(sessionId, now)) {
       logVSmuxDebug("controller.t3SessionTitle.threadChangedIgnored", {
-        reason: "emptyThreadId",
+        reason: "sessionClosing",
         sessionId,
-        title: normalizedTitle,
-      });
-      return;
-    }
-
-    const threadChanged = normalizedThreadId !== sessionRecord.t3.threadId;
-    let mutated = false;
-
-    if (threadChanged) {
-      const handledByBindingPreservation =
-        await this.preserveT3SessionBindingByCreatingSiblingSession(
-          sessionRecord,
-          normalizedThreadId,
-          normalizedTitle,
-        );
-      logVSmuxDebug("controller.t3SessionTitle.threadChanged", {
-        handledByBindingPreservation,
-        nextThreadId: normalizedThreadId,
-        previousThreadId: sessionRecord.t3.threadId,
-        sessionId,
+        threadId: normalizedThreadId,
         title: normalizedTitle,
       });
       return;
@@ -5748,13 +6651,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       if (await this.applyT3SessionTitle(sessionId, normalizedTitle)) {
         mutated = true;
       }
-    } else if (threadChanged) {
-      if (await this.applyT3SessionTitle(sessionId, undefined)) {
-        mutated = true;
-      }
-      if (await this.syncT3SessionTitleFromRuntime(refreshedSession)) {
-        mutated = true;
-      }
     }
 
     if (!mutated) {
@@ -5771,10 +6667,54 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.afterStateChange();
   }
 
+  private markT3SessionAwaitingInitialBoundThreadConfirmation(sessionId: string): void {
+    this.t3InitialBoundThreadConfirmationExpiryBySessionId.set(
+      sessionId,
+      Date.now() + T3_THREAD_INITIAL_BOUND_THREAD_CONFIRMATION_MS,
+    );
+  }
+
+  private isT3SessionAwaitingInitialBoundThreadConfirmation(
+    sessionId: string,
+    now = Date.now(),
+  ): boolean {
+    const expiresAt = this.t3InitialBoundThreadConfirmationExpiryBySessionId.get(sessionId);
+    if (expiresAt === undefined) {
+      return false;
+    }
+
+    if (expiresAt <= now) {
+      this.t3InitialBoundThreadConfirmationExpiryBySessionId.delete(sessionId);
+      return false;
+    }
+
+    return true;
+  }
+
+  private confirmT3SessionInitialBoundThread(sessionId: string, threadId: string): void {
+    if (!this.t3InitialBoundThreadConfirmationExpiryBySessionId.delete(sessionId)) {
+      return;
+    }
+
+    this.logT3CloseSessionRepro("controller.t3ThreadChanged.initialBoundThreadConfirmed", {
+      sessionId,
+      threadId,
+    });
+  }
+
   private async applyT3SessionTitle(
     sessionId: string,
     title: string | undefined,
   ): Promise<boolean> {
+    if (this.isSessionClosingOrRecentlyClosed(sessionId)) {
+      logVSmuxDebug("controller.t3SessionTitle.applyIgnored", {
+        reason: "sessionClosing",
+        sessionId,
+        title: normalizeTerminalTitle(title),
+      });
+      return false;
+    }
+
     const normalizedTitle = normalizeTerminalTitle(title);
     const previousLiveTitle = this.terminalTitleBySessionId.get(sessionId);
     let persistedTitleChanged = false;
@@ -5841,6 +6781,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     sessionRecord: T3SessionRecord,
     runtime?: T3RuntimeManager,
   ): Promise<boolean> {
+    if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+      logVSmuxDebug("controller.syncT3SessionTitleFromRuntime.ignored", {
+        reason: "sessionClosing",
+        sessionId: sessionRecord.sessionId,
+        threadId: sessionRecord.t3.threadId,
+      });
+      return false;
+    }
+
     if (isPendingT3Metadata(sessionRecord.t3)) {
       return false;
     }
@@ -5849,6 +6798,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     try {
       const threadTitle = await activeRuntime.getThreadTitle(sessionRecord.t3.threadId);
+      if (this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)) {
+        logVSmuxDebug("controller.syncT3SessionTitleFromRuntime.ignored", {
+          reason: "sessionClosingAfterFetch",
+          sessionId: sessionRecord.sessionId,
+          threadId: sessionRecord.t3.threadId,
+        });
+        return false;
+      }
       logVSmuxDebug("controller.t3SessionTitle.runtimeFetched", {
         sessionId: sessionRecord.sessionId,
         threadId: sessionRecord.t3.threadId,
@@ -5868,7 +6825,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async syncT3SessionTitlesFromMonitor(): Promise<boolean> {
     let mutated = false;
     for (const sessionRecord of this.getAllSessionRecords()) {
-      if (!isT3Session(sessionRecord) || isPendingT3Metadata(sessionRecord.t3)) {
+      if (
+        !isT3Session(sessionRecord) ||
+        isPendingT3Metadata(sessionRecord.t3) ||
+        this.isSessionClosingOrRecentlyClosed(sessionRecord.sessionId)
+      ) {
         continue;
       }
 
@@ -5900,6 +6861,7 @@ type TerminalSurfaceEnsureResult = "created-terminal" | "existing-live-terminal"
 function createPendingT3Metadata(serverOrigin: string) {
   const pendingId = `pending-${randomUUID()}`;
   return {
+    boundThreadId: pendingId,
     projectId: pendingId,
     serverOrigin,
     threadId: pendingId,
@@ -5908,7 +6870,10 @@ function createPendingT3Metadata(serverOrigin: string) {
 }
 
 function isPendingT3Metadata(metadata: T3SessionRecord["t3"]): boolean {
-  return metadata.projectId.startsWith("pending-") && metadata.threadId.startsWith("pending-");
+  return (
+    metadata.projectId.startsWith("pending-") &&
+    getT3SessionBoundThreadId(metadata).startsWith("pending-")
+  );
 }
 
 function getArchivedSessionRecord(
@@ -5941,9 +6906,39 @@ function haveSameT3SessionMetadata(
   return (
     left.projectId === right.projectId &&
     left.serverOrigin === right.serverOrigin &&
-    left.threadId === right.threadId &&
+    getT3SessionBoundThreadId(left) === getT3SessionBoundThreadId(right) &&
     left.workspaceRoot === right.workspaceRoot
   );
+}
+
+function shouldLogT3ThreadBindingReproEvent(event: string): boolean {
+  return (
+    event.startsWith("controller.t3SessionCreate.") ||
+    event.startsWith("controller.t3SessionBinding.") ||
+    event.startsWith("controller.t3ThreadChanged.") ||
+    event.startsWith("workspace.webview.repro.t3ThreadSource.")
+  );
+}
+
+function summarizeT3SessionsForThreadBindingRepro(
+  sessionRecords: readonly SessionRecord[],
+): Array<Record<string, unknown>> {
+  return sessionRecords.flatMap((sessionRecord) => {
+    if (!isT3Session(sessionRecord)) {
+      return [];
+    }
+
+    return [
+      {
+        boundThreadId: getT3SessionBoundThreadId(sessionRecord.t3),
+        isSleeping: sessionRecord.isSleeping === true,
+        projectId: sessionRecord.t3.projectId,
+        sessionId: sessionRecord.sessionId,
+        title: sessionRecord.title,
+        workspaceRoot: sessionRecord.t3.workspaceRoot,
+      },
+    ];
+  });
 }
 
 function cloneWorkspaceSnapshot(
