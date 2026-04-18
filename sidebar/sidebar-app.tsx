@@ -29,7 +29,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
-import { MAX_GROUP_COUNT, type ExtensionToSidebarMessage } from "../shared/session-grid-contract";
+import {
+  MAX_GROUP_COUNT,
+  type ExtensionToSidebarMessage,
+  type SidebarCollapsibleSection,
+} from "../shared/session-grid-contract";
 import type { SidebarActionType } from "../shared/sidebar-commands";
 import { playCompletionSound, prepareCompletionSoundPlayback } from "./completion-sound-player";
 import { AgentsPanel } from "./agents-panel";
@@ -136,6 +140,7 @@ const sensors = [
 
 const SIDEBAR_STARTUP_INTERACTION_BLOCK_MS = 1500;
 const SIDEBAR_POINTER_DRAG_REORDER_THRESHOLD_PX = 8;
+const SIDEBAR_SECTION_COLLAPSE_PERSIST_DEBOUNCE_MS = 200;
 const MIN_SESSION_SEARCH_QUERY_LENGTH = 2;
 const COMPLETION_FLASH_DURATION_MS = 3_000;
 
@@ -176,6 +181,9 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   const pointerDownSessionTargetRef = useRef<SidebarPointerDownSessionTarget>();
   const sessionPointerDragStateRef = useRef<SidebarSessionPointerDragState>();
   const completionFlashTimeoutBySessionIdRef = useRef<Map<string, number>>(new Map());
+  const sectionCollapsePersistTimeoutsRef = useRef<
+    Partial<Record<SidebarCollapsibleSection, number>>
+  >({});
   const sessionGroupsContentRef = useRef<HTMLDivElement>(null);
 
   if (!didResetStoreRef.current) {
@@ -418,6 +426,13 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         window.clearTimeout(timeout);
       }
       completionFlashTimeoutBySessionIdRef.current.clear();
+
+      for (const timeoutId of Object.values(sectionCollapsePersistTimeoutsRef.current)) {
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+        }
+      }
+      sectionCollapsePersistTimeoutsRef.current = {};
     };
   }, []);
 
@@ -1030,6 +1045,36 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     setIsScratchPadOpen((previous) => !previous);
   };
 
+  const persistSectionCollapsed = useEffectEvent(
+    (section: SidebarCollapsibleSection, collapsed: boolean) => {
+      vscode.postMessage({
+        collapsed,
+        section,
+        type: "setSidebarSectionCollapsed",
+      });
+    },
+  );
+
+  const scheduleSectionCollapsePersistence = useEffectEvent(
+    (section: SidebarCollapsibleSection, collapsed: boolean) => {
+      const existingTimeoutId = sectionCollapsePersistTimeoutsRef.current[section];
+      if (existingTimeoutId !== undefined) {
+        window.clearTimeout(existingTimeoutId);
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        if (sectionCollapsePersistTimeoutsRef.current[section] !== timeoutId) {
+          return;
+        }
+
+        delete sectionCollapsePersistTimeoutsRef.current[section];
+        persistSectionCollapsed(section, collapsed);
+      }, SIDEBAR_SECTION_COLLAPSE_PERSIST_DEBOUNCE_MS);
+
+      sectionCollapsePersistTimeoutsRef.current[section] = timeoutId;
+    },
+  );
+
   const openRunningSessions = () => {
     setIsOverflowMenuOpen(false);
     setIsPinnedPromptsOpen(false);
@@ -1377,11 +1422,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             onBrowserCommandRun={() => expandGroups(browserGroupIds)}
             onToggleCollapsed={(collapsed) => {
               setSectionCollapsed("actions", collapsed);
-              vscode.postMessage({
-                collapsed,
-                section: "actions",
-                type: "setSidebarSectionCollapsed",
-              });
+              scheduleSectionCollapsePersistence("actions", collapsed);
             }}
             showGitButton={sectionVisibility.git}
             vscode={vscode}
@@ -1411,11 +1452,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
             isVisible={shouldShowAgentsPanel}
             onToggleCollapsed={(collapsed) => {
               setSectionCollapsed("agents", collapsed);
-              vscode.postMessage({
-                collapsed,
-                section: "agents",
-                type: "setSidebarSectionCollapsed",
-              });
+              scheduleSectionCollapsePersistence("agents", collapsed);
             }}
             vscode={vscode}
           />

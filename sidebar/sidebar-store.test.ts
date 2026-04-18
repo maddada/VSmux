@@ -89,15 +89,76 @@ describe("sidebar store", () => {
     expect(after.sessionsById["session-1"]?.primaryTitle).toBe("updated groups");
     expect(after.sessionsById["session-2"]).toBe(previousSiblingSession);
   });
+
+  test("should keep local section collapse overrides when a stale hydrate disagrees", () => {
+    useSidebarStore
+      .getState()
+      .applySidebarMessage(
+        createHydrateMessage([createGroup("group-1", [createSession("session-1", "groups")])]),
+      );
+
+    useSidebarStore.getState().setSectionCollapsed("actions", true);
+
+    useSidebarStore.getState().applySidebarMessage(
+      createHydrateMessage([createGroup("group-1", [createSession("session-1", "groups")])], {
+        collapsedSections: {
+          actions: false,
+          agents: false,
+        },
+        revision: 2,
+      }),
+    );
+
+    const state = useSidebarStore.getState();
+    expect(state.hud.collapsedSections.actions).toBe(true);
+    expect(state.sectionCollapseOverrides).toEqual({
+      actions: true,
+    });
+  });
+
+  test("should clear local section collapse overrides after persistence catches up", () => {
+    useSidebarStore
+      .getState()
+      .applySidebarMessage(
+        createHydrateMessage([createGroup("group-1", [createSession("session-1", "groups")])]),
+      );
+
+    useSidebarStore.getState().setSectionCollapsed("actions", true);
+
+    useSidebarStore.getState().applySidebarMessage(
+      createHydrateMessage([createGroup("group-1", [createSession("session-1", "groups")])], {
+        collapsedSections: {
+          actions: true,
+          agents: false,
+        },
+        revision: 2,
+      }),
+    );
+
+    const state = useSidebarStore.getState();
+    expect(state.hud.collapsedSections.actions).toBe(true);
+    expect(state.sectionCollapseOverrides).toEqual({});
+  });
 });
 
-function createHydrateMessage(groups: SidebarSessionGroup[]): SidebarHydrateMessage {
+function createHydrateMessage(
+  groups: SidebarSessionGroup[],
+  options?: {
+    collapsedSections?: SidebarHydrateMessage["hud"]["collapsedSections"];
+    revision?: number;
+  },
+): SidebarHydrateMessage {
+  const initialHud = createInitialSidebarStoreDataState().hud;
+
   return {
     groups,
-    hud: createInitialSidebarStoreDataState().hud,
+    hud: {
+      ...initialHud,
+      collapsedSections: options?.collapsedSections ?? initialHud.collapsedSections,
+    },
     pinnedPrompts: [],
     previousSessions: [],
-    revision: 1,
+    revision: options?.revision ?? 1,
     scratchPadContent: "",
     type: "hydrate",
   };

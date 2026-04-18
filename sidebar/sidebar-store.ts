@@ -38,6 +38,7 @@ type SidebarStoreDataState = {
   previousSessions: SidebarPreviousSessionItem[];
   revision: number;
   scratchPadContent: string;
+  sectionCollapseOverrides: Partial<Record<SidebarCollapsibleSection, boolean>>;
   sessionIdsByGroup: Record<string, string[]>;
   sessionsById: Record<string, SidebarSessionItem>;
   workspaceGroupIds: string[];
@@ -96,6 +97,7 @@ export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
     previousSessions: [],
     revision: 0,
     scratchPadContent: "",
+    sectionCollapseOverrides: {},
     sessionIdsByGroup: {},
     sessionsById: {},
     workspaceGroupIds: [],
@@ -130,7 +132,10 @@ export const useSidebarStore = create<SidebarStoreState>((set) => ({
   },
   setSectionCollapsed: (section, collapsed) => {
     set((state) => {
-      if (state.hud.collapsedSections[section] === collapsed) {
+      if (
+        state.hud.collapsedSections[section] === collapsed &&
+        state.sectionCollapseOverrides[section] === collapsed
+      ) {
         return state;
       }
 
@@ -142,6 +147,13 @@ export const useSidebarStore = create<SidebarStoreState>((set) => ({
             [section]: collapsed,
           },
         },
+        sectionCollapseOverrides:
+          state.sectionCollapseOverrides[section] === collapsed
+            ? state.sectionCollapseOverrides
+            : {
+                ...state.sectionCollapseOverrides,
+                [section]: collapsed,
+              },
       };
     });
   },
@@ -175,17 +187,25 @@ function applySidebarMessageState(
     state.pendingFocusedSessionId,
   );
   const normalizedGroups = normalizeSidebarGroups(state, reconciledGroups.groups);
+  const { collapsedSections, sectionCollapseOverrides } = reconcileSectionCollapseState(
+    message.hud.collapsedSections,
+    state.sectionCollapseOverrides,
+  );
 
   return {
     browserGroupIds: normalizedGroups.browserGroupIds,
     groupOrder: normalizedGroups.groupOrder,
     groupsById: normalizedGroups.groupsById,
-    hud: message.hud,
+    hud: {
+      ...message.hud,
+      collapsedSections,
+    },
     pendingFocusedSessionId: reconciledGroups.pendingFocusedSessionId,
     pinnedPrompts: message.pinnedPrompts,
     previousSessions: message.previousSessions,
     revision: message.revision,
     scratchPadContent: message.scratchPadContent,
+    sectionCollapseOverrides,
     sessionIdsByGroup: normalizedGroups.sessionIdsByGroup,
     sessionsById: normalizedGroups.sessionsById,
     workspaceGroupIds: normalizedGroups.workspaceGroupIds,
@@ -402,6 +422,41 @@ function reconcilePendingFocusedSession(
   };
 }
 
+function reconcileSectionCollapseState(
+  persistedCollapsedSections: SidebarHudState["collapsedSections"],
+  sectionCollapseOverrides: Partial<Record<SidebarCollapsibleSection, boolean>>,
+): {
+  collapsedSections: SidebarHudState["collapsedSections"];
+  sectionCollapseOverrides: Partial<Record<SidebarCollapsibleSection, boolean>>;
+} {
+  let nextOverrides = sectionCollapseOverrides;
+  let hasClonedOverrides = false;
+  const nextCollapsedSections = { ...persistedCollapsedSections };
+
+  for (const section of ["actions", "agents"] as const) {
+    const override = sectionCollapseOverrides[section];
+    if (override === undefined) {
+      continue;
+    }
+
+    if (persistedCollapsedSections[section] === override) {
+      if (!hasClonedOverrides) {
+        nextOverrides = { ...sectionCollapseOverrides };
+        hasClonedOverrides = true;
+      }
+      delete nextOverrides[section];
+      continue;
+    }
+
+    nextCollapsedSections[section] = override;
+  }
+
+  return {
+    collapsedSections: nextCollapsedSections,
+    sectionCollapseOverrides: nextOverrides,
+  };
+}
+
 function toSidebarGroupRecord(group: SidebarSessionGroup): SidebarGroupRecord {
   return {
     groupId: group.groupId,
@@ -436,6 +491,7 @@ function haveSameSidebarSessionItem(left: SidebarSessionItem, right: SidebarSess
     left.alias === right.alias &&
     left.column === right.column &&
     left.detail === right.detail &&
+    left.isReloading === right.isReloading &&
     left.lifecycleState === right.lifecycleState &&
     left.isFocused === right.isFocused &&
     left.isFavorite === right.isFavorite &&
