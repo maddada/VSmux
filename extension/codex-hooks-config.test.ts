@@ -158,4 +158,55 @@ describe("mergeCodexHookSettingsContent", () => {
       },
     ]);
   });
+
+  test("should collapse old versioned VSmux hook commands to the current runner", () => {
+    const mergedContent = mergeCodexHookSettingsContent(
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    command:
+                      "ELECTRON_RUN_AS_NODE=1 '/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)' '/Users/test/.vscode/extensions/maddada.vsmux-4.1.0/out/extension/agent-shell-notify-runner.js'",
+                    type: "command",
+                  },
+                ],
+              },
+              {
+                hooks: [
+                  {
+                    command:
+                      "ELECTRON_RUN_AS_NODE=1 '/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)' '/Users/test/.vscode/extensions/maddada.vsmux-4.2.0/out/extension/agent-shell-notify-runner.js'",
+                    type: "command",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+      "/Users/test/.vscode/extensions/maddada.vsmux-4.3.1/out/extension/agent-shell-notify-runner.js",
+      "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
+      "darwin",
+    );
+    const mergedSettings = JSON.parse(mergedContent) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string; type: string }> }>>;
+    };
+
+    expect(mergedSettings.hooks.UserPromptSubmit).toEqual([
+      {
+        hooks: [
+          {
+            command:
+              "ELECTRON_RUN_AS_NODE=1 '/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)' '/Users/test/.vscode/extensions/maddada.vsmux-4.3.1/out/extension/agent-shell-notify-runner.js'",
+            type: "command",
+          },
+        ],
+      },
+    ]);
+  });
 });

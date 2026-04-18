@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { getVisibleTerminalTitle } from "../shared/session-grid-contract";
 import type { TerminalAgentStatus } from "../shared/terminal-host-protocol";
@@ -24,6 +24,12 @@ const DEFAULT_PERSISTED_SESSION_STATE: PersistedSessionState = {
   lastActivityAt: undefined,
   pendingFirstPromptAutoRenamePrompt: undefined,
   title: undefined,
+};
+const PERSISTED_SESSION_HOOK_DEDUP_MARKER_INFIX = ".hook-dedupe.";
+
+export type PersistedSessionHookDedupMarkerResult = {
+  acquired: boolean;
+  markerPath: string;
 };
 
 export function createDefaultPersistedSessionState(): PersistedSessionState {
@@ -133,6 +139,43 @@ export async function writePersistedSessionStateToFile(
   await rename(tempFilePath, filePath);
 }
 
+export function getPersistedSessionHookDedupMarkerPath(
+  filePath: string,
+  eventName: string,
+  fingerprint: string,
+): string {
+  const markerFileName = `${path.basename(filePath)}${PERSISTED_SESSION_HOOK_DEDUP_MARKER_INFIX}${sanitizePersistedSessionHookDedupPart(eventName)}.${sanitizePersistedSessionHookDedupPart(fingerprint)}`;
+  return path.join(path.dirname(filePath), markerFileName);
+}
+
+export async function createPersistedSessionHookDedupMarker(
+  filePath: string,
+  eventName: string,
+  fingerprint: string,
+): Promise<PersistedSessionHookDedupMarkerResult> {
+  const markerPath = getPersistedSessionHookDedupMarkerPath(filePath, eventName, fingerprint);
+  await mkdir(path.dirname(markerPath), { recursive: true });
+
+  try {
+    await writeFile(markerPath, "", { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (isExistingFileError(error)) {
+      return {
+        acquired: false,
+        markerPath,
+      };
+    }
+
+    throw error;
+  }
+
+  await cleanupPersistedSessionHookDedupMarkers(filePath, markerPath);
+  return {
+    acquired: true,
+    markerPath,
+  };
+}
+
 export async function updatePersistedSessionStateFile(
   filePath: string,
   updater: (state: PersistedSessionState) => PersistedSessionState,
@@ -149,6 +192,7 @@ export async function updatePersistedSessionStateFile(
 
 export async function deletePersistedSessionStateFile(filePath: string): Promise<void> {
   await rm(filePath, { force: true }).catch(() => undefined);
+  await cleanupPersistedSessionHookDedupMarkers(filePath).catch(() => undefined);
 }
 
 function normalizePersistedSessionValue(value: string | undefined): string | undefined {
@@ -165,3 +209,26 @@ function normalizePersistedTimestamp(value: string | undefined): string | undefi
   const timestampMs = Date.parse(normalizedValue);
   return Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : undefined;
 }
+
+async function cleanupPersistedSessionHookDedupMarkers(
+  filePath: string,
+  keepMarkerPath?: string,
+): Promise<void> {
+  const markerPrefix = `${path.basename(filePath)}${PERSISTED_SESSION_HOOK_DEDUP_MARKER_INFIX}`;
+  const directoryPath = path.dirname(filePath);
+  const markerFileNameToKeep = keepMarkerPath ? path.basename(keepMarkerPath) : undefined;
+  const directoryEntries = await readdir(directoryPath).catch(() => []);
+
+  await Promise.all(
+    directoryEntries
+      .filter((entry) => entry.startsWith(markerPrefix) && entry !== markerFileNameToKeep)
+      .map((entry) => rm(path.join(directoryPath, entry), { force: true }).catch(() => undefined)),
+  );
+}
+
+function sanitizePersistedSessionHookDedupPart(value: string): string {
+  return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+const isExistingFileError = (error: unknown): error is NodeJS.ErrnoException =>
+  error instanceof Error && "code" in error && error.code === "EEXIST";

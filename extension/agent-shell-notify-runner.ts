@@ -1,6 +1,7 @@
 import { appendAgentShellDebugLog } from "./agent-shell-debug-log";
 import { shouldAutoNameSessionFromFirstPrompt } from "./first-prompt-session-title";
 import {
+  createPersistedSessionHookDedupMarker,
   readPersistedSessionStateFromFile,
   writePersistedSessionStateToFile,
   type PersistedSessionState,
@@ -16,17 +17,32 @@ type AgentHookInfo = {
   normalizedEvent?: "start" | "stop";
   prompt?: string;
   rawEventName?: string;
+  turnId?: string;
 };
 
 async function main(): Promise<void> {
   const input = await readInput();
   const hookInfo = getAgentHookInfo(input);
+  const hookClaimResult = await claimAgentHookInvocation(hookInfo);
+  if (hookClaimResult === "duplicate") {
+    await appendAgentShellDebugLog("notify.duplicateSkipped", {
+      agentName: hookInfo.agentName,
+      rawEventName: hookInfo.rawEventName,
+      turnId: hookInfo.turnId,
+    });
+    const hookResponse = getHookResponseForInput(input);
+    if (hookResponse) {
+      process.stdout.write(hookResponse);
+    }
+    return;
+  }
   await appendAgentShellDebugLog("notify.received", {
     agentName: hookInfo.agentName,
     inputLength: input.length,
     normalizedEvent: hookInfo.normalizedEvent,
     promptPreview: getPromptPreview(hookInfo.prompt),
     rawEventName: hookInfo.rawEventName,
+    turnId: hookInfo.turnId,
   });
   const sessionUpdate = await writeSessionState(hookInfo);
   await appendAgentShellDebugLog("notify.stateWritten", sessionUpdate);
@@ -79,12 +95,37 @@ export function getAgentHookInfo(
         ? getJsonStringField(input, "prompt")
         : undefined,
     rawEventName,
+    turnId:
+      rawEventName === USER_PROMPT_SUBMIT_EVENT_NAME
+        ? getJsonStringField(input, "turn_id")
+        : undefined,
   };
 }
 
 export function getHookResponseForInput(input: string): string | undefined {
   const rawEventName = getJsonStringField(input, "hook_event_name");
   return rawEventName === USER_PROMPT_SUBMIT_EVENT_NAME ? USER_PROMPT_SUBMIT_ACK : undefined;
+}
+
+export async function claimAgentHookInvocation(
+  hookInfo: AgentHookInfo,
+  stateFilePath = process.env.VSMUX_SESSION_STATE_FILE?.trim(),
+): Promise<"acquired" | "duplicate" | "skipped"> {
+  if (hookInfo.rawEventName !== USER_PROMPT_SUBMIT_EVENT_NAME) {
+    return "skipped";
+  }
+
+  const turnId = hookInfo.turnId?.trim();
+  if (!stateFilePath || !turnId) {
+    return "skipped";
+  }
+
+  const markerResult = await createPersistedSessionHookDedupMarker(
+    stateFilePath,
+    hookInfo.rawEventName,
+    turnId,
+  );
+  return markerResult.acquired ? "acquired" : "duplicate";
 }
 
 function getNormalizedEventType(

@@ -1,5 +1,12 @@
+import { mkdtemp, readdir } from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, test } from "vite-plus/test";
-import { getAgentHookInfo, resolvePersistedSessionStateForHook } from "./agent-shell-notify-runner";
+import {
+  claimAgentHookInvocation,
+  getAgentHookInfo,
+  resolvePersistedSessionStateForHook,
+} from "./agent-shell-notify-runner";
 import { getHookResponseForInput } from "./agent-shell-notify-runner";
 
 describe("getAgentHookInfo", () => {
@@ -17,6 +24,26 @@ describe("getAgentHookInfo", () => {
       normalizedEvent: undefined,
       prompt: 'can you fix the "rename" flow?',
       rawEventName: "UserPromptSubmit",
+      turnId: undefined,
+    });
+  });
+
+  test("extracts turn identifiers from UserPromptSubmit payloads", () => {
+    expect(
+      getAgentHookInfo(
+        JSON.stringify({
+          agent: "codex",
+          hook_event_name: "UserPromptSubmit",
+          prompt: "hello",
+          turn_id: "turn-123",
+        }),
+      ),
+    ).toEqual({
+      agentName: "codex",
+      normalizedEvent: undefined,
+      prompt: "hello",
+      rawEventName: "UserPromptSubmit",
+      turnId: "turn-123",
     });
   });
 
@@ -33,6 +60,7 @@ describe("getAgentHookInfo", () => {
       normalizedEvent: "stop",
       prompt: undefined,
       rawEventName: undefined,
+      turnId: undefined,
     });
   });
 });
@@ -146,5 +174,62 @@ describe("resolvePersistedSessionStateForHook", () => {
 
     expect(startState.agentStatus).toBe("working");
     expect(stopState.agentStatus).toBe("attention");
+  });
+});
+
+describe("claimAgentHookInvocation", () => {
+  test("suppresses duplicate UserPromptSubmit deliveries for the same turn", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-hook-claim-"));
+    const stateFilePath = path.join(tempDir, "session-00.state");
+    const hookInfo = getAgentHookInfo(
+      JSON.stringify({
+        agent: "codex",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "rename this session",
+        turn_id: "turn-123",
+      }),
+    );
+
+    await expect(claimAgentHookInvocation(hookInfo, stateFilePath)).resolves.toBe("acquired");
+    await expect(claimAgentHookInvocation(hookInfo, stateFilePath)).resolves.toBe("duplicate");
+  });
+
+  test("keeps only the latest dedupe marker for a session", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-hook-claim-"));
+    const stateFilePath = path.join(tempDir, "session-01.state");
+
+    await expect(
+      claimAgentHookInvocation(
+        getAgentHookInfo(
+          JSON.stringify({
+            agent: "codex",
+            hook_event_name: "UserPromptSubmit",
+            prompt: "first prompt",
+            turn_id: "turn-1",
+          }),
+        ),
+        stateFilePath,
+      ),
+    ).resolves.toBe("acquired");
+
+    await expect(
+      claimAgentHookInvocation(
+        getAgentHookInfo(
+          JSON.stringify({
+            agent: "codex",
+            hook_event_name: "UserPromptSubmit",
+            prompt: "second prompt",
+            turn_id: "turn-2",
+          }),
+        ),
+        stateFilePath,
+      ),
+    ).resolves.toBe("acquired");
+
+    const dedupeMarkers = (await readdir(tempDir)).filter((entry) =>
+      entry.includes(".hook-dedupe."),
+    );
+    expect(dedupeMarkers).toHaveLength(1);
+    expect(dedupeMarkers[0]).toContain("turn-2");
   });
 });

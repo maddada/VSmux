@@ -217,7 +217,17 @@ function doesHooksGroupAlreadyContainCommand(
 }
 
 function isVsmuxCodexHookCommand(command: string | undefined, notifyPath: string): boolean {
-  return typeof command === "string" && command.includes(notifyPath);
+  if (typeof command !== "string") {
+    return false;
+  }
+
+  if (command.includes(notifyPath)) {
+    return true;
+  }
+
+  return /maddada\.vsmux-[^'"\s/\\]+[/\\]out[/\\]extension[/\\]agent-shell-notify-runner\.js/.test(
+    command,
+  );
 }
 
 const isMissingFileError = (error: unknown): error is NodeJS.ErrnoException =>

@@ -1,10 +1,12 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import {
+  createPersistedSessionHookDedupMarker,
   createDefaultPersistedSessionState,
   deletePersistedSessionStateFile,
+  getPersistedSessionHookDedupMarkerPath,
   readPersistedSessionStateFromFile,
   readPersistedSessionStateSnapshotFromFile,
   serializePersistedSessionState,
@@ -31,6 +33,66 @@ describe("deletePersistedSessionStateFile", () => {
     await expect(readPersistedSessionStateFromFile(filePath)).resolves.toEqual(
       createDefaultPersistedSessionState(),
     );
+  });
+
+  test("should remove any persisted hook dedupe markers for the session", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
+    const filePath = path.join(tempDir, "session-01.state");
+    const markerPath = getPersistedSessionHookDedupMarkerPath(
+      filePath,
+      "UserPromptSubmit",
+      "turn-123",
+    );
+
+    await writePersistedSessionStateToFile(filePath, {
+      agentName: "codex",
+      agentStatus: "working",
+      title: "Codex",
+    });
+    await createPersistedSessionHookDedupMarker(filePath, "UserPromptSubmit", "turn-123");
+    await readFile(markerPath, "utf8");
+
+    await deletePersistedSessionStateFile(filePath);
+
+    await expect(readFile(markerPath, "utf8")).rejects.toThrow();
+  });
+});
+
+describe("createPersistedSessionHookDedupMarker", () => {
+  test("should acquire once and reject duplicate claims for the same turn", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
+    const filePath = path.join(tempDir, "session-claim.state");
+
+    await expect(
+      createPersistedSessionHookDedupMarker(filePath, "UserPromptSubmit", "turn-123"),
+    ).resolves.toMatchObject({
+      acquired: true,
+    });
+
+    await expect(
+      createPersistedSessionHookDedupMarker(filePath, "UserPromptSubmit", "turn-123"),
+    ).resolves.toMatchObject({
+      acquired: false,
+    });
+  });
+
+  test("should keep only the latest hook dedupe marker for the session", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "vsmux-session-state-"));
+    const filePath = path.join(tempDir, "session-cleanup.state");
+
+    await createPersistedSessionHookDedupMarker(filePath, "UserPromptSubmit", "turn-1");
+    const secondMarker = await createPersistedSessionHookDedupMarker(
+      filePath,
+      "UserPromptSubmit",
+      "turn-2",
+    );
+
+    const dedupeMarkers = (await readdir(tempDir)).filter((entry) =>
+      entry.includes(".hook-dedupe."),
+    );
+    expect(secondMarker.acquired).toBe(true);
+    expect(dedupeMarkers).toHaveLength(1);
+    expect(dedupeMarkers[0]).toContain("turn-2");
   });
 });
 
