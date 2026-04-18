@@ -19,7 +19,7 @@ import type {
   TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
 import { TERMINAL_HOST_PROTOCOL_VERSION } from "../shared/terminal-host-protocol";
-import { logVSmuxDebug, logVSmuxReproTrace } from "./vsmux-debug-log";
+import { logVSmuxDebug } from "./vsmux-debug-log";
 
 type DaemonInfo = {
   pid: number;
@@ -207,12 +207,6 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await this.ensureReady();
       const requestId = this.nextRequestId();
-      logVSmuxReproTrace("repro.daemonRuntime.createOrAttach.start", {
-        attempt,
-        requestId,
-        sessionId: request.sessionId,
-        workspaceId: request.workspaceId,
-      });
       try {
         const response = await this.sendRequest({
           ...request,
@@ -222,30 +216,13 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
         if (!("session" in response) || !response.session || !("didCreateSession" in response)) {
           throw new Error("VSmux daemon did not return a session snapshot.");
         }
-        logVSmuxReproTrace("repro.daemonRuntime.createOrAttach.complete", {
-          attempt,
-          didCreateSession: response.didCreateSession,
-          requestId,
-          sessionId: request.sessionId,
-          sessionStatus: response.session.status,
-          workspaceId: request.workspaceId,
-        });
         return {
           didCreateSession: response.didCreateSession,
           session: response.session,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         const shouldRetry =
           attempt === 0 && isRetryableDaemonRequestTransportError(error, "createOrAttach");
-        logVSmuxReproTrace("repro.daemonRuntime.createOrAttach.failed", {
-          attempt,
-          error: message,
-          requestId,
-          sessionId: request.sessionId,
-          shouldRetry,
-          workspaceId: request.workspaceId,
-        });
         if (!shouldRetry) {
           throw error;
         }
@@ -659,17 +636,9 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
       this.handleControlMessage(socket, buffer.toString());
     });
     socket.on("close", () => {
-      logVSmuxReproTrace("repro.daemonRuntime.controlSocket.closed", {
-        pendingRequestCount: this.pendingRequests.size,
-        workspaceId: this.workspaceId,
-      });
       this.handleSocketTermination(socket, "closed");
     });
     socket.on("error", () => {
-      logVSmuxReproTrace("repro.daemonRuntime.controlSocket.error", {
-        pendingRequestCount: this.pendingRequests.size,
-        workspaceId: this.workspaceId,
-      });
       this.handleSocketTermination(socket, "errored");
     });
 
@@ -705,13 +674,6 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     }
 
     return new Promise<TerminalHostResponse>((resolve, reject) => {
-      logVSmuxReproTrace("repro.daemonRuntime.sendRequest.queued", {
-        pendingRequestCount: this.pendingRequests.size + 1,
-        requestId: request.requestId,
-        requestType: request.type,
-        sessionId: "sessionId" in request ? request.sessionId : undefined,
-        workspaceId: "workspaceId" in request ? request.workspaceId : this.workspaceId,
-      });
       this.pendingRequests.set(request.requestId, {
         reject,
         requestType: request.type,
@@ -722,13 +684,6 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
       });
       socket.send(JSON.stringify(request), (error?: Error) => {
         if (!error) {
-          logVSmuxReproTrace("repro.daemonRuntime.sendRequest.sent", {
-            pendingRequestCount: this.pendingRequests.size,
-            requestId: request.requestId,
-            requestType: request.type,
-            sessionId: "sessionId" in request ? request.sessionId : undefined,
-            workspaceId: "workspaceId" in request ? request.workspaceId : this.workspaceId,
-          });
           return;
         }
 
@@ -741,14 +696,6 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
           "sessionId" in request ? request.sessionId : undefined,
           "workspaceId" in request ? request.workspaceId : undefined,
         );
-        logVSmuxReproTrace("repro.daemonRuntime.sendRequest.sendFailed", {
-          error: transportError.message,
-          pendingRequestCount: this.pendingRequests.size,
-          requestId: request.requestId,
-          requestType: request.type,
-          sessionId: "sessionId" in request ? request.sessionId : undefined,
-          workspaceId: "workspaceId" in request ? request.workspaceId : this.workspaceId,
-        });
         reject(transportError);
       });
     });
@@ -765,30 +712,13 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     if (event.type === "response") {
       const pendingRequest = this.pendingRequests.get(event.requestId);
       if (!pendingRequest) {
-        logVSmuxReproTrace("repro.daemonRuntime.handleControlMessage.missingPendingRequest", {
-          ok: event.ok,
-          requestId: event.requestId,
-          workspaceId: this.workspaceId,
-        });
         return;
       }
       if (pendingRequest.socket !== socket) {
-        logVSmuxReproTrace("repro.daemonRuntime.handleControlMessage.missingPendingRequest", {
-          ok: event.ok,
-          requestId: event.requestId,
-          staleSocket: true,
-          workspaceId: this.workspaceId,
-        });
         return;
       }
 
       this.pendingRequests.delete(event.requestId);
-      logVSmuxReproTrace("repro.daemonRuntime.handleControlMessage.response", {
-        ok: event.ok,
-        pendingRequestCount: this.pendingRequests.size,
-        requestId: event.requestId,
-        workspaceId: this.workspaceId,
-      });
       if (event.ok) {
         pendingRequest.resolve(event);
       } else {
