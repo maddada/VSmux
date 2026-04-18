@@ -856,6 +856,16 @@
   resize: vertical;
 }
 
+.git-commit-modal-textarea {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.5;
+  min-height: 400px;
+  text-transform: none;
+}
+
 .command-icon-picker-fields {
   display: grid;
   gap: 12px;

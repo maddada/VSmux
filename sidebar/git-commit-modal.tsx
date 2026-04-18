@@ -88,7 +88,7 @@ export function GitCommitModal({ draft, isOpen, onCancel, onConfirm }: GitCommit
             <span className="command-config-label">Commit Message</span>
             <textarea
               autoFocus
-              className="group-title-input command-config-input command-config-textarea"
+              className="group-title-input command-config-input command-config-textarea git-commit-modal-textarea"
               onChange={(event) => setMessage(event.currentTarget.value)}
               placeholder="Describe the change"
               rows={draft.suggestedBody ? 10 : 4}
