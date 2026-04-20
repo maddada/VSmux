@@ -41,6 +41,11 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
+type EmbeddedAssetIndexSignature = {
+  scriptSrc: string | null;
+  styleHref: string | null;
+};
+
 export class WorkspaceAssetServer implements vscode.Disposable {
   private readonly roots: Record<AssetScope, string>;
   private readonly localServer = this.createAssetServer();
@@ -195,15 +200,37 @@ export class WorkspaceAssetServer implements vscode.Disposable {
   }
 
   private async probeExistingSharedServer(): Promise<boolean> {
+    const expectedAssets = await readSharedAssetProbeFiles(this.roots);
+    if (!expectedAssets) {
+      return false;
+    }
+
     try {
-      const response = await fetch(
-        `http://127.0.0.1:${String(T3_SHARED_ACCESS_PORT)}/workspace/t3-frame-host.js`,
-        {
+      const [frameHostResponse, t3IndexResponse] = await Promise.all([
+        fetch(`http://127.0.0.1:${String(T3_SHARED_ACCESS_PORT)}/workspace/t3-frame-host.js`, {
           method: "GET",
           signal: AbortSignal.timeout(1_500),
-        },
-      );
-      return response.ok;
+        }),
+        fetch(`http://127.0.0.1:${String(T3_SHARED_ACCESS_PORT)}/t3code-embed/index.html`, {
+          method: "GET",
+          signal: AbortSignal.timeout(1_500),
+        }),
+      ]);
+      if (!frameHostResponse.ok || !t3IndexResponse.ok) {
+        return false;
+      }
+
+      const [frameHostScript, t3IndexHtml] = await Promise.all([
+        frameHostResponse.text(),
+        t3IndexResponse.text(),
+      ]);
+
+      return areSharedT3EmbedAssetsCompatible({
+        actualFrameHostScript: frameHostScript,
+        actualT3IndexHtml: t3IndexHtml,
+        expectedFrameHostScript: expectedAssets.frameHostScript,
+        expectedT3IndexHtml: expectedAssets.t3IndexHtml,
+      });
     } catch {
       return false;
     }
@@ -406,6 +433,58 @@ function resolveManagedT3WebRoot(
   }
 
   return getManagedT3WebDistPath(provider, context);
+}
+
+async function readSharedAssetProbeFiles(roots: Record<AssetScope, string>): Promise<
+  | {
+      frameHostScript: string;
+      t3IndexHtml: string;
+    }
+  | undefined
+> {
+  try {
+    const [frameHostScript, t3IndexHtml] = await Promise.all([
+      readFile(path.join(roots.workspace, "t3-frame-host.js"), "utf8"),
+      readFile(path.join(roots["t3code-embed"], "index.html"), "utf8"),
+    ]);
+    return {
+      frameHostScript,
+      t3IndexHtml,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveEmbeddedAssetIndexSignature(html: string): EmbeddedAssetIndexSignature {
+  const scriptPathMatch = html.match(/<script[^>]+src="([^"]+)"/i);
+  const stylePathMatch = html.match(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/i);
+  return {
+    scriptSrc: scriptPathMatch?.[1] ?? null,
+    styleHref: stylePathMatch?.[1] ?? null,
+  };
+}
+
+export function areSharedT3EmbedAssetsCompatible(input: {
+  actualFrameHostScript: string;
+  actualT3IndexHtml: string;
+  expectedFrameHostScript: string;
+  expectedT3IndexHtml: string;
+}): boolean {
+  if (input.actualFrameHostScript !== input.expectedFrameHostScript) {
+    return false;
+  }
+
+  const expectedSignature = resolveEmbeddedAssetIndexSignature(input.expectedT3IndexHtml);
+  const actualSignature = resolveEmbeddedAssetIndexSignature(input.actualT3IndexHtml);
+  if (!expectedSignature.scriptSrc || !actualSignature.scriptSrc) {
+    return false;
+  }
+
+  return (
+    expectedSignature.scriptSrc === actualSignature.scriptSrc &&
+    expectedSignature.styleHref === actualSignature.styleHref
+  );
 }
 
 function getRequestOrigin(request: IncomingMessage): string {
