@@ -54,6 +54,7 @@ export type DaemonTerminalWorkspaceBackendOptions = {
 
 export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend {
   private agentShellIntegration: AgentShellIntegration | undefined;
+  private isDisposed = false;
   private readonly changeSessionsEmitter = new vscode.EventEmitter<void>();
   private readonly changeSessionActivityEmitter =
     new vscode.EventEmitter<TerminalWorkspaceBackendActivityChange>();
@@ -99,9 +100,13 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       logVSmuxDebug("backend.daemon.sessionState", {
         agentName: snapshot.agentName,
         agentStatus: snapshot.agentStatus,
+        frontendAttachmentGeneration: snapshot.frontendAttachmentGeneration,
+        isAttached: snapshot.isAttached,
+        restoreState: snapshot.restoreState,
         sessionId: snapshot.sessionId,
         status: snapshot.status,
         title: nextTitle,
+        workspaceId: snapshot.workspaceId,
       });
       const presentationDiff = describeTerminalSessionPresentationDiff(
         previousSnapshot,
@@ -117,11 +122,14 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
           source: "runtime",
         });
         logVSmuxDebug("backend.daemon.sessionPresentationChanged", {
+          frontendAttachmentGeneration: snapshot.frontendAttachmentGeneration,
+          isAttached: snapshot.isAttached,
           nextAgentName: snapshot.agentName,
           nextAgentStatus: snapshot.agentStatus,
           previousAgentName: previousSnapshot?.agentName,
           previousAgentStatus: previousSnapshot?.agentStatus,
           previousTitle,
+          restoreState: snapshot.restoreState,
           sessionId: snapshot.sessionId,
           title: nextTitle,
         });
@@ -144,6 +152,10 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.isDisposed = true;
     if (this.leaseRenewalTimer) {
       clearInterval(this.leaseRenewalTimer);
       this.leaseRenewalTimer = undefined;
@@ -157,6 +169,28 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.changeSessionActivityEmitter.dispose();
     this.changeSessionPresentationEmitter.dispose();
     this.changeSessionTitleEmitter.dispose();
+  }
+
+  public async releaseForDeactivation(): Promise<void> {
+    const idleShutdownTimeoutMs = this.getIdleShutdownTimeoutMs();
+
+    try {
+      const didConfigure = await this.runtime.configureExisting(idleShutdownTimeoutMs);
+      if (!didConfigure) {
+        return;
+      }
+
+      await this.runtime.syncSessionLeasesExisting(
+        this.options.workspaceId,
+        this.getManagedTerminalSessionIds(),
+        idleShutdownTimeoutMs,
+      );
+    } catch (error) {
+      logVSmuxDebug("backend.daemon.releaseForDeactivation.failed", {
+        error: error instanceof Error ? error.message : String(error),
+        workspaceId: this.options.workspaceId,
+      });
+    }
   }
 
   public hasAttachedTerminal(sessionId: string): boolean {
@@ -674,6 +708,7 @@ function haveSameTerminalSessionSnapshot(
     left.endedAt === right.endedAt &&
     left.errorMessage === right.errorMessage &&
     left.exitCode === right.exitCode &&
+    (left.frontendAttachmentGeneration ?? 0) === (right.frontendAttachmentGeneration ?? 0) &&
     left.isAttached === right.isAttached &&
     left.restoreState === right.restoreState &&
     left.rows === right.rows &&

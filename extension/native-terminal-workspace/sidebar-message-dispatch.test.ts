@@ -75,12 +75,17 @@ describe("dispatchSidebarMessage", () => {
         commandId: "build",
         runMode: "debug",
         type: "runSidebarCommand",
+        worktreePath: "/workspace/agent-tiler-feature",
       },
       handlers,
     );
 
     expect(handlers.clearStartupSidebarRefreshes).toHaveBeenCalledTimes(1);
-    expect(handlers.runSidebarCommand).toHaveBeenCalledWith("build", "debug");
+    expect(handlers.runSidebarCommand).toHaveBeenCalledWith(
+      "build",
+      "debug",
+      "/workspace/agent-tiler-feature",
+    );
   });
 
   test("should route saveSidebarCommand icon metadata to the matching handler", async () => {

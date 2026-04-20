@@ -18,6 +18,7 @@ describe("isSidebarMessage", () => {
         commandId: "build",
         runMode: "debug",
         type: "runSidebarCommand",
+        worktreePath: "/workspace/agent-tiler-feature",
       }),
     ).toBe(true);
   });
@@ -28,6 +29,16 @@ describe("isSidebarMessage", () => {
         commandId: "build",
         runMode: "inspect",
         type: "runSidebarCommand",
+      }),
+    ).toBe(false);
+  });
+
+  test("should reject runSidebarCommand messages with an empty worktree path", () => {
+    expect(
+      isSidebarMessage({
+        commandId: "build",
+        type: "runSidebarCommand",
+        worktreePath: "",
       }),
     ).toBe(false);
   });

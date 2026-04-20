@@ -7,6 +7,7 @@ import type {
 } from "../shared/workspace-panel-contract";
 import { stripWorkspacePanelTransientFields } from "../shared/workspace-panel-contract";
 import { getManagedT3WebDistPath } from "./managed-t3-paths";
+import { focusEditorGroupByIndex } from "./terminal-workspace-environment";
 import { logVSmuxDebug } from "./vsmux-debug-log";
 
 const WORKSPACE_PANEL_TYPE = "vsmux.workspace";
@@ -70,13 +71,17 @@ export class WorkspacePanelManager implements vscode.Disposable {
   }
 
   public async reveal(): Promise<void> {
-    const panel = this.getOrCreatePanel();
+    const panel = await this.getOrCreatePanelForReveal();
+    const revealedExistingTab = await this.revealExistingWorkspaceTab(panel);
     logVSmuxDebug("workspace.panel.reveal", {
       active: panel.active,
       hasLatestMessage: this.latestMessage !== undefined,
+      revealedExistingTab,
       visible: panel.visible,
     });
-    panel.reveal(vscode.ViewColumn.One, false);
+    if (!revealedExistingTab) {
+      panel.reveal(panel.viewColumn ?? vscode.ViewColumn.Active, false);
+    }
   }
 
   public hide(): void {
@@ -127,6 +132,17 @@ export class WorkspacePanelManager implements vscode.Disposable {
 
   public getWebview(): vscode.Webview {
     return this.getOrCreatePanel().webview;
+  }
+
+  private async getOrCreatePanelForReveal(): Promise<vscode.WebviewPanel> {
+    if (this.panel) {
+      return this.panel;
+    }
+
+    await closeWorkspacePanelTabs();
+    const panel = this.getOrCreatePanel();
+    await this.pinWorkspaceTab();
+    return panel;
   }
 
   private getOrCreatePanel(): vscode.WebviewPanel {
@@ -213,6 +229,29 @@ export class WorkspacePanelManager implements vscode.Disposable {
 
   private async syncWorkspacePanelFocusContext(panel: vscode.WebviewPanel): Promise<void> {
     await this.setWorkspacePanelFocusContext(panel.active && panel.visible);
+  }
+
+  private async revealExistingWorkspaceTab(panel: vscode.WebviewPanel): Promise<boolean> {
+    const workspaceTab = findWorkspaceTab(vscode.window.tabGroups.all, panel.viewColumn);
+    const targetViewColumn = workspaceTab?.group.viewColumn;
+    if (!workspaceTab || targetViewColumn === undefined) {
+      return false;
+    }
+
+    await focusEditorGroupByIndex(targetViewColumn - 1);
+    const liveWorkspaceTab =
+      findWorkspaceTab(vscode.window.tabGroups.all, targetViewColumn) ?? workspaceTab;
+    const tabIndex = liveWorkspaceTab.group.tabs.indexOf(liveWorkspaceTab);
+    if (tabIndex >= 0 && tabIndex < 9) {
+      await vscode.commands.executeCommand(`workbench.action.openEditorAtIndex${tabIndex + 1}`);
+      return true;
+    }
+
+    return false;
+  }
+
+  private async pinWorkspaceTab(): Promise<void> {
+    await vscode.commands.executeCommand("workbench.action.pinEditor");
   }
 
   private async setWorkspacePanelFocusContext(isFocused: boolean): Promise<void> {
@@ -414,6 +453,26 @@ function getTabWebviewViewType(input: unknown): string | undefined {
   }
 
   return (input as vscode.TabInputWebview).viewType;
+}
+
+function findWorkspaceTab(
+  tabGroups: readonly vscode.TabGroup[],
+  preferredViewColumn?: vscode.ViewColumn,
+): vscode.Tab | undefined {
+  if (preferredViewColumn !== undefined) {
+    const preferredGroup = tabGroups.find((group) => group.viewColumn === preferredViewColumn);
+    const preferredTab = preferredGroup?.tabs.find(
+      (tab) => getTabWebviewViewType(tab.input) === WORKSPACE_PANEL_TYPE,
+    );
+    if (preferredTab) {
+      return preferredTab;
+    }
+  }
+
+  return tabGroups
+    .filter((group) => group.viewColumn !== undefined)
+    .flatMap((group) => group.tabs)
+    .find((tab) => getTabWebviewViewType(tab.input) === WORKSPACE_PANEL_TYPE);
 }
 
 function getOptionalVscodeConstructor(name: string): Function | undefined {

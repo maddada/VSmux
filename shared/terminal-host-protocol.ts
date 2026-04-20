@@ -1,6 +1,6 @@
 import type { TerminalEngine } from "./session-grid-contract";
 
-export const TERMINAL_HOST_PROTOCOL_VERSION = 25;
+export const TERMINAL_HOST_PROTOCOL_VERSION = 26;
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error" | "disconnected";
 
@@ -14,6 +14,7 @@ export type TerminalSessionSnapshot = {
   cols: number;
   cwd: string;
   exitCode?: number;
+  frontendAttachmentGeneration?: number;
   history?: string;
   isAttached: boolean;
   restoreState: TerminalSessionRestoreState;

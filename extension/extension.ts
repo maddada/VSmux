@@ -6,14 +6,18 @@ import { maybeAutoOpenSidebarViewsOnStartup } from "./auto-open-sidebar-views";
 import { DebuggingStatusIndicator } from "./debugging-status-indicator";
 import { NativeTerminalWorkspaceController, SESSIONS_VIEW_ID } from "./native-terminal-workspace";
 import { initializeSharedWorkspaceAppearancePreferences } from "./shared-workspace-appearance-preferences";
+import { runStaleVsmuxProcessJanitor } from "./stale-process-janitor";
 import { initializeVSmuxDebugLog } from "./vsmux-debug-log";
 import { closeWorkspacePanelTabs } from "./workspace-panel";
+
+let activeWorkspaceController: NativeTerminalWorkspaceController | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   initializeVSmuxDebugLog(context);
   activateChatHistory(context);
   initializeSharedWorkspaceAppearancePreferences(context);
   const workspace = new NativeTerminalWorkspaceController(context);
+  activeWorkspaceController = workspace;
   setChatHistoryVSmuxTarget(workspace);
   const debuggingStatusIndicator = new DebuggingStatusIndicator(workspace);
 
@@ -65,6 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   void (async () => {
     try {
+      await runStaleVsmuxProcessJanitor(context);
       await closeWorkspacePanelTabs();
       await workspace.initialize();
       await maybeAutoOpenSidebarViewsOnStartup(workspace);
@@ -74,7 +79,16 @@ export function activate(context: vscode.ExtensionContext): void {
   })();
 }
 
-export function deactivate(): void {}
+export async function deactivate(): Promise<void> {
+  const workspace = activeWorkspaceController;
+  activeWorkspaceController = undefined;
+  setChatHistoryVSmuxTarget(undefined);
+  if (!workspace) {
+    return;
+  }
+
+  await workspace.releaseForDeactivation().catch(() => undefined);
+}
 
 function registerCommand(command: string, callback: () => Promise<void> | void): vscode.Disposable {
   return vscode.commands.registerCommand(command, () => {

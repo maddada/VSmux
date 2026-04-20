@@ -42,6 +42,7 @@ export const SHOW_SIDEBAR_ACTIONS_SETTING = "showSidebarActions";
 export const SHOW_SIDEBAR_AGENTS_SETTING = "showSidebarAgents";
 export const SHOW_SIDEBAR_BROWSERS_SETTING = "showSidebarBrowsers";
 export const SHOW_SIDEBAR_GIT_BUTTON_SETTING = "showSidebarGitButton";
+export const HIDE_SIDEBAR_PROJECT_HEADER_SETTING = "hideSidebarProjectHeader";
 export const DEBUGGING_MODE_SETTING = "debuggingMode";
 export const COMPLETION_SOUND_SETTING = "completionSound";
 export const ACTION_COMPLETION_SOUND_SETTING = "actionCompletionSound";
@@ -223,6 +224,14 @@ export function getShowSidebarGitButton(): boolean {
     vscode.workspace
       .getConfiguration(SETTINGS_SECTION)
       .get<boolean>(SHOW_SIDEBAR_GIT_BUTTON_SETTING, true) ?? true
+  );
+}
+
+export function getHideSidebarProjectHeader(): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration(SETTINGS_SECTION)
+      .get<boolean>(HIDE_SIDEBAR_PROJECT_HEADER_SETTING, false) ?? false
   );
 }
 

@@ -55,6 +55,7 @@ export function createDisconnectedSessionSnapshot(
     agentStatus: "idle",
     cols: DEFAULT_TERMINAL_COLS,
     cwd: getDefaultWorkspaceCwd(),
+    frontendAttachmentGeneration: 0,
     history: "",
     isAttached: false,
     restoreState: "replayed",

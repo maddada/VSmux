@@ -1835,6 +1835,7 @@ function haveSameTerminalSessionSnapshot(
     left?.endedAt === right.endedAt &&
     left?.errorMessage === right.errorMessage &&
     left?.exitCode === right.exitCode &&
+    (left?.frontendAttachmentGeneration ?? 0) === (right.frontendAttachmentGeneration ?? 0) &&
     left?.isAttached === right.isAttached &&
     left?.restoreState === right.restoreState &&
     left?.rows === right.rows &&

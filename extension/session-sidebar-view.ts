@@ -90,6 +90,10 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           return;
         }
 
+        if (message.type === "sidebarDebugLog") {
+          return;
+        }
+
         const shouldBypassQueue = shouldBypassSidebarMessageQueue(message);
         const queueMessageId = this.nextQueuedMessageId + 1;
         if (message.type === "closeSession") {
@@ -384,7 +388,9 @@ export function isSidebarMessage(candidate: unknown): candidate is SidebarToExte
       return (
         typeof message.commandId === "string" &&
         message.commandId.length > 0 &&
-        (message.runMode === undefined || isSidebarCommandRunMode(message.runMode))
+        (message.runMode === undefined || isSidebarCommandRunMode(message.runMode)) &&
+        (message.worktreePath === undefined ||
+          (typeof message.worktreePath === "string" && message.worktreePath.length > 0))
       );
     case "deleteSidebarCommand":
       return typeof message.commandId === "string" && message.commandId.length > 0;

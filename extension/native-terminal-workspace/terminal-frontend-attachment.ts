@@ -6,6 +6,8 @@ export function shouldAwaitWorkspaceTerminalFrontendConnection(input: {
 }
 
 export function hasTerminalFrontendConnectionAfterReload(input: {
+  frontendAttachmentGeneration: number;
+  frontendAttachmentGenerationBeforeReload: number;
   isAttached: boolean;
   sawDetachedSinceReload: boolean;
   wasAttachedBeforeReload: boolean;
@@ -14,5 +16,9 @@ export function hasTerminalFrontendConnectionAfterReload(input: {
     return false;
   }
 
-  return !input.wasAttachedBeforeReload || input.sawDetachedSinceReload;
+  return (
+    !input.wasAttachedBeforeReload ||
+    input.sawDetachedSinceReload ||
+    input.frontendAttachmentGeneration > input.frontendAttachmentGenerationBeforeReload
+  );
 }

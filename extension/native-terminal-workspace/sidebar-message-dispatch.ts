@@ -54,7 +54,11 @@ export type SidebarMessageHandlers = {
   restartSession: (sessionId: string) => Promise<void>;
   restorePreviousSession: (historyId: string) => Promise<void>;
   runSidebarAgent: (agentId: string) => Promise<void>;
-  runSidebarCommand: (commandId: string, runMode?: SidebarCommandRunMode) => Promise<void>;
+  runSidebarCommand: (
+    commandId: string,
+    runMode?: SidebarCommandRunMode,
+    worktreePath?: string,
+  ) => Promise<void>;
   runSidebarGitAction: (action: SidebarGitAction) => Promise<void>;
   setSidebarGitCommitConfirmationEnabled: (enabled: boolean) => Promise<void>;
   setSidebarGitGenerateCommitBodyEnabled: (enabled: boolean) => Promise<void>;
@@ -162,7 +166,7 @@ export async function dispatchSidebarMessage(
       await handlers.runSidebarAgent(message.agentId);
       return;
     case "runSidebarCommand":
-      await handlers.runSidebarCommand(message.commandId, message.runMode);
+      await handlers.runSidebarCommand(message.commandId, message.runMode, message.worktreePath);
       return;
     case "runSidebarGitAction":
       await handlers.runSidebarGitAction(message.action);

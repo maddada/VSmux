@@ -32,7 +32,6 @@
     "out/sidebar/**/*.css",
     "out/sidebar/**/*.html",
     "out/sidebar/**/*.js",
-    "out/dpcode-embed/**",
     "out/dpcode-server/**",
     "out/t3code-embed/**",
     "out/t3code-server/**",
@@ -667,6 +666,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show the Git button inside the Actions section in the VSmux sidebar."
+        },
+        "VSmux.hideSidebarProjectHeader": {
+          "title": "Hide Sidebar Project Header",
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the project header card at the top of the Actions section in the VSmux sidebar."
         },
         "VSmux.shareSidebarCommandsAcrossWorktrees": {
           "title": "Share Sidebar Commands Across Worktrees",

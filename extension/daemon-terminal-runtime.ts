@@ -122,6 +122,7 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
   private controlSocket: WebSocket | undefined;
   private controlSocketPromise: Promise<WebSocket> | undefined;
   private daemonInfo: DaemonInfo | undefined;
+  private isDisposed = false;
   private readonly onDidChangeSessionStateEmitter =
     new vscode.EventEmitter<TerminalSessionSnapshot>();
   private ownerHeartbeatTimer: NodeJS.Timeout | undefined;
@@ -137,9 +138,14 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
   ) {}
 
   public dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.isDisposed = true;
     this.stopOwnerHeartbeat();
     this.controlSocket?.close();
     this.controlSocket = undefined;
+    this.daemonInfo = undefined;
     this.onDidChangeSessionStateEmitter.dispose();
     for (const pendingRequest of this.pendingRequests.values()) {
       pendingRequest.reject(new Error("VSmux daemon runtime disposed."));
@@ -148,6 +154,9 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
   }
 
   public async ensureReady(): Promise<void> {
+    if (this.isDisposed) {
+      throw new Error("VSmux daemon runtime disposed.");
+    }
     if (this.daemonInfo && isSocketOpen(this.controlSocket)) {
       return;
     }
@@ -185,6 +194,21 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     await this.sendRequest(request);
   }
 
+  public async configureExisting(idleShutdownTimeoutMs: number | null): Promise<boolean> {
+    const daemonInfo = await this.ensureExistingReady();
+    if (!daemonInfo) {
+      return false;
+    }
+
+    const request: TerminalHostConfigureRequest = {
+      idleShutdownTimeoutMs,
+      requestId: this.nextRequestId(),
+      type: "configure",
+    };
+    await this.sendRequest(request);
+    return true;
+  }
+
   public async syncSessionLeases(
     workspaceId: string,
     sessionIds: string[],
@@ -199,6 +223,27 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
       workspaceId,
     };
     await this.sendRequest(request);
+  }
+
+  public async syncSessionLeasesExisting(
+    workspaceId: string,
+    sessionIds: string[],
+    leaseDurationMs: number | null,
+  ): Promise<boolean> {
+    const daemonInfo = await this.ensureExistingReady();
+    if (!daemonInfo) {
+      return false;
+    }
+
+    const request: TerminalHostSyncSessionLeasesRequest = {
+      leaseDurationMs,
+      requestId: this.nextRequestId(),
+      sessionIds,
+      type: "syncSessionLeases",
+      workspaceId,
+    };
+    await this.sendRequest(request);
+    return true;
   }
 
   public async createOrAttach(
@@ -343,19 +388,9 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
       return false;
     }
 
-    try {
-      process.kill(daemonInfo.pid, "SIGTERM");
-    } catch {
-      return false;
-    }
-
-    this.controlSocket?.close();
-    this.controlSocket = undefined;
-    this.daemonInfo = undefined;
-    for (const pendingRequest of this.pendingRequests.values()) {
-      pendingRequest.reject(new Error("VSmux daemon shut down."));
-    }
-    this.pendingRequests.clear();
+    await terminateDaemonProcess(daemonInfo.pid);
+    this.resetRuntimeState(new Error("VSmux daemon shut down."));
+    await this.clearPersistedDaemonInfo();
     return true;
   }
 
@@ -778,6 +813,17 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
     } catch {
       // Ignore redundant close failures while forcing a reconnect.
     }
+  }
+
+  private resetRuntimeState(error: Error): void {
+    this.controlSocket?.close();
+    this.controlSocket = undefined;
+    this.daemonInfo = undefined;
+    this.stopOwnerHeartbeat();
+    for (const pendingRequest of this.pendingRequests.values()) {
+      pendingRequest.reject(error);
+    }
+    this.pendingRequests.clear();
   }
 
   private nextRequestId(): string {

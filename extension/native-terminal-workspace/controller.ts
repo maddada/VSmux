@@ -123,6 +123,8 @@ import {
   logVSmuxReproTrace,
   resetVSmuxDebugLog,
 } from "../vsmux-debug-log";
+import { resolveSidebarProjectHeader } from "../sidebar-project-header";
+import { resolveSidebarProjectWorktrees } from "../sidebar-project-worktrees";
 import {
   findLiveBrowserTabBySessionId,
   getLiveBrowserTabs,
@@ -135,7 +137,10 @@ import {
   writeCodexWelcomeTerminalTitle,
 } from "../codex-terminal-title-config";
 import { dispatchSidebarMessage } from "./sidebar-message-dispatch";
-import { getVscodeWorkspaceLogLabel } from "../../shared/vscode-workspace-log-context";
+import {
+  getVscodeWorkspaceLogLabel,
+  NO_VSCODE_WORKSPACE_LOG_LABEL,
+} from "../../shared/vscode-workspace-log-context";
 import { shouldSkipSessionForIndicatorProtectedGroupAction } from "./full-reload";
 import {
   getAutoSleepCheckIntervalMs,
@@ -225,6 +230,7 @@ import {
   getShowSidebarAgents,
   getShowSidebarBrowsers,
   getShowSidebarGitButton,
+  getHideSidebarProjectHeader,
   getShowHotkeysOnSessionCards,
   getSidebarThemeVariant,
   getWorkspaceActivePaneBorderColor,
@@ -307,6 +313,7 @@ export type NativeTerminalWorkspaceDebugState = {
 type SidebarCommandTerminalOptions = {
   closeOnExit?: boolean;
   command?: string;
+  cwd?: string;
   location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions;
 };
 
@@ -320,6 +327,7 @@ type CloseSessionSource =
 export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly backend: DaemonTerminalWorkspaceBackend;
   private readonly disposables: vscode.Disposable[] = [];
+  private isDisposed = false;
   private hasApprovedUntrustedShells = vscode.workspace.isTrusted;
   private lastRequestedReconcileReason = "initial";
   private reconcileRequestVersion = 0;
@@ -706,7 +714,27 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.publishAgentManagerXSnapshot();
   }
 
+  public async releaseForDeactivation(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
+
+    try {
+      await this.backend.releaseForDeactivation();
+    } catch (error) {
+      logVSmuxDebug("controller.releaseForDeactivation.failed", {
+        error: getErrorMessage(error),
+      });
+    } finally {
+      this.dispose();
+    }
+  }
+
   public dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.isDisposed = true;
     if (this.autoSleepTimer) {
       clearInterval(this.autoSleepTimer);
       this.autoSleepTimer = undefined;
@@ -1605,6 +1633,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.setSessionReloading(sessionId, true);
     try {
       const shouldAwaitFrontendConnection = this.shouldAwaitTerminalFrontendConnection(sessionId);
+      const frontendAttachmentGenerationBeforeReload =
+        this.backend.getSessionSnapshot(sessionId)?.frontendAttachmentGeneration ?? 0;
       const wasAttachedBeforeReload =
         shouldAwaitFrontendConnection &&
         this.backend.getSessionSnapshot(sessionId)?.isAttached === true;
@@ -1613,8 +1643,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       const reloadedSessionRecord = await this.prepareSessionForTerminalRecreate(sessionRecord);
       await this.backend.restartSession(reloadedSessionRecord);
       await this.afterStateChange();
+      logVSmuxDebug("controller.fullReloadSession.awaitingFrontendReconnect", {
+        frontendAttachmentGenerationBeforeReload,
+        sessionId,
+        shouldAwaitFrontendConnection,
+        visibleInWorkspace: this.isSessionVisibleInWorkspace(sessionId),
+        wasAttachedBeforeReload,
+        workspacePanelVisible: this.workspacePanel.isVisible(),
+      });
       const didReconnectFrontend = await this.waitForTerminalFrontendConnectionAfterReload(
         sessionId,
+        frontendAttachmentGenerationBeforeReload,
         wasAttachedBeforeReload,
       );
       if (!didReconnectFrontend) {
@@ -1683,6 +1722,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       );
       return [
         {
+          frontendAttachmentGenerationBeforeReload:
+            this.backend.getSessionSnapshot(sessionRecord.sessionId)
+              ?.frontendAttachmentGeneration ?? 0,
           resumeAction,
           sessionRecord,
           shouldAwaitFrontendConnection,
@@ -1726,6 +1768,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         fullReloadPlans.map(async (plan) => {
           const didReconnect = await this.waitForTerminalFrontendConnectionAfterReload(
             plan.sessionRecord.sessionId,
+            plan.frontendAttachmentGenerationBeforeReload,
             plan.wasAttachedBeforeReload,
           );
           didReconnectBySessionId.set(plan.sessionRecord.sessionId, didReconnect);
@@ -1936,6 +1979,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   public async runSidebarCommand(
     commandId: string,
     runMode: SidebarCommandRunMode = "default",
+    worktreePath?: string,
   ): Promise<void> {
     const commandButton = getSidebarCommandButtonById(this.context, commandId);
     if (!commandButton) {
@@ -1956,6 +2000,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     if (!command) {
       return;
     }
+    const commandCwd = worktreePath?.trim() || getDefaultWorkspaceCwd();
 
     if (!(await this.ensureShellSpawnAllowed())) {
       return;
@@ -1974,6 +2019,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       await this.launchSidebarCommandInWorkspace(
         getSidebarCommandWorkspaceSessionTitle(commandButton.name, command, runMode),
         command,
+        commandCwd,
       );
       return;
     }
@@ -1985,6 +2031,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         const terminal = this.createSidebarCommandTerminal(commandButton.name, {
           closeOnExit: true,
           command,
+          cwd: commandCwd,
         });
         await this.postSidebarCommandRunState(commandButton.commandId, runId, "running");
         terminal.show(true);
@@ -2002,6 +2049,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const terminal = this.createSidebarCommandTerminal(commandButton.name, {
+      cwd: commandCwd,
       location: vscode.TerminalLocation.Panel,
     });
     terminal.show(true);
@@ -2779,7 +2827,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       restartSession: async (sessionId) => this.restartSession(sessionId),
       restorePreviousSession: async (historyId) => this.restorePreviousSession(historyId),
       runSidebarAgent: async (agentId) => this.runSidebarAgent(agentId),
-      runSidebarCommand: async (commandId, runMode) => this.runSidebarCommand(commandId, runMode),
+      runSidebarCommand: async (commandId, runMode, worktreePath) =>
+        this.runSidebarCommand(commandId, runMode, worktreePath),
       runSidebarGitAction: async (action) => this.runSidebarGitAction(action),
       savePinnedPrompt: async (promptId, title, content) =>
         this.savePinnedPrompt(promptId, title, content),
@@ -2916,6 +2965,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async createAgentManagerXWorkspaceSnapshot(): Promise<AgentManagerXWorkspaceSnapshotMessage> {
     const workspacePath = getDefaultWorkspaceCwd();
+    const projectHeader = await resolveSidebarProjectHeader({
+      workspaceName: AgentManagerXBridgeClient.getWorkspaceName(workspacePath),
+      workspaceRoot: workspacePath,
+    });
     const workspaceSnapshot = this.getPresentedWorkspaceSnapshot();
     const sessionActivityContext = this.createSessionActivityContext();
     const sessions = workspaceSnapshot.groups.flatMap((group) =>
@@ -2932,6 +2985,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessions,
       type: "workspaceSnapshot",
       updatedAt: new Date().toISOString(),
+      workspaceFaviconDataUrl: projectHeader?.faviconDataUrl,
       workspaceId: this.workspaceId,
       workspaceName: AgentManagerXBridgeClient.getWorkspaceName(workspacePath),
       workspacePath,
@@ -2999,6 +3053,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     if (type === "sessionState") {
       this.ensureSidebarGitHudStateFresh();
     }
+    const workspaceRoot = getDefaultWorkspaceCwd();
+    const workspaceName = getVscodeWorkspaceLogLabel();
     const message = buildSidebarMessage({
       activeSnapshot,
       browserTabs: browserTabs.map((browserTab) => ({
@@ -3057,6 +3113,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       workspaceId: this.workspaceId,
       workspaceSnapshot,
     }) as SidebarHydrateMessage | SidebarSessionStateMessage;
+    const projectWorktrees = await resolveSidebarProjectWorktrees(workspaceRoot);
+    message.hud.projectWorktrees = projectWorktrees;
+    if (!getHideSidebarProjectHeader()) {
+      message.hud.projectHeader = await resolveSidebarProjectHeader({
+        worktrees: projectWorktrees,
+        workspaceName: workspaceName === NO_VSCODE_WORKSPACE_LOG_LABEL ? undefined : workspaceName,
+        workspaceRoot,
+      });
+    }
 
     this.logSidebarOrderTrace("repro.sidebarOrder.extension.messageBuilt", {
       agentIds: message.hud.agents.map((agent) => agent.agentId),
@@ -3870,7 +3935,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return sessionRecord;
   }
 
-  private async launchSidebarCommandInWorkspace(name: string, command: string): Promise<void> {
+  private async launchSidebarCommandInWorkspace(
+    name: string,
+    command: string,
+    cwd?: string,
+  ): Promise<void> {
     const sessionRecord = await this.createTerminalSession({ title: name });
     if (!sessionRecord) {
       return;
@@ -3881,6 +3950,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.workspacePanel.reveal();
     this.enqueueWorkspaceAutoFocus(sessionRecord.sessionId, "sidebar");
     await this.afterStateChange({ sidebarAlreadyRefreshed: true });
+    const normalizedCwd = cwd?.trim();
+    if (normalizedCwd && normalizedCwd !== getDefaultWorkspaceCwd()) {
+      await this.backend.writeText(
+        sessionRecord.sessionId,
+        `cd ${quoteShellLiteral(normalizedCwd)}`,
+        true,
+      );
+    }
     await this.backend.writeText(sessionRecord.sessionId, command, true);
   }
 
@@ -5056,12 +5133,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     name: string,
     options: SidebarCommandTerminalOptions = {},
   ): vscode.Terminal {
-    const { closeOnExit = false, command, location = vscode.TerminalLocation.Panel } = options;
+    const {
+      closeOnExit = false,
+      command,
+      cwd = getDefaultWorkspaceCwd(),
+      location = vscode.TerminalLocation.Panel,
+    } = options;
 
     if (closeOnExit && command) {
       const shellPath = getDefaultShell();
       return vscode.window.createTerminal({
-        cwd: getDefaultWorkspaceCwd(),
+        cwd,
         iconPath: new vscode.ThemeIcon("terminal"),
         isTransient: true,
         location,
@@ -5072,7 +5154,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     return vscode.window.createTerminal({
-      cwd: getDefaultWorkspaceCwd(),
+      cwd,
       iconPath: new vscode.ThemeIcon("terminal"),
       isTransient: true,
       location,
@@ -5490,6 +5572,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private async waitForTerminalFrontendConnectionAfterReload(
     sessionId: string,
+    frontendAttachmentGenerationBeforeReload: number,
     wasAttachedBeforeReload: boolean,
   ): Promise<boolean> {
     if (!this.shouldAwaitTerminalFrontendConnection(sessionId)) {
@@ -5497,14 +5580,24 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     let sawDetachedSinceReload = !wasAttachedBeforeReload;
+    let loggedDetachSinceReload = sawDetachedSinceReload;
+    let lastObservedFrontendAttachmentGeneration =
+      this.backend.getSessionSnapshot(sessionId)?.frontendAttachmentGeneration ?? 0;
+    let lastObservedIsAttached = this.backend.getSessionSnapshot(sessionId)?.isAttached === true;
+    let pollCount = 0;
     logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.start", {
+      frontendAttachmentGenerationBeforeReload,
+      initialFrontendAttachmentGeneration: lastObservedFrontendAttachmentGeneration,
+      initialIsAttached: lastObservedIsAttached,
       sessionId,
       wasAttachedBeforeReload,
     });
     const deadlineAt = Date.now() + FULL_RELOAD_FRONTEND_CONNECT_TIMEOUT_MS;
     while (Date.now() < deadlineAt) {
+      pollCount += 1;
       if (!this.shouldAwaitTerminalFrontendConnection(sessionId)) {
         logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.skipped", {
+          pollCount,
           reason: "panelHiddenOrSessionNoLongerVisible",
           sessionId,
           wasAttachedBeforeReload,
@@ -5512,19 +5605,68 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         return true;
       }
 
-      const isAttached = this.backend.getSessionSnapshot(sessionId)?.isAttached === true;
+      const snapshot = this.backend.getSessionSnapshot(sessionId);
+      const frontendAttachmentGeneration = snapshot?.frontendAttachmentGeneration ?? 0;
+      const isAttached = snapshot?.isAttached === true;
+      if (frontendAttachmentGeneration !== lastObservedFrontendAttachmentGeneration) {
+        logVSmuxDebug(
+          "controller.waitForTerminalFrontendConnectionAfterReload.attachmentGenerationChanged",
+          {
+            frontendAttachmentGeneration,
+            frontendAttachmentGenerationBeforeReload,
+            isAttached,
+            pollCount,
+            sessionId,
+            wasAttachedBeforeReload,
+          },
+        );
+        lastObservedFrontendAttachmentGeneration = frontendAttachmentGeneration;
+      }
+      if (isAttached !== lastObservedIsAttached) {
+        logVSmuxDebug(
+          "controller.waitForTerminalFrontendConnectionAfterReload.attachmentStateChanged",
+          {
+            agentName: snapshot?.agentName,
+            agentStatus: snapshot?.agentStatus,
+            frontendAttachmentGeneration,
+            frontendAttachmentGenerationBeforeReload,
+            isAttached,
+            pollCount,
+            restoreState: snapshot?.restoreState,
+            sawDetachedSinceReload,
+            sessionId,
+            status: snapshot?.status,
+            wasAttachedBeforeReload,
+          },
+        );
+        lastObservedIsAttached = isAttached;
+      }
       if (!isAttached) {
         sawDetachedSinceReload = true;
+        if (!loggedDetachSinceReload) {
+          loggedDetachSinceReload = true;
+          logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.detachObserved", {
+            pollCount,
+            sessionId,
+            wasAttachedBeforeReload,
+          });
+        }
       }
 
       if (
         hasTerminalFrontendConnectionAfterReload({
+          frontendAttachmentGeneration,
+          frontendAttachmentGenerationBeforeReload,
           isAttached,
           sawDetachedSinceReload,
           wasAttachedBeforeReload,
         })
       ) {
         logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.ready", {
+          frontendAttachmentGeneration,
+          frontendAttachmentGenerationBeforeReload,
+          isAttached,
+          pollCount,
           sawDetachedSinceReload,
           sessionId,
           wasAttachedBeforeReload,
@@ -5535,10 +5677,23 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       await new Promise((resolve) => setTimeout(resolve, FULL_RELOAD_FRONTEND_CONNECT_POLL_MS));
     }
 
+    const latestSnapshot = this.backend.getSessionSnapshot(sessionId);
     logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.timeout", {
-      isAttached: this.backend.getSessionSnapshot(sessionId)?.isAttached === true,
+      agentName: latestSnapshot?.agentName,
+      agentStatus: latestSnapshot?.agentStatus,
+      frontendAttachmentGeneration: latestSnapshot?.frontendAttachmentGeneration ?? 0,
+      frontendAttachmentGenerationBeforeReload,
+      isAttached: latestSnapshot?.isAttached === true,
+      pollCount,
+      reason: describeTerminalFrontendReconnectTimeout({
+        isAttached: latestSnapshot?.isAttached === true,
+        sawDetachedSinceReload,
+        wasAttachedBeforeReload,
+      }),
+      restoreState: latestSnapshot?.restoreState,
       sawDetachedSinceReload,
       sessionId,
+      status: latestSnapshot?.status,
       wasAttachedBeforeReload,
     });
     return false;
@@ -7301,6 +7456,30 @@ function parseMacOSNativeClipboardSnapshot(output: string): MacOSNativeClipboard
 
   const parsed = JSON.parse(trimmedOutput) as MacOSNativeClipboardSnapshot;
   return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+function describeTerminalFrontendReconnectTimeout(input: {
+  isAttached: boolean;
+  sawDetachedSinceReload: boolean;
+  wasAttachedBeforeReload: boolean;
+}): string {
+  if (!input.wasAttachedBeforeReload) {
+    return input.isAttached ? "attachedButNotAccepted" : "neverAttached";
+  }
+
+  if (input.isAttached && !input.sawDetachedSinceReload) {
+    return "neverObservedDetach";
+  }
+
+  if (!input.isAttached && input.sawDetachedSinceReload) {
+    return "detachedButNeverReattached";
+  }
+
+  if (!input.isAttached && !input.sawDetachedSinceReload) {
+    return "neverObservedDetachOrReattach";
+  }
+
+  return "unknown";
 }
 
 function toArrayBuffer(view: Uint8Array): ArrayBuffer {

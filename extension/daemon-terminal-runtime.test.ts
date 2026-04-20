@@ -32,6 +32,41 @@ vi.mock("vscode", () => {
 });
 
 describe("DaemonTerminalRuntime", () => {
+  test("should disconnect without terminating the daemon when the runtime is disposed", () => {
+    const runtime = createRuntime();
+    const socket = new FakeSocket();
+    primeRuntimeSocket(runtime, socket);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    runtime.dispose();
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(getPendingRequestCount(runtime)).toBe(0);
+    killSpy.mockRestore();
+  });
+
+  test("should terminate the existing daemon on explicit shutdown", async () => {
+    const runtime = createRuntime();
+    const socket = new FakeSocket();
+    primeRuntimeSocket(runtime, socket);
+    (
+      runtime as unknown as {
+        getExistingDaemonInfo: () => Promise<ReturnType<typeof createDaemonInfo>>;
+      }
+    ).getExistingDaemonInfo = vi.fn(async () => createDaemonInfo());
+    (
+      runtime as unknown as {
+        clearPersistedDaemonInfo: () => Promise<void>;
+      }
+    ).clearPersistedDaemonInfo = vi.fn(async () => undefined);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    await runtime.shutdownExistingDaemon();
+
+    expect(killSpy).toHaveBeenCalledWith(1234, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
   test("should reject in-flight requests when the control socket closes", async () => {
     const runtime = createRuntime();
     const socket = new FakeSocket();
@@ -272,8 +307,8 @@ function createDaemonInfo(): {
   token: string;
 } {
   return {
-    pid: 1,
-    port: 1234,
+    pid: 1234,
+    port: 5678,
     protocolVersion: 25,
     startedAt: "2026-04-14T00:00:00.000Z",
     token: "token",

@@ -29,6 +29,7 @@ export type AgentManagerXWorkspaceSnapshotMessage = {
   sessions: AgentManagerXWorkspaceSession[];
   type: "workspaceSnapshot";
   updatedAt: string;
+  workspaceFaviconDataUrl?: string;
   workspaceId: string;
   workspaceName: string;
   workspacePath: string;
