@@ -2,6 +2,12 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.5.1 - 2026-04-20
+
+- Sidebar project headers can pick up macOS app icons from Xcode `AppIcon.appiconset` asset catalogs now, so native app workspaces show a much more recognizable icon instead of falling back to the generic placeholder.
+- Embedded T3 server reuse is safer now because VSmux verifies that the shared frame-host script and embedded asset hashes still match the current build before attaching to an existing shared asset server.
+- Workspace pane controls are clearer when using bundled `t3code`: VSmux now carries the active managed T3 provider into the webview state and hides the pane zoom controls for providers that do not support that zoom behavior.
+
 ## 4.5.0 - 2026-04-20
 
 - The sidebar can show a project header card now, with the workspace name, path, detected app icon, and sibling Git worktrees. You can also hide that card with `VSmux.hideSidebarProjectHeader` if you prefer a denser layout.
