@@ -370,11 +370,8 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   };
 
   const postWorkspaceReproLog = (event: string, payload?: Record<string, unknown>) => {
-    postToExtension({
-      details: payload,
-      event,
-      type: "workspaceDebugLog",
-    });
+    void event;
+    void payload;
   };
 
   const postWorkspaceDebugLog = (
@@ -382,7 +379,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     event: string,
     payload?: Record<string, unknown>,
   ) => {
-    if (!enabled) {
+    if (!enabled || !isWtermDebugEvent(event)) {
       return;
     }
 
@@ -2238,4 +2235,8 @@ function getWorkspacePaneDropTargetIdAtPoint(
   }
 
   return targetPaneId;
+}
+
+function isWtermDebugEvent(event: string): boolean {
+  return event.startsWith("workspace.terminal");
 }

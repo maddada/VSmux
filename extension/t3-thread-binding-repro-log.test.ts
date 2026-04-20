@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
@@ -18,7 +18,7 @@ describe("t3 thread binding repro log", () => {
     workspaceRoot = undefined;
   });
 
-  test("writes thread binding repro entries to a dedicated log file", async () => {
+  test("keeps the legacy log path stable without writing a log file", async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "t3-thread-binding-repro-"));
 
     await appendT3ThreadBindingReproLog(workspaceRoot, "controller.t3SessionCreate.requested", {
@@ -27,10 +27,8 @@ describe("t3 thread binding repro log", () => {
     });
 
     const logPath = getT3ThreadBindingReproLogPath(workspaceRoot);
-    const logContent = await readFile(logPath, "utf8");
 
     expect(logPath).toBe(path.join(workspaceRoot, ".vsmux", "t3-thread-binding-repro.log"));
-    expect(logContent).toContain("[t3-thread-binding-repro] controller.t3SessionCreate.requested");
-    expect(logContent).toContain('"sessionId":"session-01"');
+    await expect(access(logPath)).rejects.toThrow();
   });
 });

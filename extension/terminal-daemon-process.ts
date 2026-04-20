@@ -1,6 +1,5 @@
 import { createServer } from "node:http";
-import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -76,6 +75,7 @@ type DaemonInfo = {
 type ManagedSession = {
   cols: number;
   cwd: string;
+  frontendAttachmentGeneration: number;
   headlessTerminal?: HeadlessTerminal;
   historyBuffer: TerminalDaemonRingBuffer;
   liveTitle?: string;
@@ -122,10 +122,8 @@ const REPLAY_CHUNK_BYTES = 128 * 1024;
 const MAX_XTERM_HEADLESS_SCROLLBACK = 100_000;
 const DEFAULT_XTERM_HEADLESS_SCROLLBACK = 50_000;
 const INFO_FILE_NAME = "daemon-info.json";
-const DEBUG_LOG_FILE_NAME = "terminal-daemon-debug.log";
 const stateDir = getStateDirFromArgs();
 const infoFilePath = path.join(stateDir, INFO_FILE_NAME);
-const debugLogFilePath = path.join(stateDir, DEBUG_LOG_FILE_NAME);
 
 const sessions = new Map<string, ManagedSession>();
 const controlClients = new Set<ControlClient>();
@@ -136,6 +134,7 @@ let idleShutdownTimeoutMs: number | null = DEFAULT_IDLE_SHUTDOWN_TIMEOUT_MS;
 let lifecycleTimer: NodeJS.Timeout | undefined;
 let ownerAdoptionTimer: NodeJS.Timeout | undefined;
 let daemonInfo: DaemonInfo | undefined;
+let nextFrontendAttachmentGeneration = 1;
 let nextPendingSessionAttachmentId = 0;
 let nodePtyModule: NodePtyModule | undefined;
 
@@ -173,13 +172,6 @@ server.listen(0, "127.0.0.1", async () => {
   await mkdir(stateDir, { recursive: true });
   const existingDaemon = await findReachableExistingDaemonInfo();
   if (existingDaemon) {
-    void logDaemonDebug("daemon.startSkippedExisting", {
-      existingPid: existingDaemon.pid,
-      existingPort: existingDaemon.port,
-      existingProtocolVersion: existingDaemon.protocolVersion,
-      existingStartedAt: existingDaemon.startedAt,
-      pid: process.pid,
-    });
     server.close(() => {
       process.exit(0);
     });
@@ -196,12 +188,6 @@ server.listen(0, "127.0.0.1", async () => {
 
   await writeJsonAtomically(infoFilePath, daemonInfo);
   scheduleOwnerAdoptionTimeout();
-  void logDaemonDebug("daemon.start", {
-    pid: daemonInfo.pid,
-    port: daemonInfo.port,
-    protocolVersion: daemonInfo.protocolVersion,
-    startedAt: daemonInfo.startedAt,
-  });
 });
 
 process.on("SIGTERM", () => {
@@ -213,11 +199,11 @@ process.on("SIGINT", () => {
 });
 
 process.on("uncaughtException", (error) => {
-  void logDaemonDebug("daemon.uncaughtException", serializeUnknownError(error));
+  console.error(error);
 });
 
 process.on("unhandledRejection", (reason) => {
-  void logDaemonDebug("daemon.unhandledRejection", serializeUnknownError(reason));
+  console.error(reason);
 });
 
 function attachControlSocket(socket: WebSocket): void {
@@ -246,11 +232,6 @@ function attachSessionSocket(
 ): void {
   const workspaceId = searchParams.get("workspaceId");
   if (!sessionId || !workspaceId) {
-    void logDaemonDebug("daemon.sessionSocketRejected", {
-      reason: "missing-session-or-workspace",
-      sessionId,
-      workspaceId,
-    });
     socket.close();
     return;
   }
@@ -258,12 +239,6 @@ function attachSessionSocket(
   const sessionKey = createTerminalDaemonSessionKey(workspaceId, sessionId);
   const session = sessions.get(sessionKey);
   if (!session) {
-    void logDaemonDebug("daemon.sessionSocketRejected", {
-      reason: "missing-session",
-      sessionId,
-      sessionKey,
-      workspaceId,
-    });
     socket.close();
     return;
   }
@@ -271,14 +246,6 @@ function attachSessionSocket(
   clearLifecycleTimer();
   const initialCols = parsePositiveNumber(searchParams.get("cols"));
   const initialRows = parsePositiveNumber(searchParams.get("rows"));
-  void logDaemonDebug("daemon.sessionSocketAccepted", {
-    initialCols,
-    initialRows,
-    sessionId,
-    sessionKey,
-    sessionStatus: session.snapshot.status,
-    workspaceId,
-  });
   void attachSessionSocketWithReplay(session, sessionKey, socket, initialCols, initialRows);
 }
 
@@ -326,10 +293,6 @@ async function handleControlMessage(client: ControlClient, rawMessage: string): 
         return;
     }
   } catch (error) {
-    void logDaemonDebug("daemon.controlRequestFailed", {
-      error: serializeUnknownError(error),
-      request: summarizeRequest(request),
-    });
     if ("requestId" in request && request.requestId) {
       try {
         client.socket.send(
@@ -506,45 +469,6 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
       shellIntegrationZdotDir: request.shellIntegrationZdotDir,
     },
   );
-  const sortedEnvironment = Object.fromEntries(
-    Object.entries(environment).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
-  );
-  void logDaemonDebug("daemon.sessionCreateEnvironment", {
-    cwd: request.cwd,
-    cwdExists: existsSync(request.cwd),
-    environment: sortedEnvironment,
-    hasShellIntegrationBinDir: Boolean(request.shellIntegrationBinDir),
-    hasShellIntegrationZdotDir: Boolean(request.shellIntegrationZdotDir),
-    pathPrefix: environment.PATH?.split(path.delimiter).at(0),
-    pathPrefixExists: environment.PATH
-      ? existsSync(environment.PATH.split(path.delimiter).at(0) ?? "")
-      : false,
-    sessionId: request.sessionId,
-    shell: request.shell,
-    shellArgs: request.shellArgs ?? [],
-    shellExists: existsSync(request.shell),
-    shellIntegrationBinDir: request.shellIntegrationBinDir,
-    shellIntegrationBinDirExists: request.shellIntegrationBinDir
-      ? existsSync(request.shellIntegrationBinDir)
-      : false,
-    shellIntegrationZdotDir: request.shellIntegrationZdotDir,
-    shellIntegrationZdotDirExists: request.shellIntegrationZdotDir
-      ? existsSync(request.shellIntegrationZdotDir)
-      : false,
-    sessionStateFileDir: path.dirname(request.sessionStateFilePath),
-    sessionStateFileDirExists: existsSync(path.dirname(request.sessionStateFilePath)),
-    spawnOptions: {
-      cols: request.cols,
-      cwd: request.cwd,
-      encoding: null,
-      env: sortedEnvironment,
-      name: "xterm-256color",
-      rows: request.rows,
-    },
-    workspaceId: request.workspaceId,
-    zdotdir: environment.ZDOTDIR,
-    zdotdirExists: environment.ZDOTDIR ? existsSync(environment.ZDOTDIR) : false,
-  });
   const spawnedPty = getNodePty().spawn(request.shell, request.shellArgs ?? [], {
     cols: request.cols,
     cwd: request.cwd,
@@ -563,6 +487,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
   const session: ManagedSession = {
     cols: request.cols,
     cwd: request.cwd,
+    frontendAttachmentGeneration: 0,
     headlessTerminal: xtermState?.headlessTerminal,
     historyBuffer: new TerminalDaemonRingBuffer(MAX_HISTORY_BYTES),
     liveTitle: undefined,
@@ -579,6 +504,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
       agentStatus: "idle",
       cols: request.cols,
       cwd: request.cwd,
+      frontendAttachmentGeneration: 0,
       isAttached: false,
       restoreState: "live",
       rows: request.rows,
@@ -666,6 +592,7 @@ async function buildSnapshot(
     agentStatus: shouldPreferPersistedPresentation
       ? persistedState.agentStatus
       : (session.titleActivity?.activity ?? persistedState.agentStatus),
+    frontendAttachmentGeneration: session.frontendAttachmentGeneration,
     history: includeHistory ? serializeSessionHistory(session) : undefined,
     isAttached: sessionSocketsBySessionKey.get(session.sessionKey)?.readyState === WebSocket.OPEN,
     title: shouldPreferPersistedPresentation
@@ -749,15 +676,6 @@ async function handleSessionSocketMessage(
   if (message.type === "terminalResize") {
     attachment.initialCols = message.cols;
     attachment.initialRows = message.rows;
-    void logDaemonDebug("daemon.sessionAttachmentResizeReceived", {
-      activated: attachment.activated,
-      attachmentId: attachment.id,
-      cols: message.cols,
-      rows: message.rows,
-      sessionId: session.sessionId,
-      sessionKey,
-      workspaceId: session.workspaceId,
-    });
     resizeSession(session, message.cols, message.rows);
     if (attachment.activated) {
       const snapshot = await buildSnapshot(session, false);
@@ -768,14 +686,6 @@ async function handleSessionSocketMessage(
 
   attachment.initialCols = message.cols;
   attachment.initialRows = message.rows;
-  void logDaemonDebug("daemon.sessionAttachmentReadyReceived", {
-    attachmentId: attachment.id,
-    cols: message.cols,
-    rows: message.rows,
-    sessionId: session.sessionId,
-    sessionKey,
-    workspaceId: session.workspaceId,
-  });
   await activatePendingSessionAttachment(session, sessionKey, socket, attachment);
 }
 
@@ -1036,11 +946,6 @@ function pruneStaleOwnerClients(): void {
       continue;
     }
 
-    void logDaemonDebug("daemon.ownerHeartbeatExpired", {
-      ownerId: client.ownerId,
-      ownerPid: client.ownerPid,
-      pid: process.pid,
-    });
     try {
       client.socket.close();
     } catch {
@@ -1068,11 +973,7 @@ function getConnectedClientCount(): number {
 async function shutdown(reason = "unknown"): Promise<void> {
   clearLifecycleTimer();
   clearOwnerAdoptionTimer();
-  void logDaemonDebug("daemon.shutdown", {
-    pid: process.pid,
-    reason,
-    sessionCount: sessions.size,
-  });
+  void reason;
   for (const session of sessions.values()) {
     try {
       session.pty.kill();
@@ -1123,11 +1024,6 @@ async function expireLeasedSessionsAndMaybeShutdown(): Promise<void> {
       session.leaseExpiresAt !== null &&
       session.leaseExpiresAt <= now
     ) {
-      void logDaemonDebug("daemon.sessionLeaseExpired", {
-        sessionId: session.sessionId,
-        sessionKey,
-        workspaceId: session.workspaceId,
-      });
       try {
         session.pty.kill();
       } catch {
@@ -1159,52 +1055,6 @@ async function expireLeasedSessionsAndMaybeShutdown(): Promise<void> {
   lifecycleTimer = setTimeout(() => {
     void shutdown("idle-timeout");
   }, idleShutdownTimeoutMs);
-}
-
-async function logDaemonDebug(event: string, details?: unknown): Promise<void> {
-  try {
-    await mkdir(stateDir, { recursive: true });
-    const serializedDetails =
-      details === undefined
-        ? ""
-        : ` ${JSON.stringify(details, (_key, value) => {
-            if (value instanceof Error) {
-              return serializeUnknownError(value);
-            }
-
-            return value;
-          })}`;
-    await appendFile(
-      debugLogFilePath,
-      `${new Date().toISOString()} ${event}${serializedDetails}\n`,
-      "utf8",
-    );
-  } catch {
-    // Ignore daemon debug log failures so they do not interfere with the daemon itself.
-  }
-}
-
-function summarizeRequest(request: TerminalHostRequest): Record<string, unknown> {
-  return {
-    requestId: "requestId" in request ? request.requestId : undefined,
-    sessionId: "sessionId" in request ? request.sessionId : undefined,
-    type: request.type,
-    workspaceId: "workspaceId" in request ? request.workspaceId : undefined,
-  };
-}
-
-function serializeUnknownError(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
-    };
-  }
-
-  return {
-    message: String(error),
-  };
 }
 
 function getStateDirFromArgs(): string {
@@ -1337,26 +1187,9 @@ async function attachSessionSocketWithReplay(
     initialRows,
   };
   pendingSessionAttachmentSockets.add(socket);
-  void logDaemonDebug("daemon.sessionAttachmentStarted", {
-    attachmentId: attachment.id,
-    initialCols,
-    initialRows,
-    sessionId: session.sessionId,
-    sessionKey,
-    sessionStatus: session.snapshot.status,
-    workspaceId: session.workspaceId,
-  });
 
   attachment.readyTimeout = setTimeout(() => {
     if (!attachment.activated && socket.readyState === WebSocket.OPEN) {
-      void logDaemonDebug("daemon.sessionAttachmentReadyTimeout", {
-        attachmentId: attachment.id,
-        initialCols: attachment.initialCols,
-        initialRows: attachment.initialRows,
-        sessionId: session.sessionId,
-        sessionKey,
-        workspaceId: session.workspaceId,
-      });
       socket.close();
     }
   }, SESSION_ATTACH_READY_TIMEOUT_MS);
@@ -1434,14 +1267,6 @@ async function activatePendingSessionAttachment(
 
   attachment.activated = true;
   clearPendingSessionAttachmentTimeout(attachment);
-  void logDaemonDebug("daemon.sessionAttachmentActivated", {
-    attachmentId: attachment.id,
-    initialCols: attachment.initialCols,
-    initialRows: attachment.initialRows,
-    sessionId: session.sessionId,
-    sessionKey,
-    workspaceId: session.workspaceId,
-  });
 
   if (attachment.initialCols && attachment.initialRows) {
     resizeSession(session, attachment.initialCols, attachment.initialRows);
@@ -1453,12 +1278,6 @@ async function activatePendingSessionAttachment(
 
   const previousSocket = sessionSocketsBySessionKey.get(sessionKey);
   if (previousSocket && previousSocket !== socket) {
-    void logDaemonDebug("daemon.sessionAttachmentPreemptedPreviousSocket", {
-      attachmentId: attachment.id,
-      sessionId: session.sessionId,
-      sessionKey,
-      workspaceId: session.workspaceId,
-    });
     sessionSocketsBySessionKey.delete(sessionKey);
     previousSocket.close();
   }
@@ -1480,13 +1299,8 @@ async function activatePendingSessionAttachment(
   removePendingAttachQueue(session, pendingAttachQueue);
   attachment.pendingAttachQueue = undefined;
   sessionSocketsBySessionKey.set(sessionKey, socket);
-  void logDaemonDebug("daemon.sessionAttachmentCompleted", {
-    attachmentId: attachment.id,
-    replayChunkCount: replayPayloads.length,
-    sessionId: session.sessionId,
-    sessionKey,
-    workspaceId: session.workspaceId,
-  });
+  session.frontendAttachmentGeneration = nextFrontendAttachmentGeneration;
+  nextFrontendAttachmentGeneration += 1;
 
   const snapshot = await buildSnapshot(session, false);
   broadcastControlSessionState(snapshot);
@@ -1522,16 +1336,7 @@ function handleSessionSocketEnd(
       broadcastControlSessionState(snapshot);
     });
   }
-  void logDaemonDebug("daemon.sessionSocketEnded", {
-    activated: attachment.activated,
-    attachmentId: attachment.id,
-    hadPendingAttachQueue: attachment.pendingAttachQueue !== undefined,
-    sessionId: session.sessionId,
-    sessionKey,
-    socketWasRegistered: sessionSocketsBySessionKey.get(sessionKey) === socket,
-    workspaceId: session.workspaceId,
-    ...details,
-  });
+  void details;
   scheduleDaemonLifecycleCheckIfNeeded();
 }
 

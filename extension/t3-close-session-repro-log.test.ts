@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "vite-plus/test";
@@ -8,7 +8,7 @@ import {
 } from "./t3-close-session-repro-log";
 
 describe("t3 close session repro log", () => {
-  test("should write tagged repro lines into the workspace .vsmux folder", async () => {
+  test("keeps the legacy log path stable without writing a log file", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "t3-close-session-repro-"));
 
     try {
@@ -18,12 +18,9 @@ describe("t3 close session repro log", () => {
       });
 
       const logPath = getT3CloseSessionReproLogPath(workspaceRoot);
-      const logContent = await readFile(logPath, "utf8");
 
       expect(logPath).toBe(path.join(workspaceRoot, ".vsmux", "t3-close-session-repro.log"));
-      expect(logContent).toContain("[t3-close-repro] controller.closeSession.start");
-      expect(logContent).toContain('"sessionId":"session-12"');
-      expect(logContent).toContain('"source":"sidebar"');
+      await expect(access(logPath)).rejects.toThrow();
     } finally {
       await rm(workspaceRoot, { force: true, recursive: true });
     }

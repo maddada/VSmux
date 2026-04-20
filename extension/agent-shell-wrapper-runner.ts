@@ -110,7 +110,11 @@ export function createAgentEnvironment(
   agent: AgentName,
   baseEnvironment: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...baseEnvironment, VSMUX_AGENT: agent };
+  const environment: NodeJS.ProcessEnv = {
+    ...baseEnvironment,
+    VSMUX_AGENT: agent,
+    VSMUX_WRAPPER_PID: String(process.pid),
+  };
 
   if (agent === "claude") {
     environment[CLAUDE_CODE_DISABLE_TERMINAL_TITLE_ENV_KEY] = "1";
@@ -340,6 +344,14 @@ function emitNotifyEvent(eventName: "Start" | "Stop", notifyRunnerPath: string):
   child.unref();
 }
 
+export function shouldSpawnAgentInDetachedGroup(platform = process.platform): boolean {
+  return platform !== "win32";
+}
+
+export function getProcessTreeKillTarget(pid: number, platform = process.platform): number {
+  return shouldSpawnAgentInDetachedGroup(platform) ? -Math.abs(pid) : Math.abs(pid);
+}
+
 function spawnAgentProcess(
   agent: AgentName,
   executablePath: string,
@@ -360,17 +372,14 @@ function spawnAgentProcess(
 
     try {
       if (statSync(nodePath).isFile() && statSync(codexEntrypointPath).isFile()) {
-        return new Promise((resolve, reject) => {
-          const child = spawn(nodePath, [codexEntrypointPath, ...args], {
+        return waitForAgentProcessExit(
+          agent,
+          spawn(nodePath, [codexEntrypointPath, ...args], {
+            detached: shouldSpawnAgentInDetachedGroup(),
             env: environment,
             stdio: "inherit",
-          });
-
-          child.once("error", reject);
-          child.once("exit", (code) => {
-            resolve(code ?? 1);
-          });
-        });
+          }),
+        );
       }
     } catch {
       // Fall back to the resolved executable path if this is not an npm-style global Codex install.
@@ -382,30 +391,111 @@ function spawnAgentProcess(
       const commandLine = [`"${executablePath}"`, ...args.map(quoteWindowsCommandArgument)].join(
         " ",
       );
-      const child = spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], {
-        env: environment,
-        stdio: "inherit",
-        windowsVerbatimArguments: true,
-      });
-
-      child.once("error", reject);
-      child.once("exit", (code) => {
-        resolve(code ?? 1);
-      });
+      void waitForAgentProcessExit(
+        agent,
+        spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], {
+          detached: shouldSpawnAgentInDetachedGroup(),
+          env: environment,
+          stdio: "inherit",
+          windowsVerbatimArguments: true,
+        }),
+      ).then(resolve, reject);
     });
   }
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(executablePath, [...args], {
+  return waitForAgentProcessExit(
+    agent,
+    spawn(executablePath, [...args], {
+      detached: shouldSpawnAgentInDetachedGroup(),
       env: environment,
       stdio: "inherit",
-    });
+    }),
+  );
+}
 
-    child.once("error", reject);
+function waitForAgentProcessExit(
+  agent: AgentName,
+  child: ReturnType<typeof spawn>,
+): Promise<number> {
+  const cleanup = registerWrapperTerminationHandlers(agent, child);
+
+  return new Promise((resolve, reject) => {
+    child.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
     child.once("exit", (code) => {
+      cleanup();
       resolve(code ?? 1);
     });
   });
+}
+
+function registerWrapperTerminationHandlers(
+  agent: AgentName,
+  child: ReturnType<typeof spawn>,
+): () => void {
+  let forcedKillTimer: NodeJS.Timeout | undefined;
+  let isCleaningUp = false;
+
+  const terminateChildTree = (signal: NodeJS.Signals, source: string): void => {
+    if (isCleaningUp) {
+      return;
+    }
+    isCleaningUp = true;
+    void appendAgentShellDebugLog("wrapper.launch.terminateChildTree", {
+      agent,
+      childPid: child.pid,
+      signal,
+      source,
+    });
+    killChildProcessTree(child.pid, signal);
+    forcedKillTimer = setTimeout(() => {
+      killChildProcessTree(child.pid, "SIGKILL");
+    }, 4_000);
+    forcedKillTimer.unref?.();
+  };
+
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    const handler = () => {
+      terminateChildTree(signal, "wrapper-signal");
+    };
+    signalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+
+  const exitHandler = () => {
+    terminateChildTree("SIGTERM", "wrapper-exit");
+  };
+  process.once("exit", exitHandler);
+
+  return () => {
+    if (forcedKillTimer) {
+      clearTimeout(forcedKillTimer);
+      forcedKillTimer = undefined;
+    }
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
+    }
+    process.removeListener("exit", exitHandler);
+  };
+}
+
+function killChildProcessTree(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (!pid || pid <= 0) {
+    return;
+  }
+
+  try {
+    process.kill(getProcessTreeKillTarget(pid), signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Ignore races where the child already exited.
+    }
+  }
 }
 
 function serializeUnknownError(error: unknown): Record<string, unknown> {

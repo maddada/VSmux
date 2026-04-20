@@ -1,60 +1,37 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import {
-  formatVscodeWorkspaceLogPrefix,
-  getVscodeWorkspaceLogLabel,
-} from "../shared/vscode-workspace-log-context";
 
 const SETTINGS_SECTION = "VSmux";
 const DEBUGGING_MODE_SETTING = "debuggingMode";
-const DEBUG_LOG_FILE_NAME = "vsmux-debug.log";
+const DEBUG_LOG_DIR_NAME = ".vsmux";
+const DEBUG_LOG_FILE_NAME = "full-reload-terminal-reconnect.log";
 const DEBUG_EVENT_PREFIX_ALLOWLIST = [
-  "sidebar.provider.",
-  "sidebar.webview.",
-  "workspace.webview.focus.",
-  "workspace.webview.terminal.",
-  "workspace.webview.workspace.sessionStatePaneSummary",
-  "workspace.webview.workspace.terminalPresentationChanged",
-  "workspace.webview.workspace.terminalLayerSummary",
-  "workspace.webview.workspace.terminalHost",
-  "workspace.webview.workspace.generation",
-  "workspace.webview.workspace.mainPane",
-  "workspace.webview.workspace.paneMeasuredBounds",
-  "workspace.webview.workspace.hiddenPaneParkingSummary",
-  "workspace.webview.workspace.activeGroupLayoutSummary",
-  "workspace.webview.workspace.terminalPortalTargetChanged",
-  "workspace.webview.workspace.paneView",
-  "controller.activitySuppression.",
-  "controller.refreshWorkspacePanel.",
-  "controller.createWorkspacePanelMessage.",
-  "controller.handleSidebarMessage.",
-  "controller.focusSession.",
-  "controller.focusGroup.",
-  "controller.reloadWorkspacePanel.",
-  "backend.daemon.sessionActivity.",
+  "workspace.webview.workspace.terminal",
   "daemon.runtime.",
+  "controller.fullReloadSession.",
+  "controller.waitForTerminalFrontendConnectionAfterReload.",
 ] as const;
 const DEBUG_EVENT_ALLOWLIST = new Set<string>([
-  "workspace.webview.instanceMounted",
-  "workspace.webview.instanceUnmounted",
+  "backend.daemon.sessionPresentationChanged",
+  "backend.daemon.sessionPresentationDiff",
+  "backend.daemon.syncSessionLeases.failed",
 ]);
 
-let outputChannel: vscode.OutputChannel | undefined;
-let debugLogFilePath: string | undefined;
 let fileWriteQueue: Promise<void> = Promise.resolve();
 
-export function initializeVSmuxDebugLog(context: vscode.ExtensionContext): void {
-  debugLogFilePath = path.join(context.globalStorageUri.fsPath, DEBUG_LOG_FILE_NAME);
-}
+export function initializeVSmuxDebugLog(_context: vscode.ExtensionContext): void {}
 
 export function resetVSmuxDebugLog(): void {
-  outputChannel?.clear();
-  if (!debugLogFilePath) {
+  if (!isDebugLoggingEnabled()) {
     return;
   }
 
-  const logFilePath = debugLogFilePath;
+  const logFilePath = resolveWorkspaceDebugLogFilePath();
+  if (!logFilePath) {
+    return;
+  }
+
   fileWriteQueue = fileWriteQueue
     .catch(() => undefined)
     .then(async () => {
@@ -65,34 +42,50 @@ export function resetVSmuxDebugLog(): void {
 }
 
 export function logVSmuxDebug(event: string, details?: unknown): void {
-  if (!isDebugLoggingEnabled()) {
-    return;
-  }
-  if (!shouldLogDebugEvent(event)) {
+  if (!isDebugLoggingEnabled() || !shouldLogDebugEvent(event)) {
     return;
   }
 
-  const output = getOutputChannel();
-  const suffix = details === undefined ? "" : ` ${safeSerialize(details)}`;
-  const line = `${new Date().toISOString()} ${formatVscodeWorkspaceLogPrefix()} ${event}${suffix}`;
-  output.appendLine(line);
-  queueDebugLogFileAppend(`${line}\n`);
+  queueDebugLogFileAppend(buildLogLine(event, details));
 }
 
 export function logVSmuxReproTrace(event: string, details?: unknown): void {
-  const line = buildLogLine(event, enrichLogDetails(details));
-  getOutputChannel().appendLine(line);
-  queueDebugLogFileAppend(`${line}\n`);
+  if (!isDebugLoggingEnabled()) {
+    return;
+  }
+
+  queueDebugLogFileAppend(buildLogLine(event, details));
 }
 
-export function disposeVSmuxDebugLog(): void {
-  outputChannel?.dispose();
-  outputChannel = undefined;
+export function disposeVSmuxDebugLog(): void {}
+
+export function getVSmuxDebugLogPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, DEBUG_LOG_DIR_NAME, DEBUG_LOG_FILE_NAME);
 }
 
-function getOutputChannel(): vscode.OutputChannel {
-  outputChannel ??= vscode.window.createOutputChannel("VSmux Debug");
-  return outputChannel;
+function buildLogLine(event: string, details?: unknown): string {
+  const suffix = details === undefined ? "" : ` ${safeSerialize(details)}`;
+  return `${new Date().toISOString()} ${event}${suffix}\n`;
+}
+
+function resolveWorkspaceDebugLogFilePath(): string | undefined {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return workspaceRoot ? getVSmuxDebugLogPath(workspaceRoot) : undefined;
+}
+
+function queueDebugLogFileAppend(text: string): void {
+  const logFilePath = resolveWorkspaceDebugLogFilePath();
+  if (!logFilePath) {
+    return;
+  }
+
+  fileWriteQueue = fileWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(path.dirname(logFilePath), { recursive: true });
+      await appendFile(logFilePath, text, "utf8");
+    })
+    .catch(() => undefined);
 }
 
 function isDebugLoggingEnabled(): boolean {
@@ -102,57 +95,31 @@ function isDebugLoggingEnabled(): boolean {
   );
 }
 
-function safeSerialize(details: unknown): string {
-  try {
-    return JSON.stringify(details);
-  } catch (error) {
-    return JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-      unserializable: true,
-    });
-  }
-}
-
-function buildLogLine(event: string, details?: unknown): string {
-  const suffix = details === undefined ? "" : ` ${safeSerialize(details)}`;
-  return `${new Date().toISOString()} ${formatVscodeWorkspaceLogPrefix()} ${event}${suffix}`;
-}
-
-function enrichLogDetails(details: unknown): unknown {
-  const projectName = getVscodeWorkspaceLogLabel();
-  if (!details || typeof details !== "object" || Array.isArray(details)) {
-    return {
-      details,
-      projectName,
-    };
-  }
-
-  return {
-    projectName,
-    ...details,
-  };
-}
-
-function queueDebugLogFileAppend(text: string): void {
-  if (!debugLogFilePath) {
-    return;
-  }
-
-  const logFilePath = debugLogFilePath;
-
-  fileWriteQueue = fileWriteQueue
-    .catch(() => undefined)
-    .then(async () => {
-      const parentDir = path.dirname(logFilePath);
-      await mkdir(parentDir, { recursive: true });
-      await appendFile(logFilePath, text, "utf8");
-    });
-}
-
 function shouldLogDebugEvent(event: string): boolean {
   if (DEBUG_EVENT_ALLOWLIST.has(event)) {
     return true;
   }
 
   return DEBUG_EVENT_PREFIX_ALLOWLIST.some((prefix) => event.startsWith(prefix));
+}
+
+function safeSerialize(details: unknown): string {
+  try {
+    return JSON.stringify(details, (_key, value) => {
+      if (value instanceof Error) {
+        return {
+          message: value.message,
+          name: value.name,
+          stack: value.stack,
+        };
+      }
+
+      return value;
+    });
+  } catch (error) {
+    return JSON.stringify({
+      error: error instanceof Error ? error.message : String(error),
+      unserializable: true,
+    });
+  }
 }

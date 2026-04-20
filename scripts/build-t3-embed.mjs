@@ -3,18 +3,19 @@ import { buildManagedT3Provider } from "./build-managed-t3-provider.mjs";
 
 const repoRoot = process.cwd();
 
-buildManagedT3Provider({
-  displayName: "DP Code",
-  embedRoot:
-    process.env.VSMUX_DPCODE_REPO_ROOT?.trim() ||
-    process.env.VSMUX_T3_REPO_ROOT?.trim() ||
-    resolve(repoRoot, "..", "dpcode-embed"),
-  envVarName: "VSMUX_DPCODE_REPO_ROOT",
-  packagedServerDirectoryName: "dpcode-server",
-  packagedWebDirectoryName: "dpcode-embed",
-  provider: "dpcode",
-  prunePackagedRuntime: true,
-});
+// TODO: might be enabled later 2026-04-20
+// buildManagedT3Provider({
+//   displayName: "DP Code",
+//   embedRoot:
+//     process.env.VSMUX_DPCODE_REPO_ROOT?.trim() ||
+//     process.env.VSMUX_T3_REPO_ROOT?.trim() ||
+//     resolve(repoRoot, "..", "dpcode-embed"),
+//   envVarName: "VSMUX_DPCODE_REPO_ROOT",
+//   packagedServerDirectoryName: "dpcode-server",
+//   packagedWebDirectoryName: "dpcode-embed",
+//   provider: "dpcode",
+//   prunePackagedRuntime: true,
+// });
 
 buildManagedT3Provider({
   displayName: "T3 Code",
