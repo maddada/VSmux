@@ -2,6 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.5.0 - 2026-04-20
+
+- The sidebar can show a project header card now, with the workspace name, path, detected app icon, and sibling Git worktrees. You can also hide that card with `VSmux.hideSidebarProjectHeader` if you prefer a denser layout.
+- Sidebar actions are more capable now: terminal actions can target sibling worktrees directly from the context menu, command tooltips and accessibility labels are clearer, and success feedback lingers a little longer so finished runs are easier to notice.
+- Browser-tab detection is broader and smarter now, so VSmux can recognize more Simple Browser and custom browser tabs from URLs, host-like labels, and page titles while ignoring file-like editor tabs more reliably.
+- Workspace tab handling is steadier now: VSmux reuses and pins the workspace tab more deliberately, carries project favicon context into Agent Manager X, and waits for a fresh terminal frontend attachment more reliably after reloads.
+- Runtime cleanup is more deliberate now: old helper processes from previous VSmux installs are pruned on startup, detached Unix agent wrappers clean up their full child process groups, and debug/repro logging is trimmed down to more focused workspace-side traces.
+
 ## 4.4.1 - 2026-04-19
 
 - T3 remote-access links are more practical now: QR code and Copy link prefer your machine's Tailscale address when available, while Open link stays on the simpler LAN address when both routes exist.

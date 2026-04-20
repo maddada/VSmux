@@ -61,28 +61,26 @@ This extension is for you if:
 
 Then this is the extension for you! You get a very nice interface to work with your agents without having to jump between the editor and the ADE tool.
 
-
 ## Main Features at a Glance
 
-| Feature | Description |
-| --- | --- |
-| **Remote Access** | Control your sessions from your phone or another computer |
-| **Split Views** | Put terminals/t3code chats side-by-side to monitor multiple tasks at once |
-| **Universal Search** | Find and access all your tool sessions from one central location |
-| **Session Organization** | Group and sort your workspace to keep it clutter-free |
-| **Resume Sessions** | Instantly reload past sessions to pick up exactly where you left off |
-| **Quick Launch** | Quickly find and reopen closed sessions using just your keyboard |
-| **Session Forking** | Branch off an active session into a new terminal without losing your original context |
-| **Sleep Mode** | Suspend inactive sessions to free up memory and boost system performance |
-| **Custom AI Profiles** | Create and manage distinct profiles for different AI models and specific use cases |
-| **Agent Handoff** | Seamlessly transfer a conversation's context from one AI model directly to another |
-| **Custom Action Buttons** | Turn any terminal command into a clickable, customizable shortcut |
-| **Pinned Prompts** | Save frequently used instructions in the sidebar for quick access across projects |
-| **Integrated Browser** | Save bookmarks, open localhost, use DevTools, all without alt tabbing |
-| **Automated Git** | Use built-in tools to automatically generate commit messages and push code |
-| **Change Monitoring** | Track AI-driven code edits in a dedicated panel while working on other tasks |
-| **Advanced Settings** | Highly configure the tool to match your exact workflow needs |
-
+| Feature                   | Description                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| **Remote Access**         | Control your sessions from your phone or another computer                             |
+| **Split Views**           | Put terminals/t3code chats side-by-side to monitor multiple tasks at once             |
+| **Universal Search**      | Find and access all your tool sessions from one central location                      |
+| **Session Organization**  | Group and sort your workspace to keep it clutter-free                                 |
+| **Resume Sessions**       | Instantly reload past sessions to pick up exactly where you left off                  |
+| **Quick Launch**          | Quickly find and reopen closed sessions using just your keyboard                      |
+| **Session Forking**       | Branch off an active session into a new terminal without losing your original context |
+| **Sleep Mode**            | Suspend inactive sessions to free up memory and boost system performance              |
+| **Custom AI Profiles**    | Create and manage distinct profiles for different AI models and specific use cases    |
+| **Agent Handoff**         | Seamlessly transfer a conversation's context from one AI model directly to another    |
+| **Custom Action Buttons** | Turn any terminal command into a clickable, customizable shortcut                     |
+| **Pinned Prompts**        | Save frequently used instructions in the sidebar for quick access across projects     |
+| **Integrated Browser**    | Save bookmarks, open localhost, use DevTools, all without alt tabbing                 |
+| **Automated Git**         | Use built-in tools to automatically generate commit messages and push code            |
+| **Change Monitoring**     | Track AI-driven code edits in a dedicated panel while working on other tasks          |
+| **Advanced Settings**     | Highly configure the tool to match your exact workflow needs                          |
 
 ## Getting Started
 
@@ -90,8 +88,6 @@ Then this is the extension for you! You get a very nice interface to work with y
 2. Run `VSmux: Open Workspace`.
 3. Create your first session.
 4. Use the sidebar and hotkeys to change the visible split count and jump between sessions and groups.
-
-
 
 # Recommended VS Code Setup for Worktrees & Parallel Agents
 
