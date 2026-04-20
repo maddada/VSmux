@@ -318,6 +318,7 @@ function createWorkspaceMessage(
       xtermFrontendScrollback: 75_000,
     },
     t3Appearance: {
+      provider: "t3code",
       zoomPercent: 100,
     },
     type: "hydrate",

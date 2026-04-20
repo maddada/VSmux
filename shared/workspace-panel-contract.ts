@@ -35,6 +35,7 @@ export type WorkspacePanelLayoutAppearance = {
 };
 
 export type WorkspacePanelT3Appearance = {
+  provider: "dpcode" | "t3code";
   zoomPercent: number;
 };
 

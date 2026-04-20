@@ -1892,6 +1892,12 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
   const headerIndicatorState = getWorkspacePaneHeaderIndicatorState(pane);
   const canFork = supportsWorkspacePaneFork(pane);
   const canReload = supportsWorkspacePaneFullReload(pane);
+  const showPaneHeaderActions = pane.kind === "terminal" || pane.kind === "t3";
+  const showPaneZoomControls =
+    pane.kind === "terminal" || (pane.kind === "t3" && t3Appearance.provider !== "t3code");
+  const showPaneRenameButton = pane.kind === "terminal" || pane.kind === "t3";
+  const showPaneRenameDivider = showPaneZoomControls && showPaneRenameButton;
+  const showPaneSleepDivider = showPaneRenameButton || canFork || canReload || showPaneZoomControls;
 
   useEffect(() => {
     debugLog("workspace.paneViewMount", {
@@ -2022,9 +2028,9 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
             />
           ) : null}
         </div>
-        {pane.kind === "terminal" || pane.kind === "t3" ? (
+        {showPaneHeaderActions ? (
           <div className="workspace-pane-header-actions">
-            {pane.kind === "terminal" || pane.kind === "t3" ? (
+            {showPaneZoomControls ? (
               <WorkspacePaneFontSizeControls
                 onAdjustZoom={
                   pane.kind === "terminal" ? onAdjustTerminalFontSize : onAdjustT3ZoomPercent
@@ -2034,15 +2040,13 @@ const WorkspacePaneView: React.FC<WorkspacePaneViewProps> = ({
                 }
               />
             ) : null}
-            {pane.kind === "terminal" || pane.kind === "t3" ? (
+            {showPaneRenameDivider ? (
               <span aria-hidden="true" className="workspace-pane-action-divider" />
             ) : null}
-            {pane.kind === "terminal" || pane.kind === "t3" ? (
-              <WorkspacePaneRenameButton onRename={onRename} />
-            ) : null}
+            {showPaneRenameButton ? <WorkspacePaneRenameButton onRename={onRename} /> : null}
             {canFork ? <WorkspacePaneForkButton onFork={onFork} /> : null}
             {canReload ? <WorkspacePaneRefreshButton onRefresh={onReload} /> : null}
-            {pane.kind === "terminal" || pane.kind === "t3" || canFork || canReload ? (
+            {showPaneSleepDivider ? (
               <span aria-hidden="true" className="workspace-pane-action-divider" />
             ) : null}
             <WorkspacePaneSleepButton

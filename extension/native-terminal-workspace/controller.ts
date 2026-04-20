@@ -101,6 +101,7 @@ import {
   saveSidebarCommandPreference,
   syncSidebarCommandOrderPreference,
 } from "../sidebar-command-preferences";
+import { getManagedT3Provider } from "../managed-t3-paths";
 import {
   getFirstBrowserSidebarCommandUrl,
   type SidebarCommandRunMode,
@@ -6008,6 +6009,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private getWorkspaceT3Appearance() {
     return {
+      provider: getManagedT3Provider(),
       zoomPercent: getT3ZoomPercent(),
     };
   }
