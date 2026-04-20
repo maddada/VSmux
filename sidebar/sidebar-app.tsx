@@ -192,6 +192,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   }
 
   const applyLocalFocus = useSidebarStore((state) => state.applyLocalFocus);
+  const applyCommandRunStateMessage = useSidebarStore((state) => state.applyCommandRunStateMessage);
   const applyOrderSyncResultMessage = useSidebarStore((state) => state.applyOrderSyncResultMessage);
   const applySessionPresentationMessage = useSidebarStore(
     (state) => state.applySessionPresentationMessage,
@@ -351,6 +352,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
 
     if (event.data.type === "sessionPresentationChanged") {
       applySessionPresentationMessage(event.data);
+      return;
+    }
+
+    if (event.data.type === "sidebarCommandRunStateChanged") {
+      applyCommandRunStateMessage(event.data);
       return;
     }
 

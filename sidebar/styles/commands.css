@@ -329,12 +329,29 @@
   container-type: inline-size;
   justify-content: center;
   min-width: 0;
+  position: relative;
   width: 100%;
 }
 
 .command-button[data-icon-only="true"] {
   min-width: 0;
   padding: 0;
+}
+
+.command-button::after {
+  border-radius: inherit;
+  content: "";
+  inset: -1px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.command-button::after {
+  border: 2px solid transparent;
+  transition:
+    border-color 180ms ease,
+    opacity 180ms ease;
 }
 
 .agent-button[data-icon-only="true"],
@@ -429,6 +446,13 @@
   width: 18px;
 }
 
+.command-button-loading-icon {
+  animation: agent-button-spin 0.9s linear infinite;
+  display: block;
+  height: 15px;
+  width: 15px;
+}
+
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="codex"],
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="opencode"],
 body[data-sidebar-theme="plain-dark"] .agent-button-icon[data-agent-icon="t3"],
@@ -477,6 +501,16 @@ body[data-sidebar-theme^="dark-"] .agent-button-icon[data-agent-icon="browser"] 
 
 .command-button[data-dragging="true"] {
   opacity: 0.6;
+}
+
+.command-button[data-run-status="success"]::after {
+  border-color: color-mix(in srgb, #26b36a 84%, var(--app-foreground) 16%);
+  opacity: 1;
+}
+
+.command-button[data-run-status="error"]::after {
+  border-color: color-mix(in srgb, #e05656 86%, var(--app-foreground) 14%);
+  opacity: 1;
 }
 
 .command-button-label {

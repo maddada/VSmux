@@ -185,6 +185,15 @@ export type SidebarOrderSyncResultMessage = {
   type: "sidebarOrderSyncResult";
 };
 
+export type SidebarCommandRunState = "error" | "running" | "success";
+
+export type SidebarCommandRunStateChangedMessage = {
+  commandId: string;
+  runId: string;
+  state: SidebarCommandRunState;
+  type: "sidebarCommandRunStateChanged";
+};
+
 export type SidebarDaemonInfo = {
   pid: number;
   port: number;
@@ -270,6 +279,7 @@ export type ExtensionToSidebarMessage =
   | SidebarSessionPresentationChangedMessage
   | SidebarPlayCompletionSoundMessage
   | SidebarOrderSyncResultMessage
+  | SidebarCommandRunStateChangedMessage
   | SidebarDaemonSessionsStateMessage
   | SidebarPromptGitCommitMessage
   | SidebarShowT3BrowserAccessMessage;

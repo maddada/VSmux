@@ -1979,15 +1979,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     if (terminalRunPlan.closeOnExit) {
-      const terminal = this.createSidebarCommandTerminal(commandButton.name, {
-        closeOnExit: true,
-        command,
-      });
-      terminal.show(true);
-      this.observeSidebarCommandTerminalExit(terminal, {
-        disposeTerminalOnExit: true,
-        playCompletionSound: commandButton.playCompletionSound,
-      });
+      const runId = createSidebarCommandRunId(commandButton.commandId);
+
+      try {
+        const terminal = this.createSidebarCommandTerminal(commandButton.name, {
+          closeOnExit: true,
+          command,
+        });
+        await this.postSidebarCommandRunState(commandButton.commandId, runId, "running");
+        terminal.show(true);
+        this.observeSidebarCommandTerminalExit(terminal, {
+          commandId: commandButton.commandId,
+          disposeTerminalOnExit: true,
+          playCompletionSound: commandButton.playCompletionSound,
+          runId,
+        });
+      } catch (error) {
+        await this.postSidebarCommandRunState(commandButton.commandId, runId, "error");
+        throw error;
+      }
       return;
     }
 
@@ -5073,17 +5083,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private observeSidebarCommandTerminalExit(
     terminal: vscode.Terminal,
     options: {
+      commandId: string;
       disposeTerminalOnExit: boolean;
       playCompletionSound: boolean;
+      runId: string;
     },
   ): void {
     const interval = setInterval(() => {
-      if (!terminal.exitStatus) {
+      const exitStatus = terminal.exitStatus;
+      if (!exitStatus) {
         return;
       }
 
       clearInterval(interval);
-      void this.handleSidebarCommandTerminalExit(options.playCompletionSound).finally(() => {
+      void this.handleSidebarCommandTerminalExit({
+        commandId: options.commandId,
+        exitCode: exitStatus.code,
+        playCompletionSound: options.playCompletionSound,
+        runId: options.runId,
+      }).finally(() => {
         if (options.disposeTerminalOnExit) {
           terminal.dispose();
         }
@@ -5091,14 +5109,38 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }, COMMAND_TERMINAL_EXIT_POLL_MS);
   }
 
-  private async handleSidebarCommandTerminalExit(playCompletionSound: boolean): Promise<void> {
-    if (!playCompletionSound) {
+  private async handleSidebarCommandTerminalExit(options: {
+    commandId: string;
+    exitCode: number | undefined;
+    playCompletionSound: boolean;
+    runId: string;
+  }): Promise<void> {
+    await this.postSidebarCommandRunState(
+      options.commandId,
+      options.runId,
+      options.exitCode === 0 ? "success" : "error",
+    );
+
+    if (!options.playCompletionSound) {
       return;
     }
 
     await playCloseTerminalOnExitSound({
       extensionUri: this.context.extensionUri,
       sound: getClampedActionCompletionSoundSetting(),
+    });
+  }
+
+  private async postSidebarCommandRunState(
+    commandId: string,
+    runId: string,
+    state: "error" | "running" | "success",
+  ): Promise<void> {
+    await this.sidebarProvider.postMessage({
+      commandId,
+      runId,
+      state,
+      type: "sidebarCommandRunStateChanged",
     });
   }
 
@@ -7263,6 +7305,10 @@ function parseMacOSNativeClipboardSnapshot(output: string): MacOSNativeClipboard
 
 function toArrayBuffer(view: Uint8Array): ArrayBuffer {
   return Uint8Array.from(view).buffer;
+}
+
+function createSidebarCommandRunId(commandId: string): string {
+  return `${commandId}-${randomUUID()}`;
 }
 
 const READ_MACOS_NATIVE_CLIPBOARD_SWIFT_SOURCE = String.raw`

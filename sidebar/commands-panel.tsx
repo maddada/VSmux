@@ -4,6 +4,7 @@ import { isSortableOperation, useSortable } from "@dnd-kit/react/sortable";
 import {
   IconBox,
   IconBug,
+  IconLoader2,
   IconPencil,
   IconPlayerPlayFilled,
   IconPlus,
@@ -27,6 +28,11 @@ import type {
 } from "../shared/sidebar-commands";
 import { getSidebarCommandIconLabel } from "../shared/sidebar-command-icons";
 import { getSidebarButtonGridColumnCount } from "./button-grid";
+import {
+  getSidebarCommandRunFeedbackDuration,
+  getSidebarCommandRunModeForClick,
+  type SidebarCommandRunFeedbackState,
+} from "./command-run-feedback";
 import { GitActionRow } from "./git-action-row";
 import { postSidebarOrderReproLog } from "./sidebar-order-repro-log";
 import { SectionHeader } from "./section-header";
@@ -74,6 +80,11 @@ type CommandDragData = {
 
 type PendingOrderSync = {
   requestId: string;
+  timeoutId: number;
+};
+
+type PendingCommandRunClear = {
+  status: SidebarCommandRunFeedbackState["status"];
   timeoutId: number;
 };
 
@@ -161,6 +172,8 @@ export function CommandsPanel({
       git: state.hud.git,
     })),
   );
+  const commandRunStates = useSidebarStore((state) => state.commandRunStates);
+  const clearCommandRunState = useSidebarStore((state) => state.clearCommandRunState);
   const latestCommandOrderSyncResult = useSidebarStore(
     (state) => state.latestCommandOrderSyncResult,
   );
@@ -170,6 +183,7 @@ export function CommandsPanel({
   const gridRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingOrderSyncRef = useRef<PendingOrderSync>();
+  const pendingCommandRunClearRef = useRef(new Map<string, PendingCommandRunClear>());
   const lastLoggedLayoutRef = useRef<string>();
   const lastLoggedOrderStateRef = useRef<string>();
   const { collapsibleStyle, contentRef } = useCollapsibleHeight<HTMLDivElement>();
@@ -243,7 +257,7 @@ export function CommandsPanel({
 
   const runOrConfigureCommand = (
     command: SidebarCommandButton,
-    runMode: SidebarCommandRunMode = "default",
+    runMode?: SidebarCommandRunMode,
   ) => {
     if (
       (command.actionType === "browser" && !command.url) ||
@@ -259,7 +273,8 @@ export function CommandsPanel({
 
     vscode.postMessage({
       commandId: command.commandId,
-      runMode,
+      runMode:
+        runMode ?? getSidebarCommandRunModeForClick(command, commandRunStates[command.commandId]),
       type: "runSidebarCommand",
     });
   };
@@ -282,9 +297,60 @@ export function CommandsPanel({
     () => () => {
       clearPendingOrderSync(pendingOrderSyncRef.current);
       pendingOrderSyncRef.current = undefined;
+      clearPendingCommandRunClears(pendingCommandRunClearRef.current);
     },
     [],
   );
+
+  useEffect(() => {
+    const pendingClears = pendingCommandRunClearRef.current;
+
+    for (const [commandId, pendingClear] of [...pendingClears.entries()]) {
+      const runState = commandRunStates[commandId];
+      const duration =
+        runState && runState.activeRunIds.length === 0
+          ? getSidebarCommandRunFeedbackDuration(runState.status)
+          : undefined;
+
+      if (!runState || duration === undefined || pendingClear.status !== runState.status) {
+        window.clearTimeout(pendingClear.timeoutId);
+        pendingClears.delete(commandId);
+      }
+    }
+
+    for (const [commandId, runState] of Object.entries(commandRunStates)) {
+      if (runState.activeRunIds.length > 0) {
+        continue;
+      }
+
+      const duration = getSidebarCommandRunFeedbackDuration(runState.status);
+      if (duration === undefined) {
+        continue;
+      }
+
+      const pendingClear = pendingClears.get(commandId);
+      if (pendingClear?.status === runState.status) {
+        continue;
+      }
+
+      if (pendingClear) {
+        window.clearTimeout(pendingClear.timeoutId);
+      }
+
+      pendingClears.set(commandId, {
+        status: runState.status,
+        timeoutId: window.setTimeout(() => {
+          const latestPendingClear = pendingCommandRunClearRef.current.get(commandId);
+          if (latestPendingClear?.status !== runState.status) {
+            return;
+          }
+
+          pendingCommandRunClearRef.current.delete(commandId);
+          clearCommandRunState(commandId);
+        }, duration),
+      });
+    }
+  }, [clearCommandRunState, commandRunStates]);
 
   useEffect(() => {
     const pendingOrderSync = pendingOrderSyncRef.current;
@@ -543,6 +609,11 @@ export function CommandsPanel({
                       {orderedCommands.map((command, index) => (
                         <SortableCommandButton
                           command={command}
+                          commandRunState={
+                            command.actionType === "terminal" && command.closeTerminalOnExit
+                              ? commandRunStates[command.commandId]
+                              : undefined
+                          }
                           index={index}
                           isContextMenuOpen={contextMenu?.command.commandId === command.commandId}
                           key={command.commandId}
@@ -687,6 +758,7 @@ export function CommandsPanel({
 
 type SortableCommandButtonProps = {
   command: SidebarCommandButton;
+  commandRunState: SidebarCommandRunFeedbackState | undefined;
   index: number;
   isContextMenuOpen: boolean;
   onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>) => void;
@@ -695,6 +767,7 @@ type SortableCommandButtonProps = {
 
 function SortableCommandButton({
   command,
+  commandRunState,
   index,
   isContextMenuOpen,
   onContextMenu,
@@ -702,11 +775,12 @@ function SortableCommandButton({
 }: SortableCommandButtonProps) {
   const trimmedName = command.name.trim();
   const isIconOnly = trimmedName.length === 0;
+  const runStatus = commandRunState?.status ?? "idle";
 
   const sortable = useSortable({
     accept: "sidebar-command",
     data: createCommandDragData(command.commandId),
-    disabled: isContextMenuOpen,
+    disabled: isContextMenuOpen || runStatus === "running",
     group: "sidebar-commands",
     id: command.commandId,
     index,
@@ -723,26 +797,35 @@ function SortableCommandButton({
         render={
           <button
             aria-label={
-              isConfigured(command)
-                ? runActionAriaLabel(command)
-                : `Configure ${getCommandSubject(command)}`
+              runStatus === "running"
+                ? getLoadingCommandButtonAriaLabel(command)
+                : isConfigured(command)
+                  ? runActionAriaLabel(command)
+                  : `Configure ${getCommandSubject(command)}`
             }
+            aria-busy={runStatus === "running"}
             className="command-button"
             data-configured={String(isConfigured(command))}
             data-default={String(command.isDefault)}
             data-dragging={String(Boolean(sortable.isDragging))}
             data-empty-space-blocking="true"
-            data-has-icon={String(command.icon !== undefined)}
+            data-has-icon={String(command.icon !== undefined || runStatus === "running")}
             data-icon-only={String(isIconOnly)}
+            data-loading={String(runStatus === "running")}
+            data-run-status={runStatus}
             data-sidebar-order-id={command.commandId}
             draggable={false}
-            onClick={onRun}
-            onContextMenu={onContextMenu}
+            onClick={runStatus === "running" ? undefined : onRun}
+            onContextMenu={runStatus === "running" ? undefined : onContextMenu}
             ref={setButtonRef}
             type="button"
           >
             <span aria-hidden="true" className="command-button-kind-badge">
-              <ActionButtonIcon command={command} />
+              {runStatus === "running" ? (
+                <IconLoader2 className="command-button-loading-icon" size={15} stroke={1.8} />
+              ) : (
+                <ActionButtonIcon command={command} />
+              )}
             </span>
             {trimmedName ? <span className="command-button-label">{trimmedName}</span> : null}
           </button>
@@ -750,7 +833,11 @@ function SortableCommandButton({
       />
       <Tooltip.Portal>
         <Tooltip.Positioner className="tooltip-positioner" sideOffset={8}>
-          <Tooltip.Popup className="tooltip-popup">{getActionTooltip(command)}</Tooltip.Popup>
+          <Tooltip.Popup className="tooltip-popup">
+            {runStatus === "running"
+              ? getLoadingCommandButtonTooltip(command)
+              : getActionTooltip(command)}
+          </Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>
@@ -850,6 +937,16 @@ function clearPendingOrderSync(pendingOrderSync: PendingOrderSync | undefined) {
   window.clearTimeout(pendingOrderSync.timeoutId);
 }
 
+function clearPendingCommandRunClears(
+  pendingCommandRunClears: Map<string, PendingCommandRunClear>,
+) {
+  for (const pendingClear of pendingCommandRunClears.values()) {
+    window.clearTimeout(pendingClear.timeoutId);
+  }
+
+  pendingCommandRunClears.clear();
+}
+
 function createReorderRequestId(): string {
   return `reorder-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -889,6 +986,18 @@ function getActionTooltip(command: SidebarCommandButton): string {
   return command.actionType === "browser"
     ? `${subject}: ${command.url}`
     : `${subject}: ${command.command}`;
+}
+
+function getLoadingCommandButtonAriaLabel(command: SidebarCommandButton): string {
+  return command.actionType === "browser"
+    ? `Opening ${getCommandSubject(command)}`
+    : `Running ${getCommandSubject(command)}`;
+}
+
+function getLoadingCommandButtonTooltip(command: SidebarCommandButton): string {
+  return command.actionType === "browser"
+    ? `Opening ${getCommandSubject(command)}...`
+    : `Running ${getCommandSubject(command)}...`;
 }
 
 function describeRenderedButtonLayout(gridElement: HTMLDivElement) {

@@ -9,6 +9,7 @@ import {
 } from "../shared/session-grid-contract";
 import type {
   SidebarCollapsibleSection,
+  SidebarCommandRunStateChangedMessage,
   SidebarDaemonSessionsStateMessage,
   SidebarHydrateMessage,
   SidebarHudState,
@@ -21,11 +22,17 @@ import type {
   SidebarSessionPresentationChangedMessage,
   SidebarSessionStateMessage,
 } from "../shared/session-grid-contract";
+import {
+  applySidebarCommandRunStateChangedMessage,
+  reconcileSidebarCommandRunFeedbackStates,
+  type SidebarCommandRunFeedbackState,
+} from "./command-run-feedback";
 
 export type SidebarGroupRecord = Omit<SidebarSessionGroup, "sessions">;
 
 type SidebarStoreDataState = {
   browserGroupIds: string[];
+  commandRunStates: Record<string, SidebarCommandRunFeedbackState>;
   daemonSessionsState: SidebarDaemonSessionsStateMessage | undefined;
   gitCommitDraft: SidebarPromptGitCommitMessage | undefined;
   groupOrder: string[];
@@ -45,10 +52,12 @@ type SidebarStoreDataState = {
 };
 
 type SidebarStoreActions = {
+  applyCommandRunStateMessage: (message: SidebarCommandRunStateChangedMessage) => void;
   applyOrderSyncResultMessage: (message: SidebarOrderSyncResultMessage) => void;
   applyLocalFocus: (groupId: string, sessionId: string) => void;
   applySessionPresentationMessage: (message: SidebarSessionPresentationChangedMessage) => void;
   applySidebarMessage: (message: SidebarHydrateMessage | SidebarSessionStateMessage) => void;
+  clearCommandRunState: (commandId: string) => void;
   reset: () => void;
   setDaemonSessionsState: (message: SidebarDaemonSessionsStateMessage | undefined) => void;
   setGitCommitDraft: (message: SidebarPromptGitCommitMessage | undefined) => void;
@@ -60,6 +69,7 @@ export type SidebarStoreState = SidebarStoreDataState & SidebarStoreActions;
 export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
   return {
     browserGroupIds: [],
+    commandRunStates: {},
     daemonSessionsState: undefined,
     gitCommitDraft: undefined,
     groupOrder: [],
@@ -106,6 +116,24 @@ export function createInitialSidebarStoreDataState(): SidebarStoreDataState {
 
 export const useSidebarStore = create<SidebarStoreState>((set) => ({
   ...createInitialSidebarStoreDataState(),
+  applyCommandRunStateMessage: (message) => {
+    set((state) => {
+      const nextCommandRunState = applySidebarCommandRunStateChangedMessage(
+        state.commandRunStates[message.commandId],
+        message,
+      );
+      if (state.commandRunStates[message.commandId] === nextCommandRunState) {
+        return state;
+      }
+
+      return {
+        commandRunStates: {
+          ...state.commandRunStates,
+          [message.commandId]: nextCommandRunState,
+        },
+      };
+    });
+  },
   applyOrderSyncResultMessage: (message) => {
     set({
       latestAgentOrderSyncResult: message.kind === "agent" ? message : undefined,
@@ -120,6 +148,19 @@ export const useSidebarStore = create<SidebarStoreState>((set) => ({
   },
   applySidebarMessage: (message) => {
     set((state) => applySidebarMessageState(state, message));
+  },
+  clearCommandRunState: (commandId) => {
+    set((state) => {
+      if (!(commandId in state.commandRunStates)) {
+        return state;
+      }
+
+      const nextCommandRunStates = { ...state.commandRunStates };
+      delete nextCommandRunStates[commandId];
+      return {
+        commandRunStates: nextCommandRunStates,
+      };
+    });
   },
   reset: () => {
     set(createInitialSidebarStoreDataState());
@@ -194,6 +235,10 @@ function applySidebarMessageState(
 
   return {
     browserGroupIds: normalizedGroups.browserGroupIds,
+    commandRunStates: reconcileSidebarCommandRunFeedbackStates(
+      state.commandRunStates,
+      message.hud.commands.map((command) => command.commandId),
+    ),
     groupOrder: normalizedGroups.groupOrder,
     groupsById: normalizedGroups.groupsById,
     hud: {

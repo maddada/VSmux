@@ -53,6 +53,38 @@ describe("sidebar store", () => {
     });
   });
 
+  test("should track and clear sidebar command run feedback", () => {
+    useSidebarStore.getState().applyCommandRunStateMessage({
+      commandId: "build",
+      runId: "run-build",
+      state: "running",
+      type: "sidebarCommandRunStateChanged",
+    });
+
+    let state = useSidebarStore.getState();
+    expect(state.commandRunStates.build).toEqual({
+      activeRunIds: ["run-build"],
+      status: "running",
+    });
+
+    useSidebarStore.getState().applyCommandRunStateMessage({
+      commandId: "build",
+      runId: "run-build",
+      state: "success",
+      type: "sidebarCommandRunStateChanged",
+    });
+
+    state = useSidebarStore.getState();
+    expect(state.commandRunStates.build).toEqual({
+      activeRunIds: [],
+      status: "success",
+    });
+
+    useSidebarStore.getState().clearCommandRunState("build");
+
+    expect(useSidebarStore.getState().commandRunStates.build).toBeUndefined();
+  });
+
   test("should update only the targeted session record on sessionPresentationChanged", () => {
     useSidebarStore
       .getState()
