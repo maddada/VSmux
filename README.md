@@ -57,7 +57,7 @@ This extension is for you if:
 - You don't want to be locked into a tool like conductor or superset or w/e.
 - You don't want to be missing out on the new features that are coming to the CLIs first.
 - You also love to be close to the code for some projects and review changes in your favorite editor (VS Code/Cursor/Antigravity/etc.)
-- Like to use VS Code to edit the md files and prompts (ctrl+g) before sending them to the agent cli.
+- You like editing prompts in a real VS Code modal instead of fighting tiny CLI input boxes. Press `Ctrl+G` to open the rich prompt editor, then press `Ctrl+G` again to save and close it back into the active session.
 
 Then this is the extension for you! You get a very nice interface to work with your agents without having to jump between the editor and the ADE tool.
 
@@ -71,6 +71,7 @@ Then this is the extension for you! You get a very nice interface to work with y
 | **Session Organization**  | Group and sort your workspace to keep it clutter-free                                 |
 | **Resume Sessions**       | Instantly reload past sessions to pick up exactly where you left off                  |
 | **Quick Launch**          | Quickly find and reopen closed sessions using just your keyboard                      |
+| **Rich Prompt Editor**    | Open a VS Code prompt editor with `Ctrl+G`, then press `Ctrl+G` again to save/close   |
 | **Session Forking**       | Branch off an active session into a new terminal without losing your original context |
 | **Sleep Mode**            | Suspend inactive sessions to free up memory and boost system performance              |
 | **Custom AI Profiles**    | Create and manage distinct profiles for different AI models and specific use cases    |
@@ -100,6 +101,8 @@ This exposes repository artifacts directly inside the Source Control UI, includi
 
 This lets you write your prompt inside your editor instead strugling with the annoying input box that these AI tools provide.
 No more [50 lines pasted] nonsense. Paste all the lines you want and even select parts of them and use inline AI to edit those.
+
+VSmux also supports its own rich prompt editor inside the workspace flow: press `Ctrl+G` to open the modal editor for the active prompt, and press `Ctrl+G` again to save and close it when you are ready to send.
 
 Gist on how to do this: https://gist.github.com/maddada/6eec96f4c8b467b81d69d291d4ac130e
 

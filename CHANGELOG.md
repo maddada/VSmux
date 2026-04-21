@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.6.0 - 2026-04-22
+
+- VSmux now has a richer prompt-editing flow in VS Code: you can pop open a dedicated prompt editor modal with `Ctrl+G`, work on longer prompts more comfortably, and press `Ctrl+G` again to save and close the editor back into the active session.
+- Sidebar and workspace restore behavior are steadier now, especially during startup and reconnect flows, and the empty sidebar area offers clearer actions when you want to create something new from a blank state.
+- Completion sounds are more customizable now, with several new built-in variants so it is easier to find a finish sound that fits your workflow.
+- Workspace-side debug and repro logs are handled more cleanly now: VSmux keeps those `.vsmux/` traces out of Git automatically and captures better restart diagnostics when daemon/runtime reuse goes wrong.
+
 ## 4.5.1 - 2026-04-20
 
 - Sidebar project headers can pick up macOS app icons from Xcode `AppIcon.appiconset` asset catalogs now, so native app workspaces show a much more recognizable icon instead of falling back to the generic placeholder.
