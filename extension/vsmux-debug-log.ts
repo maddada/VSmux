@@ -13,6 +13,7 @@ const DEBUG_EVENT_PREFIX_ALLOWLIST = [
   "sidebar.provider.",
   "sidebar.webview.",
   "workspace.webview.focus.",
+  "workspace.webview.wterm.",
   "workspace.webview.terminal.",
   "workspace.webview.workspace.sessionStatePaneSummary",
   "workspace.webview.workspace.terminalPresentationChanged",

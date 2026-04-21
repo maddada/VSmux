@@ -21,6 +21,7 @@ import {
   releaseCachedTerminalRuntime,
   type CachedTerminalRuntime,
 } from "./terminal-runtime-cache";
+import { WtermTerminalPane } from "./wterm-terminal-pane";
 import { XtermTerminalPane } from "./xterm-terminal-pane";
 import "./terminal-pane.css";
 
@@ -99,6 +100,26 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   if (pane.sessionRecord.terminalEngine === "xterm") {
     return (
       <XtermTerminalPane
+        autoFocusRequest={autoFocusRequest}
+        connection={connection}
+        debugLog={debugLog}
+        debuggingMode={debuggingMode}
+        isFocused={isFocused}
+        isVisible={isVisible}
+        onAttentionInteraction={onAttentionInteraction}
+        onActivate={onActivate}
+        onTerminalEnter={onTerminalEnter}
+        pane={pane}
+        refreshRequestId={refreshRequestId}
+        scrollToBottomRequestId={scrollToBottomRequestId}
+        terminalAppearance={terminalAppearance}
+      />
+    );
+  }
+
+  if (pane.sessionRecord.terminalEngine === "wterm") {
+    return (
+      <WtermTerminalPane
         autoFocusRequest={autoFocusRequest}
         connection={connection}
         debugLog={debugLog}

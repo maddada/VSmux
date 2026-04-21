@@ -286,7 +286,11 @@ export function createSessionRecord(
 }
 
 export function normalizeTerminalEngine(value: string | undefined): TerminalEngine {
-  return value === "xterm" ? "xterm" : DEFAULT_TERMINAL_ENGINE;
+  if (value === "xterm" || value === "wterm") {
+    return value;
+  }
+
+  return DEFAULT_TERMINAL_ENGINE;
 }
 
 export function getTerminalSessionSurfaceTitle(

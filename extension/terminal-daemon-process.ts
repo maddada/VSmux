@@ -45,6 +45,8 @@ import {
   normalizeTerminalEngine,
   type TerminalEngine,
 } from "../shared/session-grid-contract";
+import { createWtermRestorePayload } from "../shared/wterm-session-restore";
+import { WasmBridge } from "../shared/wterm-vendor-core";
 import type {
   TerminalHostAcknowledgeAttentionRequest,
   TerminalHostConfigureRequest,
@@ -86,6 +88,7 @@ type ManagedSession = {
   titleActivity?: TitleDerivedSessionActivity;
   titleActivityTimer?: NodeJS.Timeout;
   titleCarryover: string;
+  wtermBridge?: WasmBridge;
   pty: PtyProcess;
   rows: number;
   sessionId: string;
@@ -400,7 +403,7 @@ async function handleCreateOrAttachRequest(
   const session =
     existingSession && existingSession.snapshot.status !== "exited"
       ? existingSession
-      : createSession(request);
+      : await createSession(request);
 
   if (session.cols !== request.cols || session.rows !== request.rows) {
     resizeSession(session, request.cols, request.rows);
@@ -494,7 +497,7 @@ async function handleAcknowledgeAttentionRequest(
   socket.send(JSON.stringify({ type: "response", ok: true, requestId: request.sessionId }));
 }
 
-function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSession {
+async function createSession(request: TerminalHostCreateOrAttachRequest): Promise<ManagedSession> {
   const sessionKey = createTerminalDaemonSessionKey(request.workspaceId, request.sessionId);
   const terminalEngine = normalizeTerminalEngine(request.terminalEngine);
   const environment = createPtyEnvironment(
@@ -559,6 +562,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     request.rows,
     request.xtermHeadlessScrollback,
   );
+  const wtermBridge = await createWtermBridge(terminalEngine, request.cols, request.rows);
 
   const session: ManagedSession = {
     cols: request.cols,
@@ -591,6 +595,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     },
     terminalEngine,
     titleCarryover: "",
+    wtermBridge,
     workspaceId: request.workspaceId,
     leaseExpiresAt: undefined,
   };
@@ -600,6 +605,9 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     const chunkStartCursor = session.historyBuffer.bytesWritten;
     if (isXtermSession(session)) {
       session.headlessTerminal?.write(outputBuffer);
+    }
+    if (isWtermSession(session)) {
+      session.wtermBridge?.writeRaw(outputBuffer);
     }
     session.historyBuffer.write(outputBuffer);
     const chunkEndCursor = session.historyBuffer.bytesWritten;
@@ -646,6 +654,9 @@ function resizeSession(session: ManagedSession, cols: number, rows: number): voi
   };
   if (isXtermSession(session)) {
     session.headlessTerminal?.resize(cols, rows);
+  }
+  if (isWtermSession(session)) {
+    session.wtermBridge?.resize(cols, rows);
   }
   session.pty.resize(cols, rows);
 }
@@ -1587,9 +1598,17 @@ function isXtermSession(session: ManagedSession): boolean {
   return session.terminalEngine === "xterm";
 }
 
+function isWtermSession(session: ManagedSession): boolean {
+  return session.terminalEngine === "wterm";
+}
+
 function serializeSessionHistory(session: ManagedSession): string {
   if (isXtermSession(session)) {
     return session.serializeAddon?.serialize() ?? "";
+  }
+
+  if (isWtermSession(session)) {
+    return session.wtermBridge ? createWtermRestorePayload(session.wtermBridge) : "";
   }
 
   return serializeTerminalReplayHistory(session.historyBuffer);
@@ -1599,7 +1618,7 @@ function createSessionReplayPayloads(
   session: ManagedSession,
   pendingAttachQueue: PendingAttachQueue,
 ): Buffer[] {
-  if (!isXtermSession(session)) {
+  if (!isXtermSession(session) && !isWtermSession(session)) {
     return createTerminalReplayChunks(
       session.historyBuffer,
       pendingAttachQueue.replayCursor,
@@ -1609,6 +1628,20 @@ function createSessionReplayPayloads(
 
   const serializedState = serializeSessionHistory(session);
   return serializedState.length > 0 ? [Buffer.from(serializedState, "utf8")] : [];
+}
+
+async function createWtermBridge(
+  terminalEngine: TerminalEngine,
+  cols: number,
+  rows: number,
+): Promise<WasmBridge | undefined> {
+  if (terminalEngine !== "wterm") {
+    return undefined;
+  }
+
+  const bridge = await WasmBridge.load();
+  bridge.init(cols, rows);
+  return bridge;
 }
 
 function clampXtermHeadlessScrollback(value: number): number {

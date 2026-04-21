@@ -201,6 +201,7 @@ import {
 } from "../sidebar-active-sessions-sort-preferences";
 import { appendT3CloseSessionReproLog } from "../t3-close-session-repro-log";
 import { appendT3ThreadBindingReproLog } from "../t3-thread-binding-repro-log";
+import { appendWtermWorkspaceDebugLog } from "../wterm-workspace-debug-log";
 import {
   COMPLETION_BELL_ENABLED_KEY,
   PRIMARY_SESSIONS_CONTAINER_ID,
@@ -514,6 +515,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         if (message.type === "workspaceDebugLog") {
           const event = `workspace.webview.${message.event}`;
           logVSmuxDebug(event, message.details);
+          this.logWtermWorkspaceDebug(event, message.details);
           if (message.event.startsWith("repro.")) {
             logVSmuxReproTrace(event, message.details);
           }
@@ -2698,6 +2700,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     if (shouldLogThreadBindingRepro) {
       void appendT3ThreadBindingReproLog(getDefaultWorkspaceCwd(), event, details);
     }
+  }
+
+  private logWtermWorkspaceDebug(event: string, details?: unknown): void {
+    if (!getDebuggingMode()) {
+      return;
+    }
+    if (!event.startsWith("workspace.webview.wterm.")) {
+      return;
+    }
+
+    void appendWtermWorkspaceDebugLog(getDefaultWorkspaceCwd(), event, details);
   }
 
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {

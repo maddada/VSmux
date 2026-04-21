@@ -24,6 +24,7 @@
     "out/debug-panel/**/*.css",
     "out/debug-panel/**/*.html",
     "out/debug-panel/**/*.js",
+    "out/.vendor/**/*.js",
     "out/extension/**/*.js",
     "out/extension/**/*.json",
     "out/extension/**/*.mjs",
@@ -46,10 +47,10 @@
   ],
   "main": "./out/extension/extension.js",
   "scripts": {
-    "build:extension": "pnpm exec concurrently --kill-others-on-fail --prefix none \"pnpm run t3:embed:build\" \"pnpm run sidebar:build\" \"pnpm run debug-panel:build\" \"pnpm run workspace:build\" \"pnpm run chat-history:webview:build\" && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
-    "build:extension:rollback": "pnpm exec concurrently --kill-others-on-fail --prefix none \"pnpm run t3:embed:build:rollback\" \"pnpm run sidebar:build\" \"pnpm run debug-panel:build\" \"pnpm run workspace:build\" \"pnpm run chat-history:webview:build\" && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
-    "build:extension:original": "pnpm run t3:embed:build && pnpm run sidebar:build && pnpm run debug-panel:build && pnpm run workspace:build && pnpm run chat-history:webview:build && tsc -p ./tsconfig.extension.json && node ./scripts/vendor-runtime-deps.mjs",
-    "build:extension:minimal": "pnpm run sidebar:build && pnpm run workspace:build",
+    "build:extension": "node ./scripts/build-extension.mjs",
+    "build:extension:rollback": "node ./scripts/build-extension.mjs --rollback",
+    "build:extension:original": "node ./scripts/build-extension.mjs --serial",
+    "build:extension:minimal": "node ./scripts/build-extension.mjs --minimal",
     "vscode:prepublish": "node ./scripts/vscode-prepublish.mjs",
     "sidebar:build": "node ./scripts/vp.mjs build --config vite.sidebar.config.ts",
     "debug-panel:build": "node ./scripts/vp.mjs build --config vite.debug-panel.config.ts",
@@ -580,17 +581,20 @@
           "default": "xterm",
           "enum": [
             "ghostty",
+            "wterm",
             "xterm"
           ],
           "enumItemLabels": [
             "Ghostty (Beta)",
+            "wterm (Beta)",
             "xterm.js"
           ],
           "enumDescriptions": [
             "Nearly stable, but Codex terminal reloads can still hit bugs. If that happens, use the refresh button.",
+            "Fast screen restore via daemon-side snapshots. Still beta while we harden reconnect behavior.",
             "Stable and the default. Recommended for everyday use."
           ],
-          "description": "Choose the default engine for new VSmux terminal sessions. xterm.js is the stable default; Ghostty is still beta and may occasionally need a refresh after reloads."
+          "description": "Choose the default engine for new VSmux terminal sessions. xterm.js is the stable default; wterm and Ghostty are still beta while their reconnect behavior continues to harden."
         },
         "VSmux.xtermHeadlessScrollback": {
           "title": "xterm.js Reconnect Scrollback",
