@@ -255,7 +255,7 @@ function PinnedPromptEditorModal({ draft, isOpen, onClose, onSave }: PinnedPromp
               <span className="command-config-label">Title</span>
               <input
                 aria-label="Pinned prompt title"
-                className="group-title-input command-config-input"
+                className="command-config-input pinned-prompt-editor-title-input"
                 onChange={(event) => {
                   setDraftTitle(event.target.value);
                 }}

@@ -685,8 +685,39 @@
   gap: 12px;
 }
 
+.pinned-prompt-editor-title-input {
+  background: color-mix(in srgb, var(--app-card-active) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-button-background) 32%, var(--app-border));
+  border-radius: 14px;
+  color: inherit;
+  font-family: var(
+    --vscode-editor-font-family,
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace
+  );
+  font-size: var(--vscode-editor-font-size, 12px);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.55;
+  outline: none;
+  padding: 12px 13px;
+}
+
+.pinned-prompt-editor-title-input:focus {
+  border-color: color-mix(in srgb, var(--app-button-background) 68%, var(--app-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-button-background) 22%, transparent);
+}
+
+.pinned-prompt-editor-title-input::placeholder {
+  color: color-mix(in srgb, var(--app-muted) 88%, transparent);
+}
+
 .pinned-prompt-editor-textarea {
-  min-height: 450px;
+  height: max(400px, 100%);
+  min-height: 400px;
 }
 
 .pinned-prompts-list {
