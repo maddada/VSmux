@@ -7,12 +7,24 @@ import { DebuggingStatusIndicator } from "./debugging-status-indicator";
 import { NativeTerminalWorkspaceController, SESSIONS_VIEW_ID } from "./native-terminal-workspace";
 import { initializeSharedWorkspaceAppearancePreferences } from "./shared-workspace-appearance-preferences";
 import { runStaleVsmuxProcessJanitor } from "./stale-process-janitor";
+import { appendTerminalRestartReproLog } from "./terminal-restart-repro-log";
+import { getWorkspaceId } from "./terminal-workspace-environment";
 import { initializeVSmuxDebugLog } from "./vsmux-debug-log";
-import { closeWorkspacePanelTabs } from "./workspace-panel";
+import {
+  registerModalPromptEditorInterceptor,
+  saveAndCloseActivePromptTempModalEditor,
+} from "./modal-prompt-editor-interceptor";
 
 let activeWorkspaceController: NativeTerminalWorkspaceController | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceId = getWorkspaceId();
+  void appendTerminalRestartReproLog(workspaceRoot, "extension.activate.start", {
+    extensionHostPid: process.pid,
+    extensionVersion: context.extension.packageJSON.version,
+    workspaceFolderCount: vscode.workspace.workspaceFolders?.length ?? 0,
+  });
   initializeVSmuxDebugLog(context);
   activateChatHistory(context);
   initializeSharedWorkspaceAppearancePreferences(context);
@@ -29,8 +41,15 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     workspace,
     debuggingStatusIndicator,
+    registerModalPromptEditorInterceptor(),
     vscode.window.registerWebviewViewProvider(SESSIONS_VIEW_ID, workspace.sidebarProvider),
     registerCommand("VSmux.openWorkspace", () => workspace.openWorkspace()),
+    registerCommand("VSmux.saveAndClosePromptTempModal", () =>
+      saveAndCloseActivePromptTempModalEditor(),
+    ),
+    registerCommand("VSmux.revealWorkspaceInBackground", () =>
+      workspace.revealWorkspaceInBackground(),
+    ),
     registerCommand("VSmux.openSettings", () => workspace.openSettings()),
     registerCommand("VSmux.moveToSecondarySidebar", () =>
       workspace.moveSidebarToSecondarySidebar(),
@@ -69,11 +88,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   void (async () => {
     try {
-      await runStaleVsmuxProcessJanitor(context);
-      await closeWorkspacePanelTabs();
+      await runStaleVsmuxProcessJanitor(context, workspaceId, workspaceRoot);
       await workspace.initialize();
       await maybeAutoOpenSidebarViewsOnStartup(workspace);
+      await appendTerminalRestartReproLog(workspaceRoot, "extension.activate.complete", {
+        extensionHostPid: process.pid,
+        extensionVersion: context.extension.packageJSON.version,
+      });
     } catch (error) {
+      await appendTerminalRestartReproLog(workspaceRoot, "extension.activate.failed", {
+        error: getErrorMessage(error),
+        extensionHostPid: process.pid,
+      });
       void vscode.window.showErrorMessage(getErrorMessage(error));
     }
   })();
@@ -83,11 +109,19 @@ export async function deactivate(): Promise<void> {
   const workspace = activeWorkspaceController;
   activeWorkspaceController = undefined;
   setChatHistoryVSmuxTarget(undefined);
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  await appendTerminalRestartReproLog(workspaceRoot, "extension.deactivate.start", {
+    extensionHostPid: process.pid,
+    hasWorkspaceController: workspace !== undefined,
+  });
   if (!workspace) {
     return;
   }
 
   await workspace.releaseForDeactivation().catch(() => undefined);
+  await appendTerminalRestartReproLog(workspaceRoot, "extension.deactivate.complete", {
+    extensionHostPid: process.pid,
+  });
 }
 
 function registerCommand(command: string, callback: () => Promise<void> | void): vscode.Disposable {

@@ -34,7 +34,7 @@ type WelcomePageActionButton = {
 };
 
 type WelcomePageAction = {
-  buttons: WelcomePageActionButton[];
+  buttons?: WelcomePageActionButton[];
   description: string;
   eyebrow: string;
   snippet?: string[];
@@ -132,6 +132,37 @@ const WELCOME_PAGES: WelcomePage[] = [
     title: "Tips & Tricks",
   },
   {
+    action: {
+      description:
+        "You can ask your agent to make VS Code your default editor for Codex, Claude, and similar CLIs by updating your shell config for you.",
+      eyebrow: "Default Editor",
+      snippet: [
+        "# zsh (~/.zshrc)",
+        "# Editor setup",
+        "if [[ -n $SSH_CONNECTION ]]; then",
+        "    export EDITOR='fresh'",
+        "else",
+        "    export EDITOR='code --wait'",
+        "fi",
+        "",
+        "# Windows agent prompt (PowerShell)",
+        "Please update my PowerShell profile so VS Code is my default editor for Claude, Codex, and similar CLI tools.",
+        "If I am in an SSH session, set $env:EDITOR to 'fresh'. Otherwise set it to 'code --wait'.",
+        "Create the PowerShell profile file if it does not exist, and add the config safely without removing my existing profile settings.",
+      ],
+    },
+    bullets: [
+      "On macOS or Linux, add the zsh snippet below to your ~/.zshrc to make VS Code the default editor locally while still using fresh over SSH.",
+      "On Windows, the easiest path is to paste the PowerShell prompt below into your agent and let it update your PowerShell profile for you.",
+      "Inside VSmux terminals, you can press Ctrl+G in Claude Code, Codex CLI, and similar tools to open a small prompt editor modal instead of typing in the terminal.",
+      "When that prompt modal is open, press Ctrl+G again to save the prompt, close the modal, and return to the terminal.",
+      "After changing your shell config, open a new terminal session so Codex, Claude, and other CLI tools pick up the updated EDITOR value.",
+    ],
+    icon: IconTerminal2,
+    kicker: "Page 7",
+    title: "Default Editor",
+  },
+  {
     bullets: [
       "VSmux works especially well with Agent Manager X: github.com/maddada/agent-manager-x",
       "It lets you keep an always-visible view of your running agent sessions at the side of your screen across all projects.",
@@ -139,7 +170,7 @@ const WELCOME_PAGES: WelcomePage[] = [
       "macOS only but help is welcome for porting Agent Manager X to Windows and Linux.",
     ],
     icon: IconLayoutSidebarRight,
-    kicker: "Page 7",
+    kicker: "Page 8",
     title: "Agent Manager X",
   },
   {
@@ -150,7 +181,7 @@ const WELCOME_PAGES: WelcomePage[] = [
       "If you want to help VSmux grow, even small fixes, bug reports, and agent integrations make a real difference.",
     ],
     icon: IconBrandGithub,
-    kicker: "Page 8",
+    kicker: "Page 9",
     title: "Contribute",
   },
 ];
@@ -242,22 +273,24 @@ export function WorkspaceWelcomeModal({
                   </pre>
                 </div>
               ) : null}
-              <div className="workspace-welcome-callout-actions">
-                {page.action.buttons.map((button) => (
-                  <button
-                    className="workspace-welcome-button workspace-welcome-button-primary workspace-welcome-callout-button"
-                    key={button.buttonLabel}
-                    onClick={
-                      button.onClick === "terminalTitle"
-                        ? onApplyCodexTerminalTitle
-                        : onApplyCodexStatusLine
-                    }
-                    type="button"
-                  >
-                    {button.buttonLabel}
-                  </button>
-                ))}
-              </div>
+              {page.action.buttons?.length ? (
+                <div className="workspace-welcome-callout-actions">
+                  {page.action.buttons.map((button) => (
+                    <button
+                      className="workspace-welcome-button workspace-welcome-button-primary workspace-welcome-callout-button"
+                      key={button.buttonLabel}
+                      onClick={
+                        button.onClick === "terminalTitle"
+                          ? onApplyCodexTerminalTitle
+                          : onApplyCodexStatusLine
+                      }
+                      type="button"
+                    >
+                      {button.buttonLabel}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {confirmationMessage ? (
                 <div className="workspace-welcome-callout-confirmation">
                   <IconCheck aria-hidden="true" size={14} stroke={2.2} />

@@ -148,6 +148,11 @@
         "category": "VSmux"
       },
       {
+        "command": "VSmux.saveAndClosePromptTempModal",
+        "title": "Save And Close Prompt Temp Modal",
+        "category": "VSmux"
+      },
+      {
         "command": "VSmux.createSession",
         "title": "New Session",
         "category": "VSmux"
@@ -625,6 +630,12 @@
           "default": false,
           "description": "Show debugging UI such as the active terminal backend indicator in the status bar."
         },
+        "VSmux.openPromptTempFilesInModalEditor": {
+          "title": "Open Prompt Temp Files In Modal Editor",
+          "type": "boolean",
+          "default": true,
+          "description": "Open supported Codex and Claude temporary prompt markdown files in a VS Code modal editor and reveal VSmux behind the popup. Disable this to keep the default editor behavior."
+        },
         "VSmux.showCloseButtonOnSessionCards": {
           "title": "Show Close Button On Session Cards",
           "type": "boolean",
@@ -661,6 +672,13 @@
           "default": true,
           "description": "Show the Browsers section in the VSmux sidebar when browser tabs are detected."
         },
+        "VSmux.defaultBrowserLaunchUrl": {
+          "title": "Default Browser Launch Url",
+          "type": "string",
+          "scope": "application",
+          "default": "https://www.google.com",
+          "description": "URL opened by the Browsers group + button when this workspace has no browser actions configured. If browser actions exist, the first browser action URL is used instead."
+        },
         "VSmux.showSidebarGitButton": {
           "title": "Show Sidebar Git Button",
           "type": "boolean",
@@ -680,29 +698,61 @@
           "default": true,
           "description": "Share non-global sidebar actions between Git worktrees that belong to the same repository. Global actions still appear in every project."
         },
+        "VSmux.sendRenameCommandOnSidebarRename": {
+          "title": "Send Rename Command On Sidebar Rename",
+          "type": "boolean",
+          "default": true,
+          "description": "When renaming a session from the sidebar, also stage `/rename <new name>` in that terminal and focus it without pressing Enter."
+        },
+        "VSmux.createSessionOnSidebarDoubleClick": {
+          "title": "Create Session On Sidebar Double Click",
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, double-clicking empty space in the VSmux sidebar creates a new terminal session."
+        },
+        "VSmux.renameSessionOnDoubleClick": {
+          "title": "Rename Session On Double Click",
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, double-clicking a terminal session card in the VSmux sidebar opens rename."
+        },
         "VSmux.completionSound": {
           "title": "Completion Sound",
           "type": "string",
           "default": "arcade",
           "enum": [
-            "arcade",
-            "codecompleteafrican",
-            "codecompleteafrobeat",
-            "codecompleteedm",
-            "comebacktothecode",
-            "glass",
             "ping",
-            "shamisen"
+            "pingdouble",
+            "glass",
+            "glimmer",
+            "shamisen",
+            "shamisenreverb",
+            "arcade",
+            "arcadeboost",
+            "codecompleteafrican",
+            "africanspark",
+            "codecompleteafrobeat",
+            "afrobeatbounce",
+            "codecompleteedm",
+            "edmspark",
+            "comebacktothecode"
           ],
           "enumItemLabels": [
-            "Arcade",
-            "African Code Complete",
-            "Afrobeat Code Complete",
-            "EDM Code Complete",
-            "Come Back To The Code",
-            "Glass",
             "Ping",
-            "Shamisen"
+            "Ping Double",
+            "Glass",
+            "Glimmer",
+            "Shamisen",
+            "Shamisen Reverb",
+            "Arcade",
+            "Arcade Boost",
+            "African Code Complete",
+            "African Spark",
+            "Afrobeat Code Complete",
+            "Afrobeat Bounce",
+            "EDM Code Complete",
+            "EDM Spark",
+            "Come Back To The Code"
           ],
           "description": "Sound played when an agent finishes and the per-project bell is enabled in the VSmux sidebar."
         },
@@ -711,33 +761,40 @@
           "type": "string",
           "default": "ping",
           "enum": [
-            "arcade",
-            "codecompleteafrican",
-            "codecompleteafrobeat",
-            "codecompleteedm",
-            "comebacktothecode",
-            "glass",
             "ping",
-            "shamisen"
+            "pingdouble",
+            "glass",
+            "glimmer",
+            "shamisen",
+            "shamisenreverb",
+            "arcade",
+            "arcadeboost",
+            "codecompleteafrican",
+            "africanspark",
+            "codecompleteafrobeat",
+            "afrobeatbounce",
+            "codecompleteedm",
+            "edmspark",
+            "comebacktothecode"
           ],
           "enumItemLabels": [
-            "Arcade",
-            "African Code Complete",
-            "Afrobeat Code Complete",
-            "EDM Code Complete",
-            "Come Back To The Code",
-            "Glass",
             "Ping",
-            "Shamisen"
+            "Ping Double",
+            "Glass",
+            "Glimmer",
+            "Shamisen",
+            "Shamisen Reverb",
+            "Arcade",
+            "Arcade Boost",
+            "African Code Complete",
+            "African Spark",
+            "Afrobeat Code Complete",
+            "Afrobeat Bounce",
+            "EDM Code Complete",
+            "EDM Spark",
+            "Come Back To The Code"
           ],
           "description": "Sound played when a sidebar terminal action finishes, closes itself, and has sound playback enabled in its action configuration."
-        },
-        "VSmux.defaultBrowserLaunchUrl": {
-          "title": "Default Browser Launch Url",
-          "type": "string",
-          "scope": "application",
-          "default": "https://www.google.com",
-          "description": "URL opened by the Browsers group + button when this workspace has no browser actions configured. If browser actions exist, the first browser action URL is used instead."
         },
         "VSmux.agents": {
           "title": "Agents",
@@ -883,24 +940,6 @@
             "type": "string"
           },
           "description": "Internal ordering metadata for agent buttons in the VSmux sidebar."
-        },
-        "VSmux.sendRenameCommandOnSidebarRename": {
-          "title": "Send Rename Command On Sidebar Rename",
-          "type": "boolean",
-          "default": true,
-          "description": "When renaming a session from the sidebar, also stage `/rename <new name>` in that terminal and focus it without pressing Enter."
-        },
-        "VSmux.createSessionOnSidebarDoubleClick": {
-          "title": "Create Session On Sidebar Double Click",
-          "type": "boolean",
-          "default": false,
-          "description": "When enabled, double-clicking empty space in the VSmux sidebar creates a new terminal session."
-        },
-        "VSmux.renameSessionOnDoubleClick": {
-          "title": "Rename Session On Double Click",
-          "type": "boolean",
-          "default": false,
-          "description": "When enabled, double-clicking a terminal session card in the VSmux sidebar opens rename."
         }
       }
     },
@@ -916,6 +955,12 @@
         "key": "ctrl+alt+,",
         "mac": "cmd+alt+,",
         "when": "!inputFocus || terminalFocus || vsmux.workspacePanelFocus"
+      },
+      {
+        "command": "VSmux.saveAndClosePromptTempModal",
+        "key": "ctrl+g",
+        "mac": "ctrl+g",
+        "when": "editorPartModal && editorTextFocus && resourceScheme == file && resourceFilename =~ /^(claude-prompt-.*|\\\\.tmp.*)\\\\.md$/"
       },
       {
         "command": "VSmux.moveToSecondarySidebar",
