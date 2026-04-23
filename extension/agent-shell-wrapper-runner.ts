@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { appendAgentShellDebugLog } from "./agent-shell-debug-log";
 import { detectCodexLifecycleEventFromLogLine } from "./agent-shell-integration";
+import { ensureClaudeHooksFile } from "./claude-hooks-config";
 import { ensureCodexHooksFile } from "./codex-hooks-config";
 import {
   updatePersistedSessionStateFile,
@@ -50,6 +51,18 @@ async function main(): Promise<void> {
     case "claude":
       delete environment.ELECTRON_RUN_AS_NODE;
       await writeInitialSessionState("claude", "Claude Code");
+      try {
+        const hooksResult = await ensureClaudeHooksFile(
+          resolveClaudeNotifyCommandPath(options.claudeSettingsPath),
+          environment,
+        );
+        await appendAgentShellDebugLog("wrapper.claude.hooksReady", {
+          changed: hooksResult.changed,
+          settingsPath: hooksResult.settingsPath,
+        });
+      } catch (error) {
+        await appendAgentShellDebugLog("wrapper.claude.hooksFailed", serializeUnknownError(error));
+      }
       args.unshift("--settings", options.claudeSettingsPath);
       break;
     case "codex": {
@@ -236,6 +249,13 @@ async function writeInitialSessionState(agent: AgentName, title: string): Promis
     lastActivityAt: new Date().toISOString(),
     title,
   }).catch(() => undefined);
+}
+
+function resolveClaudeNotifyCommandPath(claudeSettingsPath: string): string {
+  return path.join(
+    path.dirname(claudeSettingsPath),
+    process.platform === "win32" ? "notify.cmd" : "notify.sh",
+  );
 }
 
 function startCodexWatcher(

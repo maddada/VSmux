@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
+  explainFirstPromptAutoRenameDecision,
   isGenericAgentSessionTitle,
   resolveFirstPromptAutoRenameStrategy,
   shouldAutoNameSessionFromFirstPrompt,
@@ -131,5 +132,37 @@ describe("resolveFirstPromptAutoRenameStrategy", () => {
 
   test("skips unsupported agents", () => {
     expect(resolveFirstPromptAutoRenameStrategy("gemini")).toBeUndefined();
+  });
+});
+
+describe("explainFirstPromptAutoRenameDecision", () => {
+  test("explains when Claude is skipped because the current title is already non-generic", () => {
+    expect(
+      explainFirstPromptAutoRenameDecision({
+        agentName: "claude",
+        currentTitle: "Review terminal title syncing",
+        prompt: "How does terminal title syncing work here?",
+      }),
+    ).toEqual({
+      normalizedPrompt: "terminal title syncing work here",
+      reason: "nonGenericCurrentTitle",
+      shouldAutoName: false,
+      strategy: "sendBareRenameCommand",
+    });
+  });
+
+  test("explains when Claude is eligible from the first prompt hook", () => {
+    expect(
+      explainFirstPromptAutoRenameDecision({
+        agentName: "claude",
+        currentTitle: "Claude Code",
+        prompt: "How does terminal title syncing work here?",
+      }),
+    ).toEqual({
+      normalizedPrompt: "terminal title syncing work here",
+      reason: "eligible",
+      shouldAutoName: true,
+      strategy: "sendBareRenameCommand",
+    });
   });
 });

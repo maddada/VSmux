@@ -1,5 +1,7 @@
 import { appendAgentShellDebugLog } from "./agent-shell-debug-log";
-import { shouldAutoNameSessionFromFirstPrompt } from "./first-prompt-session-title";
+import { appendClaudeFirstMessageRenameReproLog } from "./claude-first-message-rename-repro-log";
+import { getDaemonSafeDebuggingMode } from "./daemon-debugging-mode";
+import { explainFirstPromptAutoRenameDecision } from "./first-prompt-session-title";
 import {
   createPersistedSessionHookDedupMarker,
   readPersistedSessionStateFromFile,
@@ -26,6 +28,13 @@ async function main(): Promise<void> {
   const hookInfo = getAgentHookInfo(input);
   const hookClaimResult = await claimAgentHookInvocation(hookInfo);
   if (hookClaimResult === "duplicate") {
+    if (isClaudeFirstPromptSubmit(hookInfo)) {
+      await appendClaudeFirstMessageRenameHookLog("hook.duplicateSkipped", {
+        rawEventName: hookInfo.rawEventName,
+        sessionId: hookInfo.sessionId,
+        turnId: hookInfo.turnId,
+      });
+    }
     await appendAgentShellDebugLog("notify.duplicateSkipped", {
       agentName: hookInfo.agentName,
       rawEventName: hookInfo.rawEventName,
@@ -45,6 +54,15 @@ async function main(): Promise<void> {
     rawEventName: hookInfo.rawEventName,
     turnId: hookInfo.turnId,
   });
+  if (isClaudeFirstPromptSubmit(hookInfo)) {
+    await appendClaudeFirstMessageRenameHookLog("hook.received", {
+      normalizedEvent: hookInfo.normalizedEvent,
+      promptPreview: getPromptPreview(hookInfo.prompt),
+      rawEventName: hookInfo.rawEventName,
+      sessionId: hookInfo.sessionId,
+      turnId: hookInfo.turnId,
+    });
+  }
   const sessionUpdate = await writeSessionState(hookInfo);
   await appendAgentShellDebugLog("notify.stateWritten", sessionUpdate);
 
@@ -200,13 +218,13 @@ export function resolvePersistedSessionStateForHook(
 
   if (
     hookInfo.rawEventName === USER_PROMPT_SUBMIT_EVENT_NAME &&
-    shouldAutoNameSessionFromFirstPrompt({
+    explainFirstPromptAutoRenameDecision({
       agentName: nextState.agentName,
       currentTitle: currentState.title,
       hasAutoTitleFromFirstPrompt: currentState.hasAutoTitleFromFirstPrompt,
       pendingFirstPromptAutoRenamePrompt: currentState.pendingFirstPromptAutoRenamePrompt,
       prompt: hookInfo.prompt,
-    })
+    }).shouldAutoName
   ) {
     nextState.pendingFirstPromptAutoRenamePrompt = hookInfo.prompt?.trim();
   }
@@ -235,8 +253,38 @@ async function writeSessionState(hookInfo: AgentHookInfo): Promise<Record<string
   }
 
   const currentState = await readPersistedSessionStateFromFile(stateFilePath);
+  const ignoredForDifferentSession = shouldIgnorePromptSubmitForDifferentSession(
+    currentState,
+    hookInfo,
+  );
+  const firstPromptDecision =
+    isClaudeFirstPromptSubmit(hookInfo) && !ignoredForDifferentSession
+      ? explainFirstPromptAutoRenameDecision({
+          agentName: hookInfo.agentName || currentState.agentName,
+          currentTitle: currentState.title,
+          hasAutoTitleFromFirstPrompt: currentState.hasAutoTitleFromFirstPrompt,
+          pendingFirstPromptAutoRenamePrompt: currentState.pendingFirstPromptAutoRenamePrompt,
+          prompt: hookInfo.prompt,
+        })
+      : undefined;
   const nextState = resolvePersistedSessionStateForHook(currentState, hookInfo);
   await writePersistedSessionStateToFile(stateFilePath, nextState);
+  if (isClaudeFirstPromptSubmit(hookInfo)) {
+    await appendClaudeFirstMessageRenameHookLog("hook.promptSubmitDecision", {
+      currentStateAgentSessionId: currentState.agentSessionId,
+      currentTitle: currentState.title,
+      decision: firstPromptDecision,
+      hasAutoTitleAfter: nextState.hasAutoTitleFromFirstPrompt === true,
+      hasAutoTitleBefore: currentState.hasAutoTitleFromFirstPrompt === true,
+      hookSessionId: hookInfo.sessionId,
+      ignoredForDifferentSession,
+      pendingAfter: nextState.pendingFirstPromptAutoRenamePrompt,
+      pendingBefore: currentState.pendingFirstPromptAutoRenamePrompt,
+      promptPreview: getPromptPreview(hookInfo.prompt),
+      sessionStateFile: stateFilePath,
+      turnId: hookInfo.turnId,
+    });
+  }
   return {
     after: summarizePersistedSessionState(nextState),
     autoNamedFromFirstPrompt:
@@ -244,6 +292,25 @@ async function writeSessionState(hookInfo: AgentHookInfo): Promise<Record<string
     before: summarizePersistedSessionState(currentState),
     stateFilePath,
   };
+}
+
+async function appendClaudeFirstMessageRenameHookLog(
+  event: string,
+  details?: unknown,
+): Promise<void> {
+  await appendClaudeFirstMessageRenameReproLog({
+    details,
+    enabled: getDaemonSafeDebuggingMode(),
+    event,
+    workspaceRoot: process.env.VSMUX_WORKSPACE_ROOT?.trim(),
+  });
+}
+
+function isClaudeFirstPromptSubmit(hookInfo: AgentHookInfo): boolean {
+  return (
+    hookInfo.rawEventName === USER_PROMPT_SUBMIT_EVENT_NAME &&
+    hookInfo.agentName.trim().toLowerCase() === "claude"
+  );
 }
 
 void main().catch((error: unknown) => {

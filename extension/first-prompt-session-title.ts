@@ -1,6 +1,23 @@
 import { normalizeTerminalTitle } from "../shared/session-grid-contract";
 
 export type FirstPromptAutoRenameStrategy = "sendBareRenameCommand" | "generateTitleAndRename";
+export type FirstPromptAutoRenameDecisionReason =
+  | "alreadyAutoNamed"
+  | "alreadyPending"
+  | "eligible"
+  | "emptyPrompt"
+  | "inlineSlashCommandReference"
+  | "metaPrompt"
+  | "nonGenericCurrentTitle"
+  | "slashCommand"
+  | "unsupportedAgent";
+
+export type FirstPromptAutoRenameDecision = {
+  normalizedPrompt?: string;
+  reason: FirstPromptAutoRenameDecisionReason;
+  shouldAutoName: boolean;
+  strategy?: FirstPromptAutoRenameStrategy;
+};
 
 const META_PROMPT_PREFIXES = [
   "<command",
@@ -62,33 +79,99 @@ export function shouldAutoNameSessionFromFirstPrompt(input: {
   pendingFirstPromptAutoRenamePrompt?: string;
   prompt: string | undefined;
 }): boolean {
-  if (!resolveFirstPromptAutoRenameStrategy(input.agentName)) {
-    return false;
+  return explainFirstPromptAutoRenameDecision(input).shouldAutoName;
+}
+
+export function explainFirstPromptAutoRenameDecision(input: {
+  agentName: string | undefined;
+  currentTitle: string | undefined;
+  hasAutoTitleFromFirstPrompt?: boolean;
+  pendingFirstPromptAutoRenamePrompt?: string;
+  prompt: string | undefined;
+}): FirstPromptAutoRenameDecision {
+  const strategy = resolveFirstPromptAutoRenameStrategy(input.agentName);
+  if (!strategy) {
+    return {
+      reason: "unsupportedAgent",
+      shouldAutoName: false,
+    };
   }
 
   if (input.hasAutoTitleFromFirstPrompt) {
-    return false;
+    return {
+      reason: "alreadyAutoNamed",
+      shouldAutoName: false,
+      strategy,
+    };
   }
 
   if (input.pendingFirstPromptAutoRenamePrompt?.trim()) {
-    return false;
+    return {
+      reason: "alreadyPending",
+      shouldAutoName: false,
+      strategy,
+    };
   }
 
   if (!input.prompt?.trim()) {
-    return false;
+    return {
+      reason: "emptyPrompt",
+      shouldAutoName: false,
+      strategy,
+    };
   }
 
   const normalizedPrompt = normalizePrompt(input.prompt);
-  if (
-    !normalizedPrompt ||
-    isMetaPrompt(normalizedPrompt) ||
-    normalizedPrompt.startsWith("/") ||
-    containsInlineSlashCommandReference(normalizedPrompt)
-  ) {
-    return false;
+  if (!normalizedPrompt) {
+    return {
+      reason: "emptyPrompt",
+      shouldAutoName: false,
+      strategy,
+    };
   }
 
-  return isGenericAgentSessionTitle(input.agentName, input.currentTitle);
+  if (isMetaPrompt(normalizedPrompt)) {
+    return {
+      normalizedPrompt,
+      reason: "metaPrompt",
+      shouldAutoName: false,
+      strategy,
+    };
+  }
+
+  if (normalizedPrompt.startsWith("/")) {
+    return {
+      normalizedPrompt,
+      reason: "slashCommand",
+      shouldAutoName: false,
+      strategy,
+    };
+  }
+
+  if (containsInlineSlashCommandReference(normalizedPrompt)) {
+    return {
+      normalizedPrompt,
+      reason: "inlineSlashCommandReference",
+      shouldAutoName: false,
+      strategy,
+    };
+  }
+
+  if (!isGenericAgentSessionTitle(input.agentName, input.currentTitle)) {
+    return {
+      normalizedPrompt,
+      reason: "nonGenericCurrentTitle",
+      shouldAutoName: false,
+      strategy,
+    };
+  }
+
+  return {
+    normalizedPrompt,
+    reason: "eligible",
+    shouldAutoName: true,
+    strategy,
+  };
 }
 
 function normalizePrompt(prompt: string): string | undefined {
