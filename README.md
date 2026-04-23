@@ -64,25 +64,25 @@ Then this is the extension for you! You get a very nice interface to work with y
 
 ## Main Features at a Glance
 
-| Feature                   | Description                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------- |
-| **Remote Access**         | Control your sessions from your phone or another computer                             |
-| **Split Views**           | Put terminals/t3code chats side-by-side to monitor multiple tasks at once             |
-| **Universal Search**      | Find and access all your tool sessions from one central location                      |
-| **Session Organization**  | Group and sort your workspace to keep it clutter-free                                 |
-| **Resume Sessions**       | Instantly reload past sessions to pick up exactly where you left off                  |
-| **Quick Launch**          | Quickly find and reopen closed sessions using just your keyboard                      |
-| **Rich Prompt Editor**    | Open a VS Code prompt editor with `Ctrl+G`, then press `Ctrl+G` again to save/close   |
-| **Session Forking**       | Branch off an active session into a new terminal without losing your original context |
-| **Sleep Mode**            | Suspend inactive sessions to free up memory and boost system performance              |
-| **Custom AI Profiles**    | Create and manage distinct profiles for different AI models and specific use cases    |
-| **Agent Handoff**         | Seamlessly transfer a conversation's context from one AI model directly to another    |
-| **Custom Action Buttons** | Turn any terminal command into a clickable, customizable shortcut                     |
-| **Pinned Prompts**        | Save frequently used instructions in the sidebar for quick access across projects     |
-| **Integrated Browser**    | Save bookmarks, open localhost, use DevTools, all without alt tabbing                 |
-| **Automated Git**         | Use built-in tools to automatically generate commit messages and push code            |
-| **Change Monitoring**     | Track AI-driven code edits in a dedicated panel while working on other tasks          |
-| **Advanced Settings**     | Highly configure the tool to match your exact workflow needs                          |
+| Feature                   | Description                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| **Remote Access**         | Control your sessions from your phone or another computer                                 |
+| **Split Views**           | Put terminals/t3code chats side-by-side to monitor multiple tasks at once                 |
+| **Universal Search**      | Find and access all your tool sessions from one central location                          |
+| **Session Organization**  | Group and sort your workspace to keep it clutter-free                                     |
+| **Resume Sessions**       | Instantly reload past sessions to pick up exactly where you left off                      |
+| **Quick Launch**          | Quickly find and reopen closed sessions using just your keyboard                          |
+| **Rich Prompt Editor**    | Open a VS Code modal prompt editor with `Ctrl+G`, then press `Ctrl+G` again to save/close |
+| **Session Forking**       | Branch off an active session into a new terminal without losing your original context     |
+| **Sleep Mode**            | Suspend inactive sessions to free up memory and boost system performance                  |
+| **Custom AI Profiles**    | Create and manage distinct profiles for different AI models and specific use cases        |
+| **Agent Handoff**         | Seamlessly transfer a conversation's context from one AI model directly to another        |
+| **Custom Action Buttons** | Turn any terminal command into a clickable, customizable shortcut                         |
+| **Pinned Prompts**        | Save frequently used instructions in the sidebar for quick access across projects         |
+| **Integrated Browser**    | Save bookmarks, open localhost, use DevTools, all without alt tabbing                     |
+| **Automated Git**         | Use built-in tools to automatically generate commit messages and push code                |
+| **Change Monitoring**     | Track AI-driven code edits in a dedicated panel while working on other tasks              |
+| **Advanced Settings**     | Highly configure the tool to match your exact workflow needs                              |
 
 # Recommended VS Code Setup for Worktrees & Parallel Agents
 
@@ -103,7 +103,7 @@ This exposes repository artifacts directly inside the Source Control UI, includi
 This lets you write your prompt inside your editor instead strugling with the annoying input box that these AI tools provide.
 No more [50 lines pasted] nonsense. Paste all the lines you want and even select parts of them and use inline AI to edit those.
 
-VSmux also supports its own rich prompt editor inside the workspace flow: press `Ctrl+G` to open the modal editor for the active prompt, and press `Ctrl+G` again to save and close it when you are ready to send.
+VSmux also supports its own rich prompt editor inside the workspace flow: press `Ctrl+G` to open the VS Code modal editor for the active prompt, and press `Ctrl+G` again to save and close it when you are ready to send.
 
 Gist on how to do this: https://gist.github.com/maddada/6eec96f4c8b467b81d69d291d4ac130e
 

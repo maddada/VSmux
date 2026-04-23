@@ -2,6 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
+## 4.7.0 - 2026-04-23
+
+- Managed embedded sessions are simpler now: VSmux now targets bundled or checkout-based T3 Code directly, without the older provider-switching path.
+- Workspace and sidebar startup diagnostics are much stronger now, with focused repro logging for startup ordering, sidebar hydration, browser-tab detection, and terminal restart issues when debugging is enabled.
+- Session lifecycle handling is steadier now across the board: first-prompt auto-renaming is smarter for Claude and Codex, non-persistent terminals can freeze and reopen more cleanly, and session state keeps richer metadata so restore and rename flows stay in sync.
+- Sidebar search and session controls are more capable now, with fuzzier previous-session matching, browser-tab stickiness to avoid short-lived flapping, clearer command session indicators, and calmer browser-group open/collapse behavior.
+- Session timeout behavior is easier to tune now: auto-sleep and detached background-session retention are configured separately, and new sessions default to the lighter non-persistent xterm path.
+
 ## 4.6.0 - 2026-04-22
 
 - VSmux now has a richer prompt-editing flow in VS Code: you can pop open a dedicated prompt editor modal with `Ctrl+G`, work on longer prompts more comfortably, and press `Ctrl+G` again to save and close the editor back into the active session.
