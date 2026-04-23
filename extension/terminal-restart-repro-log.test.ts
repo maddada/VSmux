@@ -1,7 +1,16 @@
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
+
+const debugState = {
+  enabled: true,
+};
+
+vi.mock("./native-terminal-workspace/settings", () => ({
+  getDebuggingMode: () => debugState.enabled,
+}));
+
 import {
   appendTerminalRestartReproLog,
   getTerminalRestartReproLogPath,
@@ -11,6 +20,8 @@ describe("terminal restart repro log", () => {
   let workspaceRoot: string | undefined;
 
   afterEach(async () => {
+    debugState.enabled = true;
+
     if (!workspaceRoot) {
       return;
     }
@@ -39,10 +50,11 @@ describe("terminal restart repro log", () => {
     expect(excludeContents).toContain(".vsmux/");
   });
 
-  test("does not create a log file when there is no workspace root", async () => {
-    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "terminal-restart-repro-log-empty-"));
+  test("does not create a log file when debugging mode is disabled", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "terminal-restart-repro-log-disabled-"));
+    debugState.enabled = false;
 
-    await appendTerminalRestartReproLog(undefined, "extension.activate.start", {
+    await appendTerminalRestartReproLog(workspaceRoot, "extension.activate.start", {
       workspaceId: "workspace-1",
     });
 

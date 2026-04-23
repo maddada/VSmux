@@ -14,6 +14,9 @@ vi.mock("vscode", () => ({
     joinPath: (...parts: unknown[]) => parts,
   },
   workspace: {
+    getConfiguration: () => ({
+      get: () => false,
+    }),
     workspaceFolders: [{ uri: { fsPath: "/workspace" } }],
   },
 }));
@@ -200,6 +203,38 @@ describe("SessionSidebarViewProvider", () => {
     expect(postMessage).toHaveBeenNthCalledWith(1, hydrateMessage);
     expect(postMessage).toHaveBeenNthCalledWith(2, sessionStateMessage);
   });
+
+  test("should forward sidebar debug log messages to the controller", async () => {
+    const onMessage = vi.fn(async () => undefined);
+    const provider = new SessionSidebarViewProvider({
+      onMessage,
+    });
+    const postMessage = vi.fn(async () => true);
+    const webviewView = createMockWebviewView(postMessage);
+
+    provider.resolveWebviewView(webviewView as never, {} as never, {} as never);
+
+    const receiveMessage = webviewView.webview.onDidReceiveMessage as ReturnType<typeof vi.fn>;
+    const callback = receiveMessage.mock.calls.at(0)?.[0] as
+      | ((message: unknown) => void)
+      | undefined;
+
+    expect(callback).toBeTypeOf("function");
+
+    callback?.({
+      details: { step: "moduleStart" },
+      event: "repro.sidebarStartup.bootstrap.moduleStart",
+      type: "sidebarDebugLog",
+    });
+    await Promise.resolve();
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith({
+      details: { step: "moduleStart" },
+      event: "repro.sidebarStartup.bootstrap.moduleStart",
+      type: "sidebarDebugLog",
+    });
+  });
 });
 
 function createMockWebviewView(postMessage: ReturnType<typeof vi.fn>) {
@@ -212,7 +247,7 @@ function createMockWebviewView(postMessage: ReturnType<typeof vi.fn>) {
     visible: true,
     webview: {
       html: "",
-      onDidReceiveMessage: () => disposable,
+      onDidReceiveMessage: vi.fn(() => disposable),
       options: {},
       postMessage,
     },

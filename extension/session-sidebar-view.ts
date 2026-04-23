@@ -83,12 +83,23 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
     this.sidebarStartupReproDeadline = Date.now() + SIDEBAR_STARTUP_REPRO_WINDOW_MS;
     const latestReplayableMessage = this.getLatestReplayableMessage();
     this.appendSidebarStartupReproLog("sidebar.view.resolve.start", {
+      bufferedHydrateRevision: this.latestReplayableHydrate?.revision,
+      bufferedHydrateSessionCount: this.latestReplayableHydrate
+        ? countSidebarSessions(this.latestReplayableHydrate)
+        : 0,
+      bufferedSessionStateRevision: this.latestReplayableSessionState?.revision,
+      bufferedSessionStateSessionCount: this.latestReplayableSessionState
+        ? countSidebarSessions(this.latestReplayableSessionState)
+        : 0,
+      hasBufferedHydrate: this.latestReplayableHydrate !== undefined,
+      hasBufferedSessionState: this.latestReplayableSessionState !== undefined,
       hasLatestMessage: latestReplayableMessage !== undefined,
       latestMessageRevision:
         latestReplayableMessage !== undefined ? latestReplayableMessage.revision : undefined,
       latestMessageType:
         latestReplayableMessage !== undefined ? latestReplayableMessage.type : undefined,
       resolveCount: this.resolveCount,
+      visible: webviewView.visible,
     });
     const extensionUri = getExtensionUri();
     this.view = webviewView;
@@ -112,12 +123,29 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
           this.view = undefined;
         }
       }),
+      webviewView.onDidChangeVisibility(() => {
+        this.appendSidebarStartupReproLog("sidebar.view.visibilityChanged", {
+          bufferedHydrateRevision: this.latestReplayableHydrate?.revision,
+          bufferedSessionStateRevision: this.latestReplayableSessionState?.revision,
+          hasBufferedHydrate: this.latestReplayableHydrate !== undefined,
+          hasBufferedSessionState: this.latestReplayableSessionState !== undefined,
+          resolveCount: this.resolveCount,
+          visible: webviewView.visible,
+        });
+      }),
       webviewView.webview.onDidReceiveMessage((message: unknown) => {
         if (!isSidebarMessage(message)) {
           return;
         }
 
         if (message.type === "sidebarDebugLog") {
+          void Promise.resolve(this.options.onMessage(message)).catch((error) => {
+            this.appendSidebarStartupReproLog("sidebar.view.debugLogDispatchFailed", {
+              error: getErrorMessage(error),
+              event: message.event,
+              resolveCount: this.resolveCount,
+            });
+          });
           return;
         }
 
@@ -283,6 +311,14 @@ export class SessionSidebarViewProvider implements vscode.Disposable, vscode.Web
   }
 
   private async replayLatestMessages(webviewView: vscode.WebviewView): Promise<void> {
+    this.appendSidebarStartupReproLog("sidebar.view.resolve.replaySummary", {
+      hydrateRevision: this.latestReplayableHydrate?.revision,
+      hasHydrate: this.latestReplayableHydrate !== undefined,
+      hasSessionState: this.latestReplayableSessionState !== undefined,
+      resolveCount: this.resolveCount,
+      sessionStateRevision: this.latestReplayableSessionState?.revision,
+    });
+
     if (this.latestReplayableHydrate) {
       this.appendSidebarStartupReproLog("sidebar.view.resolve.replayLatestMessage", {
         groupCount: this.latestReplayableHydrate.groups.length,

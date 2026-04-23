@@ -1,61 +1,21 @@
-import { appendFile, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { ensureWorkspaceGitExcludeEntry } from "./git/local-exclude";
+import { getDebuggingMode } from "./native-terminal-workspace/settings";
+import { appendWorkspaceDebugLogLine } from "./workspace-debug-log";
 
 const LOG_DIR_NAME = ".vsmux";
 const LOG_FILE_NAME = "browser-tab-detection-debug.log";
-
-let fileWriteQueue: Promise<void> = Promise.resolve();
 
 export function getBrowserTabDetectionLogPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, LOG_DIR_NAME, LOG_FILE_NAME);
 }
 
 export function logBrowserTabDetection(event: string, details?: unknown): void {
-  const workspaceRoot = resolveWorkspaceRoot();
-  if (!workspaceRoot) {
-    return;
-  }
-  const logFilePath = getBrowserTabDetectionLogPath(workspaceRoot);
-
-  const text = buildLogLine(event, details);
-  fileWriteQueue = fileWriteQueue
-    .catch(() => undefined)
-    .then(async () => {
-      await ensureWorkspaceGitExcludeEntry(workspaceRoot, `${LOG_DIR_NAME}/`);
-      await mkdir(path.dirname(logFilePath), { recursive: true });
-      await appendFile(logFilePath, text, "utf8");
-    })
-    .catch(() => undefined);
-}
-
-function resolveWorkspaceRoot(): string | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-}
-
-function buildLogLine(event: string, details?: unknown): string {
-  const suffix = details === undefined ? "" : ` ${safeSerialize(details)}`;
-  return `${new Date().toISOString()} ${event}${suffix}\n`;
-}
-
-function safeSerialize(details: unknown): string {
-  try {
-    return JSON.stringify(details, (_key, value) => {
-      if (value instanceof Error) {
-        return {
-          message: value.message,
-          name: value.name,
-          stack: value.stack,
-        };
-      }
-
-      return value;
-    });
-  } catch (error) {
-    return JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-      unserializable: true,
-    });
-  }
+  void appendWorkspaceDebugLogLine({
+    details,
+    enabled: getDebuggingMode(),
+    event,
+    fileName: LOG_FILE_NAME,
+    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  });
 }

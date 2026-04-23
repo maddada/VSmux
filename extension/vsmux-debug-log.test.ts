@@ -3,30 +3,40 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
+const debugState = {
+  enabled: false,
+};
 const workspaceState = {
-  debuggingMode: false,
-  workspaceFolders: undefined as Array<{ uri: { fsPath: string } }> | undefined,
+  workspaceRoot: undefined as string | undefined,
 };
 
 vi.mock("vscode", () => ({
   workspace: {
-    getConfiguration: () => ({
-      get: () => workspaceState.debuggingMode,
-    }),
     get workspaceFolders() {
-      return workspaceState.workspaceFolders;
+      return workspaceState.workspaceRoot
+        ? [{ uri: { fsPath: workspaceState.workspaceRoot } }]
+        : undefined;
     },
   },
 }));
 
-import { getVSmuxDebugLogPath, logVSmuxDebug, resetVSmuxDebugLog } from "./vsmux-debug-log";
+vi.mock("./native-terminal-workspace/settings", () => ({
+  getDebuggingMode: () => debugState.enabled,
+}));
+
+import {
+  getVSmuxDebugLogPath,
+  logVSmuxDebug,
+  logVSmuxReproTrace,
+  resetVSmuxDebugLog,
+} from "./vsmux-debug-log";
 
 describe("vsmux debug log", () => {
   let workspaceRoot: string | undefined;
 
   afterEach(async () => {
-    workspaceState.debuggingMode = false;
-    workspaceState.workspaceFolders = undefined;
+    debugState.enabled = false;
+    workspaceState.workspaceRoot = undefined;
 
     if (!workspaceRoot) {
       return;
@@ -38,12 +48,9 @@ describe("vsmux debug log", () => {
 
   test("writes allowlisted debug events to the workspace .vsmux log only when debugging is enabled", async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vsmux-debug-log-"));
-    workspaceState.workspaceFolders = [{ uri: { fsPath: workspaceRoot } }];
-    workspaceState.debuggingMode = true;
+    workspaceState.workspaceRoot = workspaceRoot;
+    debugState.enabled = true;
     await mkdir(path.join(workspaceRoot, ".git", "info"), { recursive: true });
-
-    const logPath = getVSmuxDebugLogPath(workspaceRoot);
-    const excludePath = path.join(workspaceRoot, ".git", "info", "exclude");
 
     resetVSmuxDebugLog();
     await waitForQueueDrain();
@@ -56,25 +63,26 @@ describe("vsmux debug log", () => {
       isAttached: false,
       sessionId: "session-04",
     });
-    logVSmuxDebug("controller.focusSession.afterStateChange", {
+    logVSmuxReproTrace("repro.controller.focusSession.start", {
       sessionId: "session-04",
     });
     await waitForQueueDrain();
 
-    expect(logPath).toBe(path.join(workspaceRoot, ".vsmux", "full-reload-terminal-reconnect.log"));
+    const logPath = getVSmuxDebugLogPath(workspaceRoot);
+    const excludePath = path.join(workspaceRoot, ".git", "info", "exclude");
     const contents = await readFile(logPath, "utf8");
     const excludeContents = await readFile(excludePath, "utf8");
+
+    expect(logPath).toBe(path.join(workspaceRoot, ".vsmux", "full-reload-terminal-reconnect.log"));
     expect(contents).toContain("controller.waitForTerminalFrontendConnectionAfterReload.timeout");
-    expect(contents).toContain('"sessionId":"session-04"');
+    expect(contents).toContain("repro.controller.focusSession.start");
     expect(contents).not.toContain("backend.daemon.sessionState");
-    expect(contents).not.toContain("controller.focusSession.afterStateChange");
     expect(excludeContents).toContain(".vsmux/");
   });
 
   test("does not create the debug log file when debugging is disabled", async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vsmux-debug-log-disabled-"));
-    workspaceState.workspaceFolders = [{ uri: { fsPath: workspaceRoot } }];
-    workspaceState.debuggingMode = false;
+    workspaceState.workspaceRoot = workspaceRoot;
 
     logVSmuxDebug("controller.waitForTerminalFrontendConnectionAfterReload.timeout", {
       sessionId: "session-04",

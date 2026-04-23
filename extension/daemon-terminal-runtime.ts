@@ -19,6 +19,7 @@ import type {
   TerminalSessionSnapshot,
 } from "../shared/terminal-host-protocol";
 import { TERMINAL_HOST_PROTOCOL_VERSION } from "../shared/terminal-host-protocol";
+import { getDaemonDebuggingModeEnv } from "./daemon-debugging-mode";
 import { appendTerminalRestartReproLog } from "./terminal-restart-repro-log";
 import { logVSmuxDebug } from "./vsmux-debug-log";
 
@@ -501,6 +502,7 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
           env: {
             ...process.env,
             VSMUX_VSCODE_APP_ROOT: vscode.env.appRoot,
+            ...getDaemonDebuggingModeEnv(),
           },
           stdio: "ignore",
         });
