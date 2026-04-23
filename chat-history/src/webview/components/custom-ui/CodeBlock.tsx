@@ -45,7 +45,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({ children, language, className })
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            className="copy-cursor h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={handleCopy}
             title="Copy code"
           >

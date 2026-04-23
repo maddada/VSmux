@@ -25,7 +25,7 @@ export const CopyMessageButton: FC<CopyMessageButtonProps> = ({ getMarkdown }) =
             variant="ghost"
             size="icon-xs"
             onClick={handleCopy}
-            className="opacity-0 group-hover/message:opacity-100 transition-opacity"
+            className="copy-cursor opacity-0 group-hover/message:opacity-100 transition-opacity"
           >
             {copied ? (
               <Check className="h-3 w-3 text-green-500" />

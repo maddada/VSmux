@@ -330,7 +330,7 @@ export const ExportDialog: FC<ExportDialogProps> = ({ conversations, fileName, c
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleCopyToClipboard}>
+          <Button className="copy-cursor" variant="outline" onClick={handleCopyToClipboard}>
             {copied ? (
               <>
                 <Check className="h-4 w-4 mr-2" />

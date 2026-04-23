@@ -3,6 +3,10 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
 
+.copy-cursor {
+  cursor: pointer !important;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
