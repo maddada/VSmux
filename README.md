@@ -24,7 +24,7 @@ Download links:
   </tr>
 </table>
 
-## Screenshot
+## Screenshots
 
 ### Revamped UI:
 #### 10+ themes. Add your own actions and agents. All buttons/sections are optional (configure in settings)
