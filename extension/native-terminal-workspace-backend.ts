@@ -48,6 +48,7 @@ import {
   waitForTerminalTabForegroundOrCancel,
 } from "./native-terminal-workspace-backend/workbench";
 import { createWorkspaceTrace } from "./runtime-trace";
+import { getDaemonDebuggingModeEnv } from "./daemon-debugging-mode";
 import {
   readPersistedSessionStateSnapshotFromFile,
   updatePersistedSessionStateFile,
@@ -1735,11 +1736,15 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
 
   private createTerminalEnvironment(sessionId: string): Record<string, string> {
     return applyAgentShellIntegrationEnvironment(
-      createManagedTerminalEnvironment(
-        this.options.workspaceId,
-        sessionId,
-        this.getSessionAgentStateFilePath(sessionId),
-      ),
+      {
+        ...createManagedTerminalEnvironment(
+          this.options.workspaceId,
+          sessionId,
+          this.getSessionAgentStateFilePath(sessionId),
+          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        ),
+        ...getDaemonDebuggingModeEnv(),
+      },
       {
         shellIntegrationBinDir: this.agentShellIntegration?.binDir,
         shellIntegrationZdotDir: this.agentShellIntegration?.zshDotDir,

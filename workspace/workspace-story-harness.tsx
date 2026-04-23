@@ -215,7 +215,7 @@ function createTerminalPane(session: SidebarSessionItem): WorkspacePanelTerminal
       row: session.row,
       sessionId: session.sessionId,
       slotIndex: parseSlotIndex(session.shortcutLabel),
-      terminalEngine: "ghostty",
+      terminalEngine: "ghostty-non-persistent",
       title: session.primaryTitle ?? session.alias,
     },
     snapshot: createTerminalSnapshot(session.sessionId),

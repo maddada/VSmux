@@ -39,6 +39,11 @@
   outline: none;
 }
 
+.terminal-pane-root .xterm .xterm-decoration-overview-ruler {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .terminal-pane-canvas .pane-canvas {
   background: #000;
   display: block;

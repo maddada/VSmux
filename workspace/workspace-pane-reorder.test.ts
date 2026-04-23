@@ -116,7 +116,7 @@ function createTerminalPane(
       row: 0,
       sessionId,
       slotIndex: 0,
-      terminalEngine: "ghostty",
+      terminalEngine: "ghostty-non-persistent",
       title: sessionId,
     },
   };

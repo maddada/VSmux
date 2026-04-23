@@ -1,13 +1,6 @@
 import { Restty } from "restty";
-import type {
-  WorkspacePanelConnection,
-  WorkspacePanelTerminalAppearance,
-} from "../shared/workspace-panel-contract";
+import type { WorkspacePanelTerminalAppearance } from "../shared/workspace-panel-contract";
 import { getResttyFontSources } from "./restty-terminal-config";
-import {
-  createWorkspaceResttyTransport,
-  type WorkspaceResttyTransportController,
-} from "./restty-session-transport";
 
 const TERMINAL_RUNTIME_HOST_CLASS_NAME = "terminal-pane-runtime-host";
 const TERMINAL_STARTUP_BACKGROUND = "#121212";
@@ -16,7 +9,6 @@ let nextTerminalRuntimeInstanceId = 0;
 let nextTerminalRuntimeHostId = 0;
 
 export type CachedTerminalRuntimeCallbacks = {
-  onFirstData?: (connectionId: number) => void;
   onRendererMode?: (rendererMode: string) => void;
   onSearchState?: (state: { selectedIndex?: number; total: number }) => void;
   onTermSize?: (cols: number, rows: number) => void;
@@ -44,13 +36,11 @@ export type CachedTerminalRuntime = {
   runtimeHostId: string;
   runtimeInstanceId: string;
   sessionId: string;
-  transportController: WorkspaceResttyTransportController | null;
 };
 
 type CreateCachedTerminalRuntimeOptions = {
   cacheKey: string;
   callbacks: CachedTerminalRuntimeCallbacks;
-  connection: WorkspacePanelConnection;
   renderNonce: number;
   sessionId: string;
   terminalAppearance: WorkspacePanelTerminalAppearance;
@@ -66,7 +56,6 @@ const buildRuntimeHost = () => {
 };
 
 const destroyRuntime = (runtime: CachedTerminalRuntime) => {
-  runtime.transportController?.transport.destroy?.();
   runtime.restty.destroy();
   runtime.host.remove();
 };
@@ -113,17 +102,6 @@ export const acquireCachedTerminalRuntime = (
 
   const host = buildRuntimeHost();
   const runtime = {} as CachedTerminalRuntime;
-  const transportController = options.connection.mock
-    ? null
-    : createWorkspaceResttyTransport({
-        onFirstData: (connectionId) => {
-          runtime.callbacks.onFirstData?.(connectionId);
-        },
-        reportDebug: (event, payload) => {
-          runtime.callbacks.reportDebug?.(event, payload);
-        },
-        sessionId: options.sessionId,
-      });
   const restty = new Restty({
     createInitialPane: true,
     defaultContextMenu: false,
@@ -148,7 +126,10 @@ export const acquireCachedTerminalRuntime = (
           });
         },
         onSearchState: (state) => {
-          runtime.callbacks.onSearchState?.(state);
+          runtime.callbacks.onSearchState?.({
+            selectedIndex: state.selectedIndex ?? undefined,
+            total: state.total,
+          });
         },
         onTermSize: (cols, rows) => {
           runtime.latestTermSize = { cols, rows };
@@ -160,13 +141,11 @@ export const acquireCachedTerminalRuntime = (
       // Match xterm.js sizing more closely so the configured font size
       // does not render noticeably smaller on the ghostty/restty path.
       fontSizeMode: "em",
-      ptyTransport: transportController?.transport,
       renderer: TERMINAL_PREFERRED_RENDERER,
     },
   });
   const activePane = restty.activePane();
   if (!activePane) {
-    transportController?.transport.destroy?.();
     restty.destroy();
     throw new Error(`Missing Restty active pane for session ${options.sessionId}`);
   }
@@ -192,7 +171,6 @@ export const acquireCachedTerminalRuntime = (
   runtime.runtimeHostId = host.dataset.vsmuxRuntimeHostId ?? `runtime-host-fallback-${Date.now()}`;
   runtime.runtimeInstanceId = `runtime-${++nextTerminalRuntimeInstanceId}`;
   runtime.sessionId = options.sessionId;
-  runtime.transportController = transportController;
 
   runtime.callbacks.reportDebug?.("terminal.rendererPreference", {
     preferredRenderer: TERMINAL_PREFERRED_RENDERER,
@@ -200,7 +178,6 @@ export const acquireCachedTerminalRuntime = (
   });
   runtime.callbacks.reportDebug?.("terminal.runtimeCacheCreated", {
     cacheKey: options.cacheKey,
-    hasTransportController: transportController !== null,
     renderNonce: options.renderNonce,
     runtimeHostId: runtime.runtimeHostId,
     runtimeInstanceId: runtime.runtimeInstanceId,

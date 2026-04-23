@@ -42,6 +42,7 @@ export type TerminalHostCreateOrAttachRequest = {
   requestId: string;
   sessionId: string;
   workspaceId: string;
+  workspaceRoot?: string;
   cols: number;
   cwd: string;
   rows: number;

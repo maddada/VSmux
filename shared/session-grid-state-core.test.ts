@@ -147,14 +147,14 @@ describe("normalizeSessionGridSnapshot", () => {
     ]);
   });
 
-  test("should default legacy terminal sessions without an engine to ghostty", () => {
+  test("should migrate legacy ghostty terminal sessions to ghostty non-persistent", () => {
     const normalized = normalizeSessionRecord({
       ...createSessionRecord(1, 0),
       terminalEngine: undefined as unknown as "ghostty",
     });
 
     expect(normalized.kind).toBe("terminal");
-    expect(normalized.terminalEngine).toBe("ghostty");
+    expect(normalized.terminalEngine).toBe("ghostty-non-persistent");
   });
 
   test("should preserve the ghostty non-persistent engine", () => {

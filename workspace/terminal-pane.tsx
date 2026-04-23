@@ -10,7 +10,6 @@ import type {
 } from "../shared/workspace-panel-contract";
 import { logWorkspaceDebug } from "./workspace-debug";
 import { getResttyFontSources, getResttyTheme } from "./restty-terminal-config";
-import type { WorkspaceResttyTransportController } from "./restty-session-transport";
 import { TerminalLoadingOverlay } from "./terminal-loading-overlay";
 import {
   getShiftEnterInputSequence,
@@ -176,7 +175,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   const postSettleAppearanceAppliedRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastMeasuredBoundsRef = useRef<{ height: number; width: number } | null>(null);
-  const transportRef = useRef<WorkspaceResttyTransportController | null>(null);
   const liveFontAppearanceRef = useRef({
     fontFamily: terminalAppearance.fontFamily,
     fontSize: terminalAppearance.fontSize,
@@ -253,7 +251,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     postSettleAppearanceAppliedRef.current = runtime.postSettleAppearanceApplied;
     rendererModeRef.current = runtime.rendererMode;
     resttyRef.current = runtime.restty;
-    transportRef.current = runtime.transportController;
   };
 
   const syncRuntimeFromRefs = () => {
@@ -737,7 +734,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     if (
       event.defaultPrevented ||
-      event.isComposing ||
+      ("isComposing" in event && event.isComposing) ||
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -770,7 +767,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return false;
     }
 
-    return transportRef.current?.sendRawInput(data) ?? false;
+    const activePane = activePaneRef.current;
+    if (!activePane) {
+      return false;
+    }
+
+    activePane.sendInput(data, "pty");
+    return true;
   };
 
   const collectViewportMetrics = () => {
@@ -1022,9 +1025,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
-    if (connectPtyStartedRef.current) {
+    const activePane = activePaneRef.current;
+    if (!activePane) {
       reportDebug("terminal.connectSkipped", {
-        reason: "connect-already-started",
+        hasActivePane: !!activePane,
+        reason: "missing-runtime-primitives",
         sessionId: pane.sessionId,
         source: sourceLabel,
         ...collectSnapshotMetrics(),
@@ -1032,13 +1037,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
-    const activePane = activePaneRef.current;
-    const transportController = transportRef.current;
-    if (!activePane || !transportController) {
+    if (activePane.isPtyConnected()) {
       reportDebug("terminal.connectSkipped", {
-        hasActivePane: !!activePane,
-        hasTransportController: !!transportController,
-        reason: "missing-runtime-primitives",
+        reason: "already-connected",
         sessionId: pane.sessionId,
         source: sourceLabel,
         ...collectSnapshotMetrics(),
@@ -1067,10 +1068,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     await appearancePromiseRef.current;
     const stableTerminalSize = await waitForStableTerminalSize();
-    if (!stableTerminalSize || connectPtyStartedRef.current) {
+    if (!stableTerminalSize || activePane.isPtyConnected()) {
       reportDebug("terminal.connectSkipped", {
         connectPtyStarted: connectPtyStartedRef.current,
-        reason: stableTerminalSize ? "connect-started-during-wait" : "missing-stable-size",
+        reason: stableTerminalSize ? "already-connected-after-wait" : "missing-stable-size",
         sessionId: pane.sessionId,
         source: sourceLabel,
         ...collectSnapshotMetrics(),
@@ -1078,10 +1079,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       return;
     }
 
-    transportController.markTerminalReady(stableTerminalSize.cols, stableTerminalSize.rows);
-    activePane.connectPty(buildSessionSocketUrl(connection, pane.sessionId));
+    activePane.connectPty(buildSessionSocketUrl(connection, pane.sessionId, stableTerminalSize));
     connectPtyStartedRef.current = true;
     syncRuntimeFromRefs();
+    schedulePostReplayViewportLogs(0);
+    schedulePostSettleAppearance();
     startReconnectPerformanceProbe(sourceLabel);
     logViewportMetrics("terminal.connectWhenReady", {
       cols: stableTerminalSize.cols,
@@ -1287,19 +1289,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   }, [debuggingMode, pane.sessionId]);
 
   useEffect(() => {
-    const transportController = transportRef.current;
-    if (!transportController) {
-      return;
-    }
-
-    const reconnectEnabled = shouldAllowHiddenReconnect();
-    transportController.setReconnectEnabled(
-      reconnectEnabled,
-      reconnectEnabled ? (isVisible ? "visible" : "snapshot-attached") : "hidden-not-attached",
-    );
-  }, [isVisible, pane.snapshot?.isAttached, pane.sessionId]);
-
-  useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
@@ -1320,10 +1309,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     const runtime = acquireCachedTerminalRuntime({
       cacheKey: runtimeCacheKey,
       callbacks: {
-        onFirstData: (connectionId) => {
-          schedulePostReplayViewportLogs(connectionId);
-          schedulePostSettleAppearance();
-        },
         onRendererMode: (rendererMode) => {
           rendererModeRef.current = rendererMode;
           syncRuntimeFromRefs();
@@ -1353,21 +1338,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         },
         reportDebug,
       },
-      connection,
       renderNonce: pane.renderNonce,
       sessionId: pane.sessionId,
       terminalAppearance,
     });
     runtimeRef.current = runtime;
     syncRefsFromRuntime(runtime);
-    runtime.transportController?.setReconnectEnabled(
-      shouldAllowHiddenReconnect(),
-      shouldAllowHiddenReconnect()
-        ? isVisibleRef.current
-          ? "visible"
-          : "snapshot-attached"
-        : "hidden-not-attached",
-    );
     const previousHostParentTagName = runtime.host.parentElement?.tagName ?? null;
     container.replaceChildren(runtime.host);
     reportDebug("terminal.runtimeHostAttached", {
@@ -1469,7 +1445,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       boundScrollHostRef.current = null;
       activePaneRef.current = null;
       resttyRef.current = null;
-      transportRef.current = null;
       runtimeRef.current = null;
       canvasVisibleRef.current = false;
       maintenanceProbeIdRef.current += 1;
@@ -2021,11 +1996,19 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   );
 };
 
-function buildSessionSocketUrl(connection: WorkspacePanelConnection, sessionId: string): string {
+function buildSessionSocketUrl(
+  connection: WorkspacePanelConnection,
+  sessionId: string,
+  size?: { cols: number; rows: number },
+): string {
   const socketUrl = new URL("/session", connection.baseUrl);
   socketUrl.searchParams.set("token", connection.token);
   socketUrl.searchParams.set("workspaceId", connection.workspaceId);
   socketUrl.searchParams.set("sessionId", sessionId);
+  if (size) {
+    socketUrl.searchParams.set("cols", String(size.cols));
+    socketUrl.searchParams.set("rows", String(size.rows));
+  }
   return socketUrl.toString();
 }
 

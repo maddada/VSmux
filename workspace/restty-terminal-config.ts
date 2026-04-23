@@ -47,13 +47,35 @@ const fallbackTheme = {
   yellow: "#e5e510",
 };
 
-export function getResttyFontSources(fontFamily: string | undefined): ResttyFontSource[] {
-  if (!canUseLocalFontSources()) {
-    return [];
-  }
+const BUNDLED_FONT_SOURCES: ResttyFontSource[] = [
+  {
+    label: "Bundled JetBrains Mono",
+    type: "url",
+    url: "../JetBrainsMono_wght_.ttf",
+  },
+  {
+    label: "Bundled JetBrains Mono Italic",
+    type: "url",
+    url: "../JetBrainsMono-Italic_wght_.ttf",
+  },
+  {
+    label: "Bundled Meslo Nerd Font Mono",
+    type: "url",
+    url: "../MesloLGLNerdFontMono-Regular.ttf",
+  },
+  {
+    label: "Bundled Meslo Nerd Font Mono Bold",
+    type: "url",
+    url: "../MesloLGLNerdFontMono-Bold.ttf",
+  },
+];
 
+export function getResttyFontSources(fontFamily: string | undefined): ResttyFontSource[] {
   const configuredFamilies = getConfiguredFontFamilies(fontFamily);
-  return configuredFamilies.flatMap(createLocalFontSourcesForFamily);
+  const localSources = canUseLocalFontSources()
+    ? configuredFamilies.flatMap(createLocalFontSourcesForFamily)
+    : [];
+  return [...localSources, ...BUNDLED_FONT_SOURCES];
 }
 
 export function getResttyTheme(): GhosttyTheme | undefined {

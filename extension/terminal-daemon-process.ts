@@ -65,6 +65,17 @@ import type {
 } from "../shared/terminal-host-protocol";
 import { TERMINAL_HOST_PROTOCOL_VERSION } from "../shared/terminal-host-protocol";
 
+type ResttyInputMessage = {
+  data: string;
+  type: "input";
+};
+
+type ResttyResizeMessage = {
+  cols: number;
+  rows: number;
+  type: "resize";
+};
+
 type DaemonInfo = {
   pid: number;
   port: number;
@@ -465,6 +476,7 @@ function createSession(request: TerminalHostCreateOrAttachRequest): ManagedSessi
     request.workspaceId,
     request.sessionId,
     request.sessionStateFilePath,
+    request.workspaceRoot,
     {
       shellIntegrationBinDir: request.shellIntegrationBinDir,
       shellIntegrationZdotDir: request.shellIntegrationZdotDir,
@@ -643,9 +655,17 @@ async function handleSessionSocketMessage(
     return;
   }
 
-  let message: TerminalInputMessage | TerminalResizeMessage | TerminalReadyMessage | undefined;
+  let message:
+    | ResttyInputMessage
+    | ResttyResizeMessage
+    | TerminalInputMessage
+    | TerminalResizeMessage
+    | TerminalReadyMessage
+    | undefined;
   try {
     message = JSON.parse(rawMessage) as
+      | ResttyInputMessage
+      | ResttyResizeMessage
       | TerminalInputMessage
       | TerminalResizeMessage
       | TerminalReadyMessage;
@@ -657,6 +677,8 @@ async function handleSessionSocketMessage(
   }
 
   if (
+    message.type !== "input" &&
+    message.type !== "resize" &&
     message.type !== "terminalInput" &&
     message.type !== "terminalResize" &&
     message.type !== "terminalReady"
@@ -667,16 +689,20 @@ async function handleSessionSocketMessage(
     return;
   }
 
-  if (message.type === "terminalInput") {
+  if (message.type === "input" || message.type === "terminalInput") {
     if (attachment.activated) {
       session.pty.write(message.data);
     }
     return;
   }
 
-  if (message.type === "terminalResize") {
+  if (message.type === "resize" || message.type === "terminalResize") {
     attachment.initialCols = message.cols;
     attachment.initialRows = message.rows;
+    if (!attachment.activated) {
+      await activatePendingSessionAttachment(session, sessionKey, socket, attachment);
+      return;
+    }
     resizeSession(session, message.cols, message.rows);
     if (attachment.activated) {
       const snapshot = await buildSnapshot(session, false);
@@ -1182,6 +1208,7 @@ function createPtyEnvironment(
   workspaceId: string,
   sessionId: string,
   sessionStateFilePath: string,
+  workspaceRoot: string | undefined,
   shellIntegrationRequest: {
     shellIntegrationBinDir?: string;
     shellIntegrationZdotDir?: string;
@@ -1190,7 +1217,12 @@ function createPtyEnvironment(
   const environment = applyAgentShellIntegrationEnvironment(
     {
       ...process.env,
-      ...createManagedTerminalEnvironment(workspaceId, sessionId, sessionStateFilePath),
+      ...createManagedTerminalEnvironment(
+        workspaceId,
+        sessionId,
+        sessionStateFilePath,
+        workspaceRoot,
+      ),
     } as Record<string, string>,
     shellIntegrationRequest,
   );
@@ -1230,6 +1262,9 @@ async function attachSessionSocketWithReplay(
   }, SESSION_ATTACH_READY_TIMEOUT_MS);
 
   bindSessionSocket(session, sessionKey, socket, attachment);
+  if (initialCols && initialRows) {
+    void activatePendingSessionAttachment(session, sessionKey, socket, attachment);
+  }
 }
 
 function flushPendingAttachQueue(socket: WebSocket, pendingAttachQueue: PendingAttachQueue): void {

@@ -8,7 +8,12 @@ describe("native managed terminal helpers", () => {
   test("should read session identity from shell-backed terminal creation options", () => {
     const identity = getManagedTerminalIdentity({
       creationOptions: {
-        env: createManagedTerminalEnvironment("workspace-1", "session-3", "/tmp/session-3.env"),
+        env: createManagedTerminalEnvironment(
+          "workspace-1",
+          "session-3",
+          "/tmp/session-3.env",
+          "/workspace",
+        ),
         name: "Harbor Vale",
       },
     } as never);

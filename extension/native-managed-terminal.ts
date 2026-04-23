@@ -3,6 +3,7 @@ import type * as vscode from "vscode";
 const SESSION_ID_ENV_KEY = "VSMUX_SESSION_ID";
 const SESSION_STATE_FILE_ENV_KEY = "VSMUX_SESSION_STATE_FILE";
 const WORKSPACE_ID_ENV_KEY = "VSMUX_WORKSPACE_ID";
+const WORKSPACE_ROOT_ENV_KEY = "VSMUX_WORKSPACE_ROOT";
 
 export type ManagedTerminalIdentity = {
   sessionId: string;
@@ -13,11 +14,14 @@ export function createManagedTerminalEnvironment(
   workspaceId: string,
   sessionId: string,
   sessionStateFilePath: string,
+  workspaceRoot?: string,
 ): Record<string, string> {
+  const normalizedWorkspaceRoot = normalizeEnvironmentValue(workspaceRoot);
   return {
     [SESSION_ID_ENV_KEY]: sessionId,
     [SESSION_STATE_FILE_ENV_KEY]: sessionStateFilePath,
     [WORKSPACE_ID_ENV_KEY]: workspaceId,
+    ...(normalizedWorkspaceRoot ? { [WORKSPACE_ROOT_ENV_KEY]: normalizedWorkspaceRoot } : {}),
   };
 }
 

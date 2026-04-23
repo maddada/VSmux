@@ -409,6 +409,13 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
 
     const terminal = new Terminal({
       allowProposedApi: true,
+      altClickMovesCursor: true,
+      cursorInactiveStyle: "none",
+      macOptionIsMeta: true,
+      scrollbar: {
+        showScrollbar: true,
+        width: 14,
+      },
       ...terminalAppearanceOptions,
       scrollback: terminalAppearance.xtermFrontendScrollback,
       theme: getTerminalTheme(),

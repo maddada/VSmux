@@ -26,7 +26,7 @@ import { normalizeT3SessionMetadata } from "./t3-session-metadata";
 
 const LEADING_TERMINAL_TITLE_STATUS_MARKER_PATTERN = /^[\s\u2800-\u28ff·•⋅◦✳*✦◇🤖🔔]+/u;
 const LEADING_TERMINAL_TITLE_PREFIX_PATTERN = /^(?:OC\s*\|\s*)+/iu;
-const DEFAULT_TERMINAL_ENGINE: TerminalEngine = "ghostty";
+const DEFAULT_TERMINAL_ENGINE: TerminalEngine = "ghostty-non-persistent";
 const IGNORED_GENERIC_TERMINAL_TITLES = new Set([
   "claude",
   "claude code",
@@ -286,6 +286,10 @@ export function createSessionRecord(
 }
 
 export function normalizeTerminalEngine(value: string | undefined): TerminalEngine {
+  if (value === "ghostty") {
+    return "ghostty-non-persistent";
+  }
+
   if (value === "ghostty-non-persistent") {
     return "ghostty-non-persistent";
   }
@@ -302,7 +306,7 @@ export function normalizeTerminalEngine(value: string | undefined): TerminalEngi
 }
 
 export function isPersistentTerminalEngine(value: TerminalEngine): boolean {
-  return value === "xterm" || value === "ghostty";
+  return value === "xterm";
 }
 
 export function isXtermTerminalEngine(value: TerminalEngine): boolean {

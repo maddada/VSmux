@@ -217,7 +217,7 @@ function createLiveStoryWorkspace(
     row: 0,
     sessionId: session.sessionId,
     slotIndex: index,
-    terminalEngine: "ghostty",
+    terminalEngine: "ghostty-non-persistent",
     title: session.title,
   }));
 

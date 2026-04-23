@@ -329,6 +329,7 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       shell: getDefaultShell(),
       shellArgs: getManagedTerminalShellArgs(getDefaultShell(), this.agentShellIntegration),
       terminalEngine: sessionRecord.terminalEngine,
+      workspaceRoot: this.options.workspaceRoot,
       xtermHeadlessScrollback: getXtermHeadlessScrollback(),
       workspaceId: this.options.workspaceId,
     });
