@@ -79,6 +79,7 @@ export type WorkspacePanelHydrateMessage = {
   type: "hydrate";
   activeGroupId: string;
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
+  buildStamp?: string;
   connection: WorkspacePanelConnection;
   debuggingMode: boolean;
   focusedSessionId?: string;

@@ -32,6 +32,10 @@
   --workspace-terminal-font: "MesloLGL Nerd Font Mono", Menlo, Monaco, "Courier New", monospace;
 }
 
+.copy-cursor {
+  cursor: pointer !important;
+}
+
 html,
 body,
 #root {

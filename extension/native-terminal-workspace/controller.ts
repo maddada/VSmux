@@ -131,6 +131,7 @@ import {
   logVSmuxReproTrace,
   resetVSmuxDebugLog,
 } from "../vsmux-debug-log";
+import { appendClaudeFirstMessageRenameReproLog } from "../claude-first-message-rename-repro-log";
 import { appendFirstPromptAutoRenameReproLog } from "../first-prompt-auto-rename-repro-log";
 import { resolveSidebarProjectHeader } from "../sidebar-project-header";
 import { resolveSidebarProjectWorktrees } from "../sidebar-project-worktrees";
@@ -229,6 +230,7 @@ import { appendT3CloseSessionReproLog } from "../t3-close-session-repro-log";
 import { appendTerminalRestartReproLog } from "../terminal-restart-repro-log";
 import { appendT3ThreadBindingReproLog } from "../t3-thread-binding-repro-log";
 import {
+  ACTION_COMPLETION_SOUND_SETTING,
   AGENT_MANAGER_ZOOM_SETTING,
   AGENTS_SETTING,
   COMPLETION_SOUND_SETTING,
@@ -309,6 +311,7 @@ import { DaemonTerminalWorkspaceBackend } from "../daemon-terminal-workspace-bac
 import { WorkspacePanelManager } from "../workspace-panel";
 import { WorkspaceAssetServer } from "../workspace-asset-server";
 import { appendWorkspacePanelStartupReproLog } from "../workspace-panel-startup-repro-log";
+import { getWebviewBuildStamp } from "../build-stamp";
 import { resolveT3BrowserAccessLink } from "../t3-browser-access";
 import {
   readSharedT3BrowserAccessState,
@@ -353,6 +356,7 @@ const FULL_RELOAD_FRONTEND_CONNECT_POLL_MS = 100;
 const SIDEBAR_ORDER_REPRO_TAG = "SIDEBAR_ORDER_REPRO";
 const AUTO_SUBMIT_STAGED_RENAME_DELAY_MS = 180;
 const SIDEBAR_STARTUP_REPRO_WINDOW_MS = 15_000;
+const SETTINGS_SOUND_PREVIEW_DEBOUNCE_MS = 150;
 const SIDEBAR_GIT_CACHE_MAX_AGE_MS = 1_500;
 const SIDEBAR_GIT_BACKGROUND_REFRESH_MAX_AGE_MS = 10_000;
 const STICKY_LIVE_BROWSER_TAB_DURATION_MS = 1_500;
@@ -461,6 +465,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly attentionAcknowledgementAvailableAtBySessionId = new Map<string, number>();
   private readonly focusedAtBySessionId = new Map<string, number>();
   private readonly pendingCompletionSoundTimeoutBySessionId = new Map<string, NodeJS.Timeout>();
+  private pendingSettingsSoundPreview:
+    | {
+        setting: typeof ACTION_COMPLETION_SOUND_SETTING | typeof COMPLETION_SOUND_SETTING;
+        sound: ReturnType<typeof getClampedCompletionSoundSetting>;
+        timeout: NodeJS.Timeout;
+      }
+    | undefined;
+  private lastPreviewedActionCompletionSoundSetting = getClampedActionCompletionSoundSetting();
+  private lastPreviewedCompletionSoundSetting = getClampedCompletionSoundSetting();
   private readonly pendingDeferredAttentionAcknowledgementBySessionId = new Map<
     string,
     {
@@ -738,12 +751,24 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         })();
       }),
       this.backend.onDidChangeSessionActivity(({ didComplete, sessionId }) => {
+        const snapshot = this.backend.getSessionSnapshot(sessionId);
         this.syncSessionActivityState(sessionId, didComplete === true);
         void this.appendFirstPromptAutoRenameReproLog("controller.firstPromptAutoRename.activity", {
           didComplete: didComplete === true,
           inProgress: this.isFirstPromptAutoRenameInProgress(sessionId),
           sessionId,
         });
+        if (
+          snapshot?.agentName?.trim().toLowerCase() === "claude" ||
+          this.isFirstPromptAutoRenameInProgress(sessionId)
+        ) {
+          void this.appendClaudeFirstMessageRenameIssueLog("controller.activityObserved", {
+            agentName: snapshot?.agentName,
+            agentStatus: snapshot?.agentStatus,
+            didComplete: didComplete === true,
+            sessionId,
+          });
+        }
         void this.processPendingFirstPromptAutoRename(sessionId);
         void this.postSessionPresentationMessage(sessionId);
       }),
@@ -988,6 +1013,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       clearTimeout(timeout);
     }
     this.pendingCompletionSoundTimeoutBySessionId.clear();
+    if (this.pendingSettingsSoundPreview) {
+      clearTimeout(this.pendingSettingsSoundPreview.timeout);
+      this.pendingSettingsSoundPreview = undefined;
+    }
     this.pendingFirstPromptAutoRenameBySessionId.clear();
     this.firstPromptAutoRenameRequestVersionBySessionId.clear();
     for (const timeout of this.pendingForkRenameTimeoutBySessionId.values()) {
@@ -1491,6 +1520,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     const persistedState = await this.backend.readPersistedSessionState(sessionId);
     const pendingPrompt = persistedState.pendingFirstPromptAutoRenamePrompt?.trim();
+    const shouldLogClaudeRenameIssue = persistedState.agentName?.trim().toLowerCase() === "claude";
     await this.appendFirstPromptAutoRenameReproLog("controller.firstPromptAutoRename.inspect", {
       agentName: persistedState.agentName,
       agentSessionId: persistedState.agentSessionId,
@@ -1501,6 +1531,18 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessionId,
       title: persistedState.title,
     });
+    if (shouldLogClaudeRenameIssue) {
+      await this.appendClaudeFirstMessageRenameIssueLog("controller.inspect", {
+        agentSessionId: persistedState.agentSessionId,
+        hasAutoTitleFromFirstPrompt: persistedState.hasAutoTitleFromFirstPrompt === true,
+        inProgress: this.isFirstPromptAutoRenameInProgress(sessionId),
+        pendingPromptLength: pendingPrompt?.length ?? 0,
+        pendingPromptPreview: getFirstPromptAutoRenamePromptPreview(pendingPrompt),
+        sessionId,
+        terminalTitle: this.terminalTitleBySessionId.get(sessionId),
+        title: persistedState.title,
+      });
+    }
     if (!pendingPrompt || persistedState.hasAutoTitleFromFirstPrompt) {
       await this.appendFirstPromptAutoRenameReproLog(
         "controller.firstPromptAutoRename.skippedNoPendingOrAlreadyNamed",
@@ -1510,6 +1552,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           sessionId,
         },
       );
+      if (shouldLogClaudeRenameIssue) {
+        await this.appendClaudeFirstMessageRenameIssueLog(
+          "controller.skippedNoPendingOrAlreadyNamed",
+          {
+            hasAutoTitleFromFirstPrompt: persistedState.hasAutoTitleFromFirstPrompt === true,
+            hasPendingPrompt: Boolean(pendingPrompt),
+            sessionId,
+          },
+        );
+      }
       return;
     }
 
@@ -1535,6 +1587,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       sessionId,
       strategy: autoRenameStrategy,
     });
+    if (shouldLogClaudeRenameIssue) {
+      await this.appendClaudeFirstMessageRenameIssueLog("controller.started", {
+        pendingPromptPreview: getFirstPromptAutoRenamePromptPreview(pendingPrompt),
+        requestVersion,
+        sessionId,
+        strategy: autoRenameStrategy,
+      });
+    }
     try {
       if (autoRenameStrategy === "sendBareRenameCommand") {
         if (!this.isCurrentFirstPromptAutoRenameRequest(sessionId, requestVersion)) {
@@ -1550,9 +1610,19 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
             requestVersion,
             sessionId,
           });
+          await this.appendClaudeFirstMessageRenameIssueLog("controller.skippedStaleRequest", {
+            requestVersion,
+            sessionId,
+            stage: "beforeClaudeRenameCommand",
+          });
           return;
         }
 
+        await this.appendClaudeFirstMessageRenameIssueLog("controller.sendingBareRenameCommand", {
+          requestVersion,
+          sessionId,
+          terminalTitle: this.terminalTitleBySessionId.get(sessionId),
+        });
         await this.writeTerminalTextPreservingLastActivity(sessionId, "/rename", false);
         await this.submitStagedRenameInAgentCli(sessionId);
         if (!this.isCurrentFirstPromptAutoRenameRequest(sessionId, requestVersion)) {
@@ -1570,6 +1640,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
             sessionId,
             title: "/rename",
           });
+          await this.appendClaudeFirstMessageRenameIssueLog(
+            "controller.skippedPersistAfterCancel",
+            {
+              requestVersion,
+              sessionId,
+              stage: "afterClaudeRenameCommand",
+            },
+          );
           return;
         }
 
@@ -1582,6 +1660,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           },
         );
         logVSmuxDebug("controller.firstPromptAutoRename.appliedClaudeRenameCommand", {
+          requestVersion,
+          sessionId,
+        });
+        await this.appendClaudeFirstMessageRenameIssueLog("controller.markedTriggered", {
           requestVersion,
           sessionId,
         });
@@ -1671,6 +1753,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         requestVersion,
         sessionId,
       });
+      if (shouldLogClaudeRenameIssue) {
+        await this.appendClaudeFirstMessageRenameIssueLog("controller.failed", {
+          error: getErrorMessage(error),
+          requestVersion,
+          sessionId,
+        });
+      }
       logVSmuxDebug("controller.firstPromptAutoRename.failed", {
         error: getErrorMessage(error),
         requestVersion,
@@ -3388,6 +3477,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
+    this.previewSoundSettingsChange(event);
     await this.backend.syncConfiguration();
     this.restartAutoSleepTimer();
     await this.runAutoSleepPass();
@@ -3410,6 +3500,51 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     this.invalidateSidebarGitHudState();
     await this.refreshSidebar("hydrate", "workspace.onDidChangeConfiguration");
+  }
+
+  private previewSoundSettingsChange(event: vscode.ConfigurationChangeEvent): void {
+    if (event.affectsConfiguration(`${SETTINGS_SECTION}.${COMPLETION_SOUND_SETTING}`)) {
+      const sound = getClampedCompletionSoundSetting();
+      if (sound !== this.lastPreviewedCompletionSoundSetting) {
+        this.lastPreviewedCompletionSoundSetting = sound;
+        this.scheduleSettingsSoundPreview(COMPLETION_SOUND_SETTING, sound);
+      }
+    }
+
+    if (event.affectsConfiguration(`${SETTINGS_SECTION}.${ACTION_COMPLETION_SOUND_SETTING}`)) {
+      const sound = getClampedActionCompletionSoundSetting();
+      if (sound !== this.lastPreviewedActionCompletionSoundSetting) {
+        this.lastPreviewedActionCompletionSoundSetting = sound;
+        this.scheduleSettingsSoundPreview(ACTION_COMPLETION_SOUND_SETTING, sound);
+      }
+    }
+  }
+
+  private scheduleSettingsSoundPreview(
+    setting: typeof ACTION_COMPLETION_SOUND_SETTING | typeof COMPLETION_SOUND_SETTING,
+    sound: ReturnType<typeof getClampedCompletionSoundSetting>,
+  ): void {
+    if (this.pendingSettingsSoundPreview) {
+      clearTimeout(this.pendingSettingsSoundPreview.timeout);
+    }
+
+    const timeout = setTimeout(() => {
+      this.pendingSettingsSoundPreview = undefined;
+      logVSmuxDebug("controller.settingsSoundPreview.firing", {
+        setting,
+        sound,
+      });
+      void this.sidebarProvider.postMessage({
+        sound,
+        type: "playCompletionSound",
+      });
+    }, SETTINGS_SOUND_PREVIEW_DEBOUNCE_MS);
+
+    this.pendingSettingsSoundPreview = {
+      setting,
+      sound,
+      timeout,
+    };
   }
 
   private shouldHydrateSidebarForConfigurationChange(
@@ -3602,6 +3737,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private getSidebarCommandSessionIndicators(
     commands: readonly { commandId: string }[],
   ): SidebarCommandSessionIndicator[] {
+    const focusedSessionId = this.getActiveSnapshot().focusedSessionId;
     return commands.flatMap((command) => {
       const storedSession = this.getStoredSidebarCommandSession(command.commandId);
       if (!storedSession) {
@@ -3624,6 +3760,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return [
         {
           commandId: command.commandId,
+          isActive: storedSession.sessionId === focusedSessionId,
           sessionId: storedSession.sessionId,
           status,
           title:
@@ -3639,6 +3776,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     type: SidebarHydrateMessage["type"] | SidebarSessionStateMessage["type"] = "sessionState",
     revision = ++this.nextSidebarRevision,
   ): Promise<ExtensionToSidebarMessage> {
+    const debuggingMode = getDebuggingMode();
     const workspaceSnapshot = this.getPresentedWorkspaceSnapshot();
     const activeSnapshot =
       workspaceSnapshot.groups.find((group) => group.groupId === workspaceSnapshot.activeGroupId)
@@ -3665,7 +3803,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       })),
       browserHasLiveProjection: () => false,
       completionBellEnabled: this.getCompletionBellEnabled(),
-      debuggingMode: getDebuggingMode(),
+      debuggingMode,
       getEffectiveSessionActivity: (sessionRecord, sessionSnapshot) =>
         getEffectiveSessionActivity(sessionActivityContext, sessionRecord, sessionSnapshot),
       getIsFirstPromptAutoRenameInProgress: (sessionId) =>
@@ -3689,7 +3827,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getShowCloseButtonOnSessionCards(),
         getShowHotkeysOnSessionCards(),
         getShowLastInteractionTimeOnSessionCards(),
-        getDebuggingMode(),
+        debuggingMode,
         this.getCompletionBellEnabled(),
         getClampedCompletionSoundSetting(),
         getSidebarAgentButtons(),
@@ -3707,6 +3845,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         getCreateSessionOnSidebarDoubleClick(),
         getRenameSessionOnDoubleClick(),
         this.getSidebarCommandSessionIndicators(sidebarCommands),
+        debuggingMode ? getWebviewBuildStamp(this.context, "sidebar") : undefined,
       ),
       platform: SHORTCUT_LABEL_PLATFORM,
       pinnedPrompts: getSidebarPinnedPrompts(this.context),
@@ -6792,6 +6931,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private async createWorkspacePanelMessage(
     type: "hydrate" | "sessionState",
   ): Promise<ExtensionToWorkspacePanelMessage> {
+    const debuggingMode = getDebuggingMode();
+    const buildStamp = debuggingMode ? getWebviewBuildStamp(this.context, "workspace") : undefined;
     const startedAt = Date.now();
     const workspaceSnapshot = this.store.getSnapshot();
     const activeSnapshot = this.getActiveSnapshot();
@@ -6915,8 +7056,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return {
         activeGroupId: workspaceSnapshot.activeGroupId,
         autoFocusRequest,
+        buildStamp,
         connection,
-        debuggingMode: getDebuggingMode(),
+        debuggingMode,
         focusedSessionId: activeSnapshot.focusedSessionId,
         layoutAppearance: this.getWorkspaceLayoutAppearance(),
         panes,
@@ -6932,8 +7074,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     return {
       activeGroupId: workspaceSnapshot.activeGroupId,
       autoFocusRequest,
+      buildStamp,
       connection,
-      debuggingMode: getDebuggingMode(),
+      debuggingMode,
       focusedSessionId: activeSnapshot.focusedSessionId,
       layoutAppearance: this.getWorkspaceLayoutAppearance(),
       panes,
@@ -7040,6 +7183,18 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       event,
       details,
     );
+  }
+
+  private async appendClaudeFirstMessageRenameIssueLog(
+    event: string,
+    details?: unknown,
+  ): Promise<void> {
+    await appendClaudeFirstMessageRenameReproLog({
+      details,
+      enabled: getDebuggingMode(),
+      event,
+      workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    });
   }
 
   private startFirstPromptAutoRenameRequest(sessionId: string): number {

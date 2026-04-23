@@ -112,6 +112,21 @@ let nextWorkspacePortalTargetId = 0;
 const DEFAULT_WORKSPACE_PANE_GAP_PX = 12;
 const SINGLE_PANE_WORKSPACE_INSET_PX = 1;
 const SINGLE_PANE_WORKSPACE_TOP_PADDING_EXTRA_PX = 2;
+const DEBUG_BUILD_STAMP_STYLE: CSSProperties = {
+  position: "fixed",
+  right: "10px",
+  bottom: "8px",
+  zIndex: 20,
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  color: "var(--vscode-foreground)",
+  fontFamily: "var(--vscode-font-family)",
+  fontSize: "10px",
+  lineHeight: 1.2,
+  fontVariantNumeric: "tabular-nums",
+  opacity: 0.72,
+};
 
 const getInitialWorkspaceState = (): WorkspaceStateMessage | undefined => {
   if (typeof window === "undefined") {
@@ -1832,6 +1847,20 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
             No active VSmux sessions in current group
             {"\n"}
             Click here to start one
+          </button>
+        ) : null}
+        {workspaceState?.debuggingMode && workspaceState.buildStamp ? (
+          <button
+            aria-label={`Copy build stamp ${workspaceState.buildStamp}`}
+            className="copy-cursor"
+            onClick={() => {
+              void navigator.clipboard.writeText(workspaceState.buildStamp ?? "").catch(() => {});
+            }}
+            style={DEBUG_BUILD_STAMP_STYLE}
+            title="Copy build stamp"
+            type="button"
+          >
+            {workspaceState.buildStamp}
           </button>
         ) : null}
         <WorkspaceWelcomeModal
