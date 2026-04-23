@@ -3,11 +3,9 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import * as vscode from "vscode";
 
-export type ManagedT3Provider = "dpcode" | "t3code";
+export type ManagedT3Provider = "t3code";
 
 const MANAGED_T3_WEB_DIST_SEGMENTS = ["apps", "web", "dist"] as const;
-
-const T3_PROVIDER_SETTING = "VSmux.t3EmbedProvider";
 
 const MANAGED_T3_PROVIDER_CONFIG: Record<
   ManagedT3Provider,
@@ -22,15 +20,6 @@ const MANAGED_T3_PROVIDER_CONFIG: Record<
     repoRootSetting?: string;
   }
 > = {
-  dpcode: {
-    sourceEntrypointSegments: ["apps", "server", "src", "index.ts"],
-    windowsEntrypointSegments: ["apps", "server", "dist", "index.mjs"],
-    bundledServerDirectoryName: "dpcode-server",
-    bundledWebDirectoryName: "dpcode-embed",
-    displayName: "DP Code",
-    envVarName: "VSMUX_DPCODE_REPO_ROOT",
-    repoDirectoryName: "dpcode-embed",
-  },
   t3code: {
     sourceEntrypointSegments: ["apps", "server", "src", "bin.ts"],
     windowsEntrypointSegments: ["apps", "server", "dist", "bin.mjs"],
@@ -43,25 +32,10 @@ const MANAGED_T3_PROVIDER_CONFIG: Record<
   },
 };
 
-const DEFAULT_MANAGED_T3_PROVIDER: ManagedT3Provider = "t3code";
-
 type ManagedT3Context = Pick<vscode.ExtensionContext, "extensionPath">;
 
-export function isManagedT3Provider(candidate: unknown): candidate is ManagedT3Provider {
-  return candidate === "dpcode" || candidate === "t3code";
-}
-
 export function getManagedT3Provider(): ManagedT3Provider {
-  const configured = vscode.workspace
-    .getConfiguration()
-    .get<string>(T3_PROVIDER_SETTING)
-    ?.trim()
-    .toLowerCase();
-  return isManagedT3Provider(configured) ? configured : DEFAULT_MANAGED_T3_PROVIDER;
-}
-
-export function getManagedT3ProviderConfigurationKey(): string {
-  return T3_PROVIDER_SETTING;
+  return "t3code";
 }
 
 export function getManagedT3ProviderDisplayName(provider: ManagedT3Provider): string {
@@ -157,16 +131,7 @@ export function getConfiguredManagedT3RepoRoot(
 
 function getManagedT3RepoRootOverride(provider: ManagedT3Provider): string | undefined {
   const providerEnv = process.env[MANAGED_T3_PROVIDER_CONFIG[provider].envVarName]?.trim();
-  if (providerEnv) {
-    return providerEnv;
-  }
-
-  if (provider !== "dpcode") {
-    return undefined;
-  }
-
-  const legacyEnv = process.env.VSMUX_T3_REPO_ROOT?.trim();
-  return legacyEnv && legacyEnv.length > 0 ? legacyEnv : undefined;
+  return providerEnv && providerEnv.length > 0 ? providerEnv : undefined;
 }
 
 function getDefaultManagedT3RepoRoot(provider: ManagedT3Provider): string {

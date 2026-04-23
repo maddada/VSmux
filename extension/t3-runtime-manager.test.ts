@@ -1,7 +1,7 @@
 import { access, mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
 const { workspaceState } = vi.hoisted(() => ({
   workspaceState: {
@@ -23,116 +23,17 @@ vi.mock("vscode", () => ({
 
 import { T3RuntimeManager } from "./t3-runtime-manager";
 
-type FakeListener = (event?: { data?: unknown }) => void;
-
-class FakeWebSocket {
-  public static readonly CONNECTING = 0;
-  public static readonly OPEN = 1;
-  public static readonly CLOSING = 2;
-  public static readonly CLOSED = 3;
-  public static instances: FakeWebSocket[] = [];
-  public static outcomes: Array<"error" | "open"> = [];
-
-  public readyState = FakeWebSocket.CONNECTING;
-  private readonly listeners = new Map<string, Array<{ listener: FakeListener; once: boolean }>>();
-
-  public constructor(public readonly url: string) {
-    FakeWebSocket.instances.push(this);
-    const outcome = FakeWebSocket.outcomes.shift() ?? "open";
-    setTimeout(() => {
-      if (outcome === "open") {
-        this.readyState = FakeWebSocket.OPEN;
-        this.dispatch("open");
-        return;
-      }
-
-      this.readyState = FakeWebSocket.CLOSED;
-      this.dispatch("error");
-      this.dispatch("close");
-    }, 0);
-  }
-
-  public static reset(): void {
-    FakeWebSocket.instances = [];
-    FakeWebSocket.outcomes = [];
-  }
-
-  public addEventListener(
-    type: string,
-    listener: FakeListener,
-    options?: { once?: boolean },
-  ): void {
-    const current = this.listeners.get(type) ?? [];
-    current.push({ listener, once: options?.once === true });
-    this.listeners.set(type, current);
-  }
-
-  public removeEventListener(type: string, listener: FakeListener): void {
-    const current = this.listeners.get(type) ?? [];
-    this.listeners.set(
-      type,
-      current.filter((entry) => entry.listener !== listener),
-    );
-  }
-
-  public close(): void {
-    this.readyState = FakeWebSocket.CLOSED;
-    this.dispatch("close");
-  }
-
-  public send(_message: string): void {}
-
-  private dispatch(type: string, event?: { data?: unknown }): void {
-    const current = [...(this.listeners.get(type) ?? [])];
-    for (const entry of current) {
-      entry.listener(event);
-      if (entry.once) {
-        this.removeEventListener(type, entry.listener);
-      }
-    }
-  }
-}
-
 describe("T3RuntimeManager", () => {
-  beforeEach(() => {
-    FakeWebSocket.reset();
-    vi.useFakeTimers();
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-  });
-
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     workspaceState.configuration = {};
     workspaceState.workspaceFolders = undefined;
-    delete process.env.VSMUX_DPCODE_REPO_ROOT;
     delete process.env.VSMUX_T3CODE_REPO_ROOT;
-    delete process.env.VSMUX_T3_REPO_ROOT;
-  });
-
-  test("should retry the websocket connection when the first startup handshake fails", async () => {
-    FakeWebSocket.outcomes = ["error", "open"];
-
-    const manager = new T3RuntimeManager({
-      globalStorageUri: { fsPath: "/tmp/vsmux-test" },
-    } as never);
-    (
-      manager as never as { getAuthenticatedWebSocketUrl: () => Promise<string> }
-    ).getAuthenticatedWebSocketUrl = vi.fn(async () => "ws://127.0.0.1:3774/ws?token=test");
-
-    const connectPromise = (manager as never as { connect: () => Promise<WebSocket> }).connect();
-
-    await vi.runAllTimersAsync();
-    const socket = await connectPromise;
-
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(socket).toBe(FakeWebSocket.instances[1]);
   });
 
   test("should resolve the managed runtime entrypoint from the open workspace checkout", async () => {
-    const repoRoot = await createManagedRepoFixture();
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "dpcode";
+    const repoRoot = await createManagedT3CodeRepoFixture();
     workspaceState.workspaceFolders = [{ uri: { fsPath: repoRoot } }];
     vi.spyOn(process, "cwd").mockReturnValue(join(repoRoot, ".tmp", "cwd"));
     const manager = new T3RuntimeManager({
@@ -153,12 +54,12 @@ describe("T3RuntimeManager", () => {
         resolveStartupCommand: (startupCommand: string) => string;
       }
     ).resolveStartupCommand("npx --yes t3");
-    expect(startupCommand).toContain(join(repoRoot, "apps", "server", "src", "index.ts"));
+    expect(startupCommand).toContain(join(repoRoot, "apps", "server", "src", "bin.ts"));
+    expect(startupCommand).toContain("--bootstrap-fd 3");
   });
 
   test("should prefer the bundled runtime when no explicit managed checkout is configured", async () => {
     const extensionRoot = await createBundledRuntimeFixture();
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "dpcode";
     const manager = new T3RuntimeManager({
       extensionPath: extensionRoot,
       globalStorageUri: { fsPath: join(extensionRoot, ".tmp", "storage") },
@@ -171,45 +72,15 @@ describe("T3RuntimeManager", () => {
     ).resolveStartupCommand("npx --yes t3");
 
     expect(startupCommand).toContain(
-      join(extensionRoot, "out", "dpcode-server", "dist", "index.mjs"),
+      join(extensionRoot, "out", "t3code-server", "dist", "bin.mjs"),
     );
-    expect(startupCommand).toContain("--mode desktop --host 127.0.0.1 --port 3774 --no-browser");
-  });
-
-  test("should prefer a sibling dpcode-embed checkout over the open VSmux workspace", async () => {
-    const parentDir = await mkdtemp(join(tmpdir(), "vsmux-parent-"));
-    const workspaceRoot = join(parentDir, "VSmux");
-    const dpcodeRoot = join(parentDir, "dpcode-embed");
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "dpcode";
-    await mkdir(workspaceRoot, { recursive: true });
-    await createManagedRepoFixture(dpcodeRoot);
-    workspaceState.workspaceFolders = [{ uri: { fsPath: workspaceRoot } }];
-    vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
-    const manager = new T3RuntimeManager({
-      extensionPath: join(workspaceRoot, "out"),
-      globalStorageUri: { fsPath: join(workspaceRoot, ".tmp", "storage") },
-    } as never);
-
-    await expect(
-      (
-        manager as never as {
-          ensureManagedRuntimeEntrypoint: () => Promise<void>;
-        }
-      ).ensureManagedRuntimeEntrypoint(),
-    ).resolves.toBeUndefined();
-
-    const startupCommand = (
-      manager as never as {
-        resolveStartupCommand: (startupCommand: string) => string;
-      }
-    ).resolveStartupCommand("npx --yes t3");
-    expect(startupCommand).toContain(join(dpcodeRoot, "apps", "server", "src", "index.ts"));
-    expect(startupCommand).not.toContain(join(workspaceRoot, "apps", "server", "src", "index.ts"));
+    expect(startupCommand).toContain(
+      "--mode desktop --host 127.0.0.1 --port 3774 --no-browser --bootstrap-fd 3",
+    );
   });
 
   test("should resolve the configured t3code provider from its bundled runtime", async () => {
     const extensionRoot = await createBundledRuntimeFixture();
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "t3code";
     vi.spyOn(process, "cwd").mockReturnValue(join(extensionRoot, ".tmp", "cwd"));
     const manager = new T3RuntimeManager({
       extensionPath: extensionRoot,
@@ -234,7 +105,6 @@ describe("T3RuntimeManager", () => {
     const t3codeRoot = join(parentDir, "t3code-embed");
     await mkdir(workspaceRoot, { recursive: true });
     await createManagedT3CodeRepoFixture(t3codeRoot);
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "t3code";
     workspaceState.workspaceFolders = [{ uri: { fsPath: workspaceRoot } }];
     vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
     const manager = new T3RuntimeManager({
@@ -260,7 +130,6 @@ describe("T3RuntimeManager", () => {
   });
 
   test("should fetch orchestration snapshots over HTTP for t3code", async () => {
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "t3code";
     const manager = new T3RuntimeManager({
       globalStorageUri: { fsPath: "/tmp/vsmux-test" },
     } as never);
@@ -288,7 +157,6 @@ describe("T3RuntimeManager", () => {
   });
 
   test("should dispatch orchestration commands over HTTP for t3code", async () => {
-    workspaceState.configuration["VSmux.t3EmbedProvider"] = "t3code";
     const manager = new T3RuntimeManager({
       globalStorageUri: { fsPath: "/tmp/vsmux-test" },
     } as never);
@@ -388,12 +256,12 @@ describe("T3RuntimeManager", () => {
   });
 
   test("should restart a managed supervisor when the installed build is newer", async () => {
-    const repoRoot = await createManagedDpRepoFixture();
+    const repoRoot = await createManagedT3CodeRepoFixture();
     const extensionRoot = await mkdtemp(join(tmpdir(), "vsmux-extension-"));
     const workspaceHostPath = join(extensionRoot, "out", "workspace", "t3-frame-host.js");
-    const embedIndexPath = join(extensionRoot, "out", "dpcode-embed", "index.html");
+    const embedIndexPath = join(extensionRoot, "out", "t3code-embed", "index.html");
     await mkdir(join(extensionRoot, "out", "workspace"), { recursive: true });
-    await mkdir(join(extensionRoot, "out", "dpcode-embed"), { recursive: true });
+    await mkdir(join(extensionRoot, "out", "t3code-embed"), { recursive: true });
     await writeFile(workspaceHostPath, "export {};\n", "utf8");
     await writeFile(embedIndexPath, "<html></html>\n", "utf8");
 
@@ -402,7 +270,7 @@ describe("T3RuntimeManager", () => {
     await utimes(workspaceHostPath, newDate, newDate);
     await utimes(embedIndexPath, newDate, newDate);
 
-    process.env.VSMUX_T3_REPO_ROOT = repoRoot;
+    process.env.VSMUX_T3CODE_REPO_ROOT = repoRoot;
 
     const manager = new T3RuntimeManager({
       extensionPath: extensionRoot,
@@ -419,7 +287,8 @@ describe("T3RuntimeManager", () => {
       JSON.stringify(
         {
           childPid: 44068,
-          command: "node dist/index.mjs --mode desktop --host 127.0.0.1 --port 3774 --no-browser",
+          command:
+            "node dist/bin.mjs --mode desktop --host 127.0.0.1 --port 3774 --no-browser --bootstrap-fd 3",
           cwd: repoRoot,
           host: "127.0.0.1",
           pid: 45620,
@@ -447,7 +316,7 @@ describe("T3RuntimeManager", () => {
 
     await expect(
       runtime.hasActiveManagedSupervisor(
-        "node dist/index.mjs --mode desktop --host 127.0.0.1 --port 3774 --no-browser",
+        "node dist/bin.mjs --mode desktop --host 127.0.0.1 --port 3774 --no-browser --bootstrap-fd 3",
       ),
     ).resolves.toBe(false);
 
@@ -456,25 +325,6 @@ describe("T3RuntimeManager", () => {
     await expect(access(join(runtimeStoragePath, "supervisor.json"))).rejects.toBeDefined();
   });
 });
-
-async function createManagedRepoFixture(targetRoot?: string): Promise<string> {
-  const repoRoot = targetRoot ?? (await mkdtemp(join(tmpdir(), "vsmux-managed-t3-")));
-  const entrypoint = join(repoRoot, "apps", "server", "src", "index.ts");
-  await mkdir(join(repoRoot, "apps", "server", "src"), { recursive: true });
-  await writeFile(entrypoint, "export {};\n", "utf8");
-  return repoRoot;
-}
-
-async function createManagedDpRepoFixture(targetRoot?: string): Promise<string> {
-  const repoRoot = targetRoot ?? (await mkdtemp(join(tmpdir(), "vsmux-managed-dp-")));
-  const sourceEntrypoint = join(repoRoot, "apps", "server", "src", "index.ts");
-  const windowsEntrypoint = join(repoRoot, "apps", "server", "dist", "index.mjs");
-  await mkdir(join(repoRoot, "apps", "server", "src"), { recursive: true });
-  await mkdir(join(repoRoot, "apps", "server", "dist"), { recursive: true });
-  await writeFile(sourceEntrypoint, "export {};\n", "utf8");
-  await writeFile(windowsEntrypoint, "export {};\n", "utf8");
-  return repoRoot;
-}
 
 async function createManagedT3CodeRepoFixture(targetRoot?: string): Promise<string> {
   const repoRoot = targetRoot ?? (await mkdtemp(join(tmpdir(), "vsmux-managed-t3code-")));
@@ -489,15 +339,10 @@ async function createManagedT3CodeRepoFixture(targetRoot?: string): Promise<stri
 
 async function createBundledRuntimeFixture(targetRoot?: string): Promise<string> {
   const extensionRoot = targetRoot ?? (await mkdtemp(join(tmpdir(), "vsmux-bundled-runtime-")));
-  const bundledEntrypoint = join(extensionRoot, "out", "dpcode-server", "dist", "index.mjs");
-  const bundledNodeModules = join(extensionRoot, "out", "dpcode-server", "node_modules");
   const bundledT3CodeEntrypoint = join(extensionRoot, "out", "t3code-server", "dist", "bin.mjs");
   const bundledT3CodeNodeModules = join(extensionRoot, "out", "t3code-server", "node_modules");
-  await mkdir(join(extensionRoot, "out", "dpcode-server", "dist"), { recursive: true });
-  await mkdir(bundledNodeModules, { recursive: true });
   await mkdir(join(extensionRoot, "out", "t3code-server", "dist"), { recursive: true });
   await mkdir(bundledT3CodeNodeModules, { recursive: true });
-  await writeFile(bundledEntrypoint, "export {};\n", "utf8");
   await writeFile(bundledT3CodeEntrypoint, "export {};\n", "utf8");
   return extensionRoot;
 }

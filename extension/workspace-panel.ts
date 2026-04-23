@@ -7,8 +7,9 @@ import type {
 } from "../shared/workspace-panel-contract";
 import { stripWorkspacePanelTransientFields } from "../shared/workspace-panel-contract";
 import { getManagedT3WebDistPath } from "./managed-t3-paths";
-import { focusEditorGroupByIndex } from "./terminal-workspace-environment";
+import { focusEditorGroupByIndex, getDefaultWorkspaceCwd } from "./terminal-workspace-environment";
 import { logVSmuxDebug } from "./vsmux-debug-log";
+import { appendWorkspacePanelStartupReproLog } from "./workspace-panel-startup-repro-log";
 
 const WORKSPACE_PANEL_TYPE = "vsmux.workspace";
 const WORKSPACE_PANEL_TITLE = "VSmux";
@@ -18,6 +19,8 @@ let activeWorkspacePanelManager: WorkspacePanelManager | undefined;
 
 type WorkspacePanelOptions = {
   context: vscode.ExtensionContext;
+  onDidDispose?: () => Promise<void> | void;
+  onDidReady?: () => Promise<void> | void;
   onMessage: (message: WorkspacePanelToExtensionMessage) => Promise<void> | void;
 };
 
@@ -68,6 +71,17 @@ export class WorkspacePanelManager implements vscode.Disposable {
             viewColumn: webviewPanel.viewColumn,
             visible: webviewPanel.visible,
           });
+          void appendWorkspacePanelStartupReproLog(
+            getDefaultWorkspaceCwd(),
+            "workspace.panel.restoredPanelAdopted",
+            {
+              active: webviewPanel.active,
+              hasLatestMessage: this.latestMessage !== undefined,
+              hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+              viewColumn: webviewPanel.viewColumn,
+              visible: webviewPanel.visible,
+            },
+          );
           this.panel = webviewPanel;
           this.configurePanel(webviewPanel);
         },
@@ -134,6 +148,14 @@ export class WorkspacePanelManager implements vscode.Disposable {
       logVSmuxDebug("workspace.panel.postMessageBuffered", {
         messageType: message.type,
       });
+      void appendWorkspacePanelStartupReproLog(
+        getDefaultWorkspaceCwd(),
+        "workspace.panel.postMessageBuffered",
+        {
+          hasRenderableMessage: isWorkspaceRenderableMessage(this.latestMessage),
+          messageType: message.type,
+        },
+      );
       return;
     }
 
@@ -187,12 +209,10 @@ export class WorkspacePanelManager implements vscode.Disposable {
       vscode.ViewColumn.One,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.options.context.extensionUri, "out", "workspace"),
-          vscode.Uri.joinPath(this.options.context.extensionUri, "out", "dpcode-embed"),
           vscode.Uri.joinPath(this.options.context.extensionUri, "out", "t3code-embed"),
-          vscode.Uri.file(getManagedT3WebDistPath("dpcode", this.options.context)),
           vscode.Uri.file(getManagedT3WebDistPath("t3code", this.options.context)),
         ],
       },
@@ -217,7 +237,20 @@ export class WorkspacePanelManager implements vscode.Disposable {
         logVSmuxDebug("workspace.panel.ready", {
           hasLatestMessage: this.latestMessage !== undefined,
         });
+        void appendWorkspacePanelStartupReproLog(
+          getDefaultWorkspaceCwd(),
+          this.latestRenderableMessage
+            ? "workspace.panel.ready"
+            : "workspace.panel.ready.missingRenderableState",
+          {
+            active: panel.active,
+            hasLatestMessage: this.latestMessage !== undefined,
+            hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+            visible: panel.visible,
+          },
+        );
         void this.postBufferedMessages(panel.webview);
+        void this.options.onDidReady?.();
         return;
       }
       void this.options.onMessage(message);
@@ -226,6 +259,16 @@ export class WorkspacePanelManager implements vscode.Disposable {
       panel.webview,
       this.options.context.extensionUri,
       this.latestRenderableMessage,
+    );
+    void appendWorkspacePanelStartupReproLog(
+      getDefaultWorkspaceCwd(),
+      "workspace.panel.configurePanel",
+      {
+        active: panel.active,
+        hasLatestMessage: this.latestMessage !== undefined,
+        hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+        visible: panel.visible,
+      },
     );
     void this.syncWorkspacePanelFocusContext(panel);
     this.disposables.push(
@@ -246,10 +289,19 @@ export class WorkspacePanelManager implements vscode.Disposable {
         this.panel = undefined;
       }
       void this.setWorkspacePanelFocusContext(false);
+      void this.options.onDidDispose?.();
     });
   }
 
   private async postBufferedMessages(webview: vscode.Webview): Promise<void> {
+    void appendWorkspacePanelStartupReproLog(
+      getDefaultWorkspaceCwd(),
+      "workspace.panel.postBufferedMessages",
+      {
+        latestMessageType: this.latestMessage?.type,
+        latestRenderableMessageType: this.latestRenderableMessage?.type,
+      },
+    );
     if (this.latestRenderableMessage) {
       await webview.postMessage(this.latestRenderableMessage);
     }
@@ -380,6 +432,9 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
   if (message.type === "ready") {
     return true;
   }
+  if (message.type === "createSession") {
+    return true;
+  }
   if (message.type === "workspaceDebugLog") {
     return typeof message.event === "string" && message.event.length > 0;
   }
@@ -430,6 +485,7 @@ function isWorkspaceMessage(candidate: unknown): candidate is WorkspacePanelToEx
     message.type === "focusSession" ||
     message.type === "closeSession" ||
     message.type === "fullReloadSession" ||
+    message.type === "cancelFirstPromptAutoRename" ||
     message.type === "promptRenameSession" ||
     message.type === "forkSession"
   ) {

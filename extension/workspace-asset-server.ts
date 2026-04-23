@@ -18,7 +18,7 @@ import {
   type ManagedT3Provider,
 } from "./managed-t3-paths";
 
-type AssetScope = "workspace" | "dpcode-embed" | "t3code-embed";
+type AssetScope = "workspace" | "t3code-embed";
 type AssetServerKind = "local" | "shared";
 type T3BrowserAccessDocumentResolver = (input: {
   requestOrigin: string;
@@ -59,7 +59,6 @@ export class WorkspaceAssetServer implements vscode.Disposable {
 
   public constructor(context: vscode.ExtensionContext) {
     this.roots = {
-      "dpcode-embed": resolveManagedT3WebRoot("dpcode", context),
       "t3code-embed": resolveManagedT3WebRoot("t3code", context),
       workspace: path.join(context.extensionPath, "out", "workspace"),
     };
@@ -275,7 +274,7 @@ export class WorkspaceAssetServer implements vscode.Disposable {
       }
 
       const [scope, ...pathSegments] = url.pathname.split("/").filter(Boolean);
-      if (scope !== "workspace" && scope !== "dpcode-embed" && scope !== "t3code-embed") {
+      if (scope !== "workspace" && scope !== "t3code-embed") {
         respondNotFound(request, response);
         return;
       }

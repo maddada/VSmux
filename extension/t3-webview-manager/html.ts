@@ -4,33 +4,25 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import type { T3SessionRecord } from "../../shared/session-grid-contract";
 import { getT3SessionBoundThreadId } from "../../shared/t3-session-metadata";
-import {
-  getManagedT3BundledWebDirectoryName,
-  getManagedT3Provider,
-  getManagedT3WebDistPath,
-  type ManagedT3Provider,
-} from "../managed-t3-paths";
+import { getManagedT3BundledWebDirectoryName, getManagedT3WebDistPath } from "../managed-t3-paths";
 import type { T3RuntimeManager } from "../t3-runtime-manager";
 import type { WorkspaceAssetServer } from "../workspace-asset-server";
 
-function getEmbeddedT3Scope(provider: ManagedT3Provider): "dpcode-embed" | "t3code-embed" {
-  return provider === "dpcode" ? "dpcode-embed" : "t3code-embed";
+function getEmbeddedT3Scope(): "t3code-embed" {
+  return "t3code-embed";
 }
 
-export function getEmbeddedT3Root(
-  context: vscode.ExtensionContext,
-  provider = getManagedT3Provider(),
-): vscode.Uri {
+export function getEmbeddedT3Root(context: vscode.ExtensionContext): vscode.Uri {
   const packagedRoot = vscode.Uri.joinPath(
     context.extensionUri,
     "out",
-    getManagedT3BundledWebDirectoryName(provider),
+    getManagedT3BundledWebDirectoryName("t3code"),
   );
   if (existsSync(path.join(packagedRoot.fsPath, "index.html"))) {
     return packagedRoot;
   }
 
-  return vscode.Uri.file(getManagedT3WebDistPath(provider, context));
+  return vscode.Uri.file(getManagedT3WebDistPath("t3code", context));
 }
 
 export async function createT3IframeSource(
@@ -39,10 +31,9 @@ export async function createT3IframeSource(
   workspaceAssetServer: WorkspaceAssetServer,
   runtime: T3RuntimeManager,
 ): Promise<string> {
-  const provider = getManagedT3Provider();
-  const embeddedRoot = getEmbeddedT3Root(context, provider);
+  const embeddedRoot = getEmbeddedT3Root(context);
   const indexPath = path.join(embeddedRoot.fsPath, "index.html");
-  const assetRootUri = await workspaceAssetServer.getRootUrl(getEmbeddedT3Scope(provider));
+  const assetRootUri = await workspaceAssetServer.getRootUrl(getEmbeddedT3Scope());
   const assetServerOrigin = new URL(assetRootUri).origin;
   const iframeHostScriptUri = await workspaceAssetServer.getUrl("workspace", "t3-frame-host.js");
 
@@ -72,13 +63,7 @@ export async function createT3IframeSource(
     styleHref: resolveEmbeddedAssetUrl(assetRootUri, stylePathMatch?.[1]),
     threadId: getT3SessionBoundThreadId(sessionRecord.t3),
     workspaceRoot: sessionRecord.t3.workspaceRoot,
-    wsUrl:
-      provider === "t3code"
-        ? toWebSocketOrigin(assetServerOrigin)
-        : appendTokenToWebSocketUrl(
-            toWebSocketOrigin(assetServerOrigin),
-            embedBootstrap.ownerBearerToken,
-          ),
+    wsUrl: toWebSocketOrigin(assetServerOrigin),
   };
 
   return createT3IframeHtml(payload);
@@ -92,10 +77,9 @@ export async function createT3BrowserAccessSource(
     browserBootstrapToken: string;
   },
 ): Promise<string> {
-  const provider = getManagedT3Provider();
-  const embeddedRoot = getEmbeddedT3Root(context, provider);
+  const embeddedRoot = getEmbeddedT3Root(context);
   const indexPath = path.join(embeddedRoot.fsPath, "index.html");
-  const assetRootUri = `${input.assetServerOrigin.replace(/\/$/, "")}/${getEmbeddedT3Scope(provider)}`;
+  const assetRootUri = `${input.assetServerOrigin.replace(/\/$/, "")}/${getEmbeddedT3Scope()}`;
   const iframeHostScriptUri = `${input.assetServerOrigin.replace(/\/$/, "")}/workspace/t3-frame-host.js`;
 
   let html: string;
@@ -284,14 +268,4 @@ function escapeHtmlText(value: string): string {
 
 function toWebSocketOrigin(serverOrigin: string): string {
   return `${serverOrigin.replace(/^http/i, "ws").replace(/\/$/, "")}/ws`;
-}
-
-function appendTokenToWebSocketUrl(wsUrl: string, token: string): string {
-  if (!token.trim()) {
-    return wsUrl;
-  }
-
-  const nextUrl = new URL(wsUrl);
-  nextUrl.searchParams.set("token", token);
-  return nextUrl.toString();
 }
