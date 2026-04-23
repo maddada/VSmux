@@ -1,4 +1,4 @@
-# VSmux - T3code & Agent CLIs Manager
+# VSmux - Agent CLIs & T3code Manager (in your IDE!)
 
 > Manage all your CLI coding agent sessions without leaving your IDE.
 
