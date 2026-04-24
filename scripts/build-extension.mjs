@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(scriptDir);
-const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const bunCommand = process.platform === "win32" ? "bun.exe" : "bun";
 const buildMode = parseBuildMode(process.argv.slice(2));
 
 async function main() {
@@ -19,18 +17,7 @@ async function main() {
         ? () => runNodeScript("scripts/build-t3-embed.rollback.mjs")
         : () => runNodeScript("scripts/build-t3-embed.mjs"),
       () => runNodeScript("scripts/vp.mjs", ["build", "--config", "vite.debug-panel.config.ts"]),
-      async () => {
-        await run(pnpmCommand, [
-          "exec",
-          "tailwindcss",
-          "-i",
-          "./chat-history/src/webview/index.css",
-          "-o",
-          "./chat-history/dist/webview.css",
-          "--minify",
-        ]);
-        await run(bunCommand, ["run", "./chat-history/esbuild.webview.ts"]);
-      },
+      () => runNodeScript("scripts/build-chat-history-webview.mjs"),
     );
   }
 

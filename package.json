@@ -52,7 +52,7 @@
     "sidebar:build": "node ./scripts/vp.mjs build --config vite.sidebar.config.ts",
     "debug-panel:build": "node ./scripts/vp.mjs build --config vite.debug-panel.config.ts",
     "workspace:build": "node ./scripts/vp.mjs build --config vite.workspace.config.ts",
-    "chat-history:webview:build": "pnpm exec tailwindcss -i ./chat-history/src/webview/index.css -o ./chat-history/dist/webview.css --minify && bun run ./chat-history/esbuild.webview.ts",
+    "chat-history:webview:build": "node ./scripts/build-chat-history-webview.mjs",
     "storybook": "node ./scripts/vp.mjs exec storybook dev -p 6006 --no-open",
     "storybook:live": "pnpm exec tsc -p ./tsconfig.extension.json && node ./scripts/storybook-live.mjs",
     "storybook:build": "node ./scripts/vp.mjs exec storybook build",
@@ -70,6 +70,7 @@
     "vsix:package": "node ./scripts/vsix.mjs package",
     "vsix:package:profile": "node ./scripts/vsix.mjs package --profile-build",
     "install": "node ./scripts/vsix.mjs install",
+    "install:dev": "node ./scripts/dev-install.mjs",
     "install:rollback": "node ./scripts/vsix.mjs install --build-script build:extension:rollback",
     "install:minimal": "node ./scripts/vsix.mjs install --build-script build:extension:minimal",
     "install:original": "node ./scripts/vsix.mjs install --build-script build:extension:original",
@@ -579,21 +580,18 @@
           "type": "string",
           "default": "non-persistent",
           "enum": [
-            "ghostty-non-persistent",
             "non-persistent",
-            "xterm"
+            "ghostty-non-persistent"
           ],
           "enumItemLabels": [
-            "Ghostty (non-persistent)",
             "xterm.js (recommended)",
-            "xterm.js (persistent)"
+            "Ghostty"
           ],
           "enumDescriptions": [
-            "Ghostty-based direct PTY terminal without daemon-side persistence. On reopen or reload, resumable sessions are recreated and resumed; other sessions reopen as a frozen snapshot.",
             "Default. Live xterm.js terminal attached straight to the backend PTY. On reopen or reload, resumable sessions are recreated and resumed; other sessions reopen as a frozen snapshot.",
-            "Stable fallback. Uses daemon-side xterm.js persistence for reconnect scrollback."
+            "Ghostty-based direct PTY terminal without daemon-side persistence. On reopen or reload, resumable sessions are recreated and resumed; other sessions reopen as a frozen snapshot."
           ],
-          "description": "Choose the default engine for new VSmux terminal sessions. xterm.js (recommended) is the default and uses a direct PTY connection without daemon-side xterm serialization. Ghostty is a beta direct PTY engine. xterm.js (persistent) keeps daemon-side reconnect scrollback."
+          "description": "Choose the default engine for new VSmux terminal sessions. xterm.js (recommended) is the default (slighty more stable). Ghostty is more performant but might have minor glitches occasionaly."
         },
         "VSmux.xtermHeadlessScrollback": {
           "title": "xterm.js Reconnect Scrollback",
