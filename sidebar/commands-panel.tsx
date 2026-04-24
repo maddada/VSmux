@@ -1211,6 +1211,11 @@ function getCommandSubject(command: SidebarCommandButton): string {
     return trimmedName;
   }
 
+  if (command.actionType === "terminal" && command.command) {
+    const firstLine = command.command.trim().split("\n")[0];
+    return firstLine.length > 0 ? firstLine : "terminal action";
+  }
+
   if (command.icon) {
     return getSidebarCommandIconLabel(command.icon);
   }
