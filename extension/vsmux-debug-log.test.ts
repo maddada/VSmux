@@ -30,6 +30,10 @@ import {
   logVSmuxReproTrace,
   resetVSmuxDebugLog,
 } from "./vsmux-debug-log";
+import {
+  appendWorkspacePanelBlankGrayReproLog,
+  getWorkspacePanelBlankGrayReproLogPath,
+} from "./workspace-panel-blank-gray-repro-log";
 
 describe("vsmux debug log", () => {
   let workspaceRoot: string | undefined;
@@ -90,6 +94,35 @@ describe("vsmux debug log", () => {
     await waitForQueueDrain();
 
     await expect(access(getVSmuxDebugLogPath(workspaceRoot))).rejects.toThrow();
+  });
+
+  test("writes blank gray repro events to a separate workspace log only when debugging is enabled", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vsmux-blank-gray-log-"));
+    debugState.enabled = true;
+    await mkdir(path.join(workspaceRoot, ".git", "info"), { recursive: true });
+
+    await appendWorkspacePanelBlankGrayReproLog(workspaceRoot, "workspace.panel.htmlAssigned", {
+      bootstrapMessageType: "sessionState",
+    });
+    await waitForQueueDrain();
+
+    const logPath = getWorkspacePanelBlankGrayReproLogPath(workspaceRoot);
+    const contents = await readFile(logPath, "utf8");
+
+    expect(logPath).toBe(
+      path.join(workspaceRoot, ".vsmux", "workspace-panel-blank-gray-repro.log"),
+    );
+    expect(contents).toContain("workspace.panel.htmlAssigned");
+    expect(contents).toContain("bootstrapMessageType");
+  });
+
+  test("does not create the blank gray repro log when debugging is disabled", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vsmux-blank-gray-disabled-"));
+
+    await appendWorkspacePanelBlankGrayReproLog(workspaceRoot, "workspace.panel.htmlAssigned");
+    await waitForQueueDrain();
+
+    await expect(access(getWorkspacePanelBlankGrayReproLogPath(workspaceRoot))).rejects.toThrow();
   });
 });
 

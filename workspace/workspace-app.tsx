@@ -427,6 +427,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
   };
 
   useEffect(() => {
+    window.__VSMUX_WORKSPACE_APP_MOUNTED__ = true;
     const bootstrapState = getInitialWorkspaceState();
     postWorkspaceStartupLog("workspaceStartup.webviewMounted", {
       bootId: workspaceBootIdRef.current,
@@ -444,6 +445,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
     });
 
     return () => {
+      window.__VSMUX_WORKSPACE_APP_MOUNTED__ = false;
       postWorkspaceDebugLog(true, "workspace.instanceUnmounted", {
         bootId: workspaceBootIdRef.current,
         documentHasFocus: document.hasFocus(),
@@ -698,6 +700,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
     messageSource.addEventListener("message", handleWorkspaceMessage);
     window.addEventListener("message", handleIframeFocus);
+    window.__VSMUX_WORKSPACE_READY_POSTED__ = true;
     postToExtension({ type: "ready" });
 
     return () => {
@@ -952,6 +955,23 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
 
     return nextStyles;
   }, [activeGroupLayoutKey, activeGroupSessionIdSet, hiddenPaneFallbackLayout, orderedPanes]);
+  const getVisiblePaneFallbackLayoutStyle = (pane: WorkspacePanelPane): CSSProperties => {
+    const cachedLayout = lastVisibleLayoutBySessionIdRef.current.get(pane.sessionId);
+    const shouldUseCachedLayout =
+      activeGroupSessionIdSet.has(pane.sessionId) &&
+      cachedLayout?.layoutKey === activeGroupLayoutKey;
+    const targetLayout = shouldUseCachedLayout
+      ? cachedLayout
+      : {
+          gridColumn: "1 / -1",
+          gridRow: "1 / span 1",
+        };
+
+    return {
+      gridColumn: targetLayout.gridColumn,
+      gridRow: targetLayout.gridRow,
+    };
+  };
 
   useEffect(() => {
     if (!workspaceState) {
@@ -1638,10 +1658,7 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ messageSource = wind
               postWorkspaceDebugLog(workspaceState.debuggingMode, event, payload)
             }
             fallbackLayoutStyle={
-              pane.isVisible
-                ? (visiblePaneLayoutBySessionId.get(workspaceState.focusedSessionId ?? "") ??
-                  visiblePaneLayoutBySessionId.get(visiblePanes[0]?.sessionId ?? ""))
-                : undefined
+              pane.isVisible ? getVisiblePaneFallbackLayoutStyle(pane) : undefined
             }
             isFocused={presentedFocusedSessionId === pane.sessionId}
             isWorkspaceFocused={isWorkspaceFocused}

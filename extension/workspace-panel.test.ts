@@ -97,6 +97,7 @@ describe("WorkspacePanelManager", () => {
     registeredSerializer = undefined;
     executeCommandMock.mockClear();
     closeTabGroupsMock.mockClear();
+    vi.mocked(vscode.window.createWebviewPanel).mockClear();
     closeTabGroupsMock.mockImplementation(async (tabsToClose: unknown) => {
       const closingTabs = Array.isArray(tabsToClose) ? tabsToClose : [tabsToClose];
       (vscode.window.tabGroups.all as unknown as Array<{ tabs: unknown[] }>) = (
@@ -185,7 +186,7 @@ describe("WorkspacePanelManager", () => {
     expect(closeTabGroupsMock).not.toHaveBeenCalled();
   });
 
-  test("should adopt restored workspace panels instead of creating new ones", async () => {
+  test("should recreate visible restored workspace panels with fresh resource roots", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
       onMessage: vi.fn(),
@@ -193,27 +194,29 @@ describe("WorkspacePanelManager", () => {
     const restoredPanel = createMockPanel({ active: true, viewColumn: 2, visible: true });
 
     await registeredSerializer?.deserializeWebviewPanel(restoredPanel);
-    await manager.reveal();
 
-    expect(restoredPanel.dispose).not.toHaveBeenCalled();
-    expect(createdPanels).toHaveLength(0);
+    expect(restoredPanel.dispose).toHaveBeenCalledTimes(1);
+    expect(createdPanels).toHaveLength(1);
+    expect(restoredPanel.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      (vscode.window.createWebviewPanel as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
+    expect(createdPanels[0]?.viewColumn).toBe(2);
+    expect(createdPanels[0]?.reveal).toHaveBeenCalledWith(2, false);
+    expect(executeCommandMock).toHaveBeenCalledWith("workbench.action.pinEditor");
 
     manager.dispose();
   });
 
-  test("should dispose duplicate restored workspace panels after adopting the first one", async () => {
+  test("should dispose hidden restored workspace panels without creating a replacement", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
       onMessage: vi.fn(),
     });
-    const restoredPanel = createMockPanel({ active: true, viewColumn: 2, visible: true });
-    const duplicateRestoredPanel = createMockPanel({ active: false, viewColumn: 3, visible: true });
+    const restoredPanel = createMockPanel({ active: false, viewColumn: 2, visible: false });
 
     await registeredSerializer?.deserializeWebviewPanel(restoredPanel);
-    await registeredSerializer?.deserializeWebviewPanel(duplicateRestoredPanel);
 
-    expect(restoredPanel.dispose).not.toHaveBeenCalled();
-    expect(duplicateRestoredPanel.dispose).toHaveBeenCalledTimes(1);
+    expect(restoredPanel.dispose).toHaveBeenCalledTimes(1);
     expect(createdPanels).toHaveLength(0);
 
     manager.dispose();
@@ -232,7 +235,7 @@ describe("WorkspacePanelManager", () => {
     manager.dispose();
   });
 
-  test("should focus an existing VSmux workspace tab instead of creating a new panel", async () => {
+  test("should close existing VSmux workspace tabs before creating a fresh panel", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
       onMessage: vi.fn(),
@@ -280,17 +283,30 @@ describe("WorkspacePanelManager", () => {
 
     await manager.reveal();
 
-    expect(closeTabGroupsMock).not.toHaveBeenCalled();
-    expect(createdPanels).toHaveLength(0);
+    expect(closeTabGroupsMock).toHaveBeenCalledWith(
+      [expect.objectContaining({ label: "VSmux" }), expect.objectContaining({ label: "VSmux" })],
+      true,
+    );
+    expect(createdPanels).toHaveLength(1);
+    expect(closeTabGroupsMock.mock.invocationCallOrder[0]).toBeLessThan(
+      (vscode.window.createWebviewPanel as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
+    expect(createdPanels[0]?.viewColumn).toBe(1);
+    expect(createdPanels[0]?.reveal).toHaveBeenCalledWith(1, false);
     expect(executeCommandMock.mock.calls.map(([command]) => command)).toEqual([
       "workbench.action.focusFirstEditorGroup",
       "workbench.action.openEditorAtIndex1",
+      "workbench.action.unpinEditor",
+      "workbench.action.focusSecondEditorGroup",
+      "workbench.action.openEditorAtIndex1",
+      "workbench.action.unpinEditor",
+      "workbench.action.pinEditor",
     ]);
 
     manager.dispose();
   });
 
-  test("should still skip creating a new panel when an existing VSmux tab cannot be selected by index", async () => {
+  test("should close stale VSmux tabs and create a fresh panel even when the stale tab cannot be selected by index", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
       onMessage: vi.fn(),
@@ -316,10 +332,16 @@ describe("WorkspacePanelManager", () => {
 
     await manager.reveal();
 
-    expect(closeTabGroupsMock).not.toHaveBeenCalled();
-    expect(createdPanels).toHaveLength(0);
+    expect(closeTabGroupsMock).toHaveBeenCalledWith(
+      [expect.objectContaining({ label: "VSmux" })],
+      true,
+    );
+    expect(createdPanels).toHaveLength(1);
+    expect(createdPanels[0]?.viewColumn).toBe(1);
+    expect(createdPanels[0]?.reveal).toHaveBeenCalledWith(1, false);
     expect(executeCommandMock.mock.calls.map(([command]) => command)).toEqual([
       "workbench.action.focusFirstEditorGroup",
+      "workbench.action.pinEditor",
     ]);
 
     manager.dispose();
@@ -966,7 +988,7 @@ describe("WorkspacePanelManager", () => {
     manager.dispose();
   });
 
-  test("should reveal the existing VSmux editor tab by focusing its group and tab index", async () => {
+  test("should replace an existing VSmux editor tab after a hidden restored panel is disposed", async () => {
     const manager = new WorkspacePanelManager({
       context: createMockContext(),
       onMessage: vi.fn(),
@@ -1004,9 +1026,19 @@ describe("WorkspacePanelManager", () => {
 
     await manager.reveal();
 
-    expect(closeTabGroupsMock).not.toHaveBeenCalled();
-    expect(executeCommandMock).toHaveBeenCalledWith("workbench.action.focusSecondEditorGroup");
-    expect(executeCommandMock).toHaveBeenCalledWith("workbench.action.openEditorAtIndex2");
+    expect(closeTabGroupsMock).toHaveBeenCalledWith(
+      [expect.objectContaining({ label: "VSmux" })],
+      true,
+    );
+    expect(createdPanels).toHaveLength(1);
+    expect(createdPanels[0]?.viewColumn).toBe(2);
+    expect(createdPanels[0]?.reveal).toHaveBeenCalledWith(2, false);
+    expect(executeCommandMock.mock.calls.map(([command]) => command)).toEqual([
+      "workbench.action.focusSecondEditorGroup",
+      "workbench.action.openEditorAtIndex2",
+      "workbench.action.unpinEditor",
+      "workbench.action.pinEditor",
+    ]);
 
     manager.dispose();
   });

@@ -9,6 +9,7 @@ import { stripWorkspacePanelTransientFields } from "../shared/workspace-panel-co
 import { getManagedT3WebDistPath } from "./managed-t3-paths";
 import { focusEditorGroupByIndex, getDefaultWorkspaceCwd } from "./terminal-workspace-environment";
 import { logVSmuxDebug } from "./vsmux-debug-log";
+import { appendWorkspacePanelBlankGrayReproLog } from "./workspace-panel-blank-gray-repro-log";
 import { appendWorkspacePanelStartupReproLog } from "./workspace-panel-startup-repro-log";
 
 const WORKSPACE_PANEL_TYPE = "vsmux.workspace";
@@ -69,14 +70,14 @@ export class WorkspacePanelManager implements vscode.Disposable {
             return;
           }
 
-          logVSmuxDebug("workspace.panel.restoredPanelAdopted", {
+          logVSmuxDebug("workspace.panel.disposingRestoredPanelForFreshResourceRoots", {
             active: webviewPanel.active,
             viewColumn: webviewPanel.viewColumn,
             visible: webviewPanel.visible,
           });
           void appendWorkspacePanelStartupReproLog(
             getDefaultWorkspaceCwd(),
-            "workspace.panel.restoredPanelAdopted",
+            "workspace.panel.disposingRestoredPanelForFreshResourceRoots",
             {
               active: webviewPanel.active,
               hasLatestMessage: this.latestMessage !== undefined,
@@ -85,8 +86,23 @@ export class WorkspacePanelManager implements vscode.Disposable {
               visible: webviewPanel.visible,
             },
           );
-          this.panel = webviewPanel;
-          this.configurePanel(webviewPanel);
+          void appendWorkspacePanelBlankGrayReproLog(
+            getDefaultWorkspaceCwd(),
+            "workspace.panel.disposingRestoredPanelForFreshResourceRoots",
+            {
+              active: webviewPanel.active,
+              hasLatestMessage: this.latestMessage !== undefined,
+              hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+              viewColumn: webviewPanel.viewColumn,
+              visible: webviewPanel.visible,
+            },
+          );
+          const shouldRecreateVisiblePanel = webviewPanel.active || webviewPanel.visible;
+          const targetViewColumn = webviewPanel.viewColumn ?? vscode.ViewColumn.One;
+          webviewPanel.dispose();
+          if (shouldRecreateVisiblePanel) {
+            await this.recreatePanelAfterRestoredResourceFailure(targetViewColumn);
+          }
         },
       }),
     );
@@ -202,12 +218,16 @@ export class WorkspacePanelManager implements vscode.Disposable {
 
     const existingWorkspaceTab = findWorkspaceTab(vscode.window.tabGroups.all);
     if (existingWorkspaceTab) {
-      const revealedExistingTab = await this.revealWorkspaceTab(existingWorkspaceTab);
-      logVSmuxDebug("workspace.panel.reusedExistingTabWithoutPanel", {
+      const targetViewColumn = existingWorkspaceTab.group.viewColumn ?? vscode.ViewColumn.One;
+      const closedTabCount = await closeWorkspacePanelTabs();
+      logVSmuxDebug("workspace.panel.replacedExistingTabWithoutPanel", {
+        closedTabCount,
         hasLatestMessage: this.latestMessage !== undefined,
-        revealedExistingTab,
+        targetViewColumn,
       });
-      return undefined;
+      const panel = this.getOrCreatePanel(targetViewColumn);
+      await this.pinWorkspaceTab();
+      return panel;
     }
 
     const panel = this.getOrCreatePanel();
@@ -215,7 +235,9 @@ export class WorkspacePanelManager implements vscode.Disposable {
     return panel;
   }
 
-  private getOrCreatePanel(): vscode.WebviewPanel {
+  private getOrCreatePanel(
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.One,
+  ): vscode.WebviewPanel {
     if (this.panel) {
       return this.panel;
     }
@@ -223,7 +245,7 @@ export class WorkspacePanelManager implements vscode.Disposable {
     const panel = vscode.window.createWebviewPanel(
       WORKSPACE_PANEL_TYPE,
       WORKSPACE_PANEL_TITLE,
-      vscode.ViewColumn.One,
+      viewColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -235,12 +257,38 @@ export class WorkspacePanelManager implements vscode.Disposable {
       },
     );
     logVSmuxDebug("workspace.panel.created", {
-      retainContextWhenHidden: false,
+      retainContextWhenHidden: true,
       viewColumn: panel.viewColumn,
     });
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "workspace.panel.created",
+      {
+        active: panel.active,
+        hasLatestMessage: this.latestMessage !== undefined,
+        hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+        retainContextWhenHidden: true,
+        viewColumn: panel.viewColumn,
+        visible: panel.visible,
+      },
+    );
     this.panel = panel;
     this.configurePanel(panel);
     return panel;
+  }
+
+  /**
+   * CDXC:Workspace-panel 2026-04-24-19:20
+   * Restored VS Code webviews can retain stale resource authorization and return 401 for
+   * extension-bundled JS. Recreate visible restored panels so workspace.js loads with fresh roots.
+   */
+  private async recreatePanelAfterRestoredResourceFailure(
+    viewColumn: vscode.ViewColumn,
+  ): Promise<void> {
+    await closeWorkspacePanelTabs();
+    const panel = this.getOrCreatePanel(viewColumn);
+    await this.pinWorkspaceTab();
+    panel.reveal(viewColumn, false);
   }
 
   private configurePanel(panel: vscode.WebviewPanel): void {
@@ -266,6 +314,16 @@ export class WorkspacePanelManager implements vscode.Disposable {
             visible: panel.visible,
           },
         );
+        void appendWorkspacePanelBlankGrayReproLog(
+          getDefaultWorkspaceCwd(),
+          "workspace.panel.ready",
+          {
+            active: panel.active,
+            hasLatestMessage: this.latestMessage !== undefined,
+            hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+            visible: panel.visible,
+          },
+        );
         void this.postBufferedMessages(panel.webview);
         void this.options.onDidReady?.();
         return;
@@ -276,6 +334,17 @@ export class WorkspacePanelManager implements vscode.Disposable {
       panel.webview,
       this.options.context.extensionUri,
       this.latestRenderableMessage,
+    );
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "workspace.panel.htmlAssigned",
+      {
+        active: panel.active,
+        bootstrapMessageType: this.latestRenderableMessage?.type,
+        hasLatestMessage: this.latestMessage !== undefined,
+        hasLatestRenderableMessage: this.latestRenderableMessage !== undefined,
+        visible: panel.visible,
+      },
     );
     void appendWorkspacePanelStartupReproLog(
       getDefaultWorkspaceCwd(),
@@ -295,6 +364,15 @@ export class WorkspacePanelManager implements vscode.Disposable {
           visible: event.webviewPanel.visible,
           viewColumn: event.webviewPanel.viewColumn,
         });
+        void appendWorkspacePanelBlankGrayReproLog(
+          getDefaultWorkspaceCwd(),
+          "workspace.panel.viewStateChanged",
+          {
+            active: event.webviewPanel.active,
+            visible: event.webviewPanel.visible,
+            viewColumn: event.webviewPanel.viewColumn,
+          },
+        );
         void this.syncWorkspacePanelFocusContext(event.webviewPanel);
       }),
     );
@@ -311,6 +389,14 @@ export class WorkspacePanelManager implements vscode.Disposable {
   }
 
   private async postBufferedMessages(webview: vscode.Webview): Promise<void> {
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "workspace.panel.postBufferedMessages",
+      {
+        latestMessageType: this.latestMessage?.type,
+        latestRenderableMessageType: this.latestRenderableMessage?.type,
+      },
+    );
     void appendWorkspacePanelStartupReproLog(
       getDefaultWorkspaceCwd(),
       "workspace.panel.postBufferedMessages",
@@ -399,6 +485,7 @@ function getWorkspaceHtml(
     `frame-src ${webview.cspSource} data: blob:`,
   ].join("; ");
   const bootstrapScript = getWorkspaceBootstrapScript(bootstrapMessage, nonce);
+  const earlyDiagnosticsScript = getWorkspaceEarlyDiagnosticsScript(bootstrapMessage, nonce);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -420,10 +507,94 @@ function getWorkspaceHtml(
   </head>
   <body>
     <div id="root"></div>
+    ${earlyDiagnosticsScript}
     ${bootstrapScript}
     <script nonce="${nonce}" src="${scriptUri}" type="module"></script>
   </body>
 </html>`;
+}
+
+function getWorkspaceEarlyDiagnosticsScript(
+  message: WorkspaceRenderableMessage | undefined,
+  nonce: string,
+): string {
+  const bootstrapSummary = JSON.stringify(summarizeBootstrapMessage(message)).replace(
+    /</g,
+    "\\u003c",
+  );
+
+  return `<script nonce="${nonce}">
+(function () {
+  var vscodeApi = window.__VSMUX_WORKSPACE_VSCODE__ || acquireVsCodeApi();
+  window.__VSMUX_WORKSPACE_VSCODE__ = vscodeApi;
+  var bootStartedAt = Date.now();
+  var bootstrapSummary = ${bootstrapSummary};
+  function describeRoot() {
+    var root = document.getElementById("root");
+    return {
+      childElementCount: root ? root.childElementCount : undefined,
+      hasRoot: !!root,
+      rootTextLength: root && root.textContent ? root.textContent.length : 0
+    };
+  }
+  function post(event, details) {
+    try {
+      vscodeApi.postMessage({
+        details: Object.assign({
+          appMounted: window.__VSMUX_WORKSPACE_APP_MOUNTED__ === true,
+          bootstrap: bootstrapSummary,
+          documentReadyState: document.readyState,
+          elapsedMs: Date.now() - bootStartedAt,
+          hidden: document.hidden,
+          reactRenderScheduled: window.__VSMUX_WORKSPACE_REACT_RENDER_SCHEDULED__ === true,
+          readyPosted: window.__VSMUX_WORKSPACE_READY_POSTED__ === true,
+          root: describeRoot(),
+          visibilityState: document.visibilityState
+        }, details || {}),
+        event: event,
+        type: "workspaceDebugLog"
+      });
+    } catch (_error) {}
+  }
+  window.__VSMUX_WORKSPACE_EARLY_LOG__ = post;
+  window.addEventListener("error", function (event) {
+    post("workspaceStartup.windowError", {
+      colno: event.colno,
+      filename: event.filename,
+      lineno: event.lineno,
+      message: event.message
+    });
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    var reason = event.reason;
+    post("workspaceStartup.unhandledRejection", {
+      message: reason && reason.message ? String(reason.message) : String(reason),
+      name: reason && reason.name ? String(reason.name) : undefined,
+      stack: reason && reason.stack ? String(reason.stack) : undefined
+    });
+  });
+  document.addEventListener("DOMContentLoaded", function () {
+    post("workspaceStartup.domContentLoaded");
+  }, { once: true });
+  window.addEventListener("load", function () {
+    post("workspaceStartup.windowLoaded");
+  }, { once: true });
+  post("workspaceStartup.htmlBoot");
+  window.setTimeout(function () {
+    post("workspaceStartup.earlyCheckpoint");
+  }, 1500);
+})();
+</script>`;
+}
+
+function summarizeBootstrapMessage(message: WorkspaceRenderableMessage | undefined) {
+  return {
+    activeGroupId: message?.activeGroupId,
+    focusedSessionId: message?.focusedSessionId,
+    paneCount: message?.panes.length ?? 0,
+    paneIds: message?.panes.map((pane) => pane.sessionId) ?? [],
+    type: message?.type,
+  };
 }
 
 function getWorkspaceBootstrapScript(

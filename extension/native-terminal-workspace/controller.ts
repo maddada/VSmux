@@ -313,6 +313,7 @@ import {
 import { DaemonTerminalWorkspaceBackend } from "../daemon-terminal-workspace-backend";
 import { WorkspacePanelManager } from "../workspace-panel";
 import { WorkspaceAssetServer } from "../workspace-asset-server";
+import { appendWorkspacePanelBlankGrayReproLog } from "../workspace-panel-blank-gray-repro-log";
 import { appendWorkspacePanelStartupReproLog } from "../workspace-panel-startup-repro-log";
 import { getWebviewBuildStamp } from "../build-stamp";
 import { resolveT3BrowserAccessLink } from "../t3-browser-access";
@@ -413,6 +414,13 @@ type CloseSessionSource =
   | "kill-t3-runtime-session"
   | "sidebar"
   | "workspace";
+
+type SidebarCommandExitObserverOptions = {
+  closeOnExit: boolean;
+  commandId: string;
+  playCompletionSound: boolean;
+  runId: string;
+};
 
 export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly backend: DaemonTerminalWorkspaceBackend;
@@ -658,6 +666,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
             });
           }
           if (message.event.startsWith("workspaceStartup.")) {
+            void appendWorkspacePanelBlankGrayReproLog(getDefaultWorkspaceCwd(), event, {
+              details: message.details,
+              workspaceId: this.workspaceId,
+            });
             void appendWorkspacePanelStartupReproLog(getDefaultWorkspaceCwd(), event, {
               details: message.details,
               workspaceId: this.workspaceId,
@@ -895,6 +907,16 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         workspaceId: this.workspaceId,
       },
     );
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "controller.initialize.start",
+      {
+        activeGroupId: this.store.getSnapshot().activeGroupId,
+        sessionCount: this.getAllSessionRecords().length,
+        workspacePanelVisible: this.workspacePanel.isVisible(),
+        workspaceId: this.workspaceId,
+      },
+    );
     await this.backend.initialize(this.getAllSessionRecords());
     await this.reconcileSidebarCommandSessions();
     this.restartAutoSleepTimer();
@@ -920,6 +942,17 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.flushDeferredStartupSidebarSessionState();
     await this.publishAgentManagerXSnapshot();
     void appendWorkspacePanelStartupReproLog(
+      getDefaultWorkspaceCwd(),
+      "controller.initialize.complete",
+      {
+        activeGroupId: this.store.getSnapshot().activeGroupId,
+        focusedSessionId: this.store.getFocusedSession()?.sessionId,
+        sessionCount: this.getAllSessionRecords().length,
+        workspacePanelVisible: this.workspacePanel.isVisible(),
+        workspaceId: this.workspaceId,
+      },
+    );
+    void appendWorkspacePanelBlankGrayReproLog(
       getDefaultWorkspaceCwd(),
       "controller.initialize.complete",
       {
@@ -962,6 +995,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   }
 
   private async handleWorkspacePanelReady(): Promise<void> {
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "controller.handleWorkspacePanelReady",
+      {
+        hasCompletedInitialActivityHydration: this.hasCompletedInitialActivityHydration,
+        isDisposed: this.isDisposed,
+        workspaceId: this.workspaceId,
+      },
+    );
     if (this.isDisposed || !this.hasCompletedInitialActivityHydration) {
       return;
     }
@@ -2966,6 +3008,33 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.refreshSidebar("hydrate");
   }
 
+  /**
+   * CDXC:Actions 2026-04-24-20:10
+   * Users can stop an active terminal action from the button middle-click or context menu; closing
+   * the stored command session and clearing transient run feedback returns a loading action to its
+   * default button state without waiting for the exit poller.
+   */
+  public async endSidebarCommandRun(commandId: string): Promise<void> {
+    const storedSession = this.getStoredSidebarCommandSession(commandId);
+    if (!storedSession) {
+      await this.clearSidebarCommandRunState(commandId);
+      return;
+    }
+
+    const sessionSnapshot = this.backend.getSessionSnapshot(storedSession.sessionId);
+    const isRunning =
+      sessionSnapshot?.status === "starting" || sessionSnapshot?.status === "running";
+
+    if (isRunning || this.store.getSession(storedSession.sessionId)) {
+      await this.closeSession(storedSession.sessionId, "sidebar-command");
+    } else {
+      await this.clearSidebarCommandSessionByCommandId(commandId);
+      await this.refreshSidebarFromCurrentState();
+    }
+
+    await this.clearSidebarCommandRunState(commandId);
+  }
+
   public async syncSidebarCommandOrder(
     requestId: string,
     commandIds: readonly string[],
@@ -3336,6 +3405,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       killT3RuntimeSession: async (sessionId) => this.killT3RuntimeSession(sessionId),
       deleteSidebarAgent: async (agentId) => this.deleteSidebarAgent(agentId),
       deleteSidebarCommand: async (commandId) => this.deleteSidebarCommand(commandId),
+      endSidebarCommandRun: async (commandId) => this.endSidebarCommandRun(commandId),
       focusGroup: async (groupId, source) => this.focusGroup(groupId, source),
       focusSession: async (sessionId, source) => this.focusSession(sessionId, source),
       moveSessionToGroup: async (sessionId, groupId, targetIndex) =>
@@ -6076,6 +6146,13 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     await this.persistSidebarCommandSessionState();
   }
 
+  private async clearSidebarCommandRunState(commandId: string): Promise<void> {
+    await this.sidebarProvider.postMessage({
+      commandId,
+      type: "sidebarCommandRunStateCleared",
+    });
+  }
+
   private async reconcileSidebarCommandSessions(): Promise<void> {
     let persistedStateChanged = false;
 
@@ -6229,12 +6306,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private observeSidebarCommandSessionExit(
     sessionId: string,
-    options: {
-      closeOnExit: boolean;
-      commandId: string;
-      playCompletionSound: boolean;
-      runId: string;
-    },
+    options: SidebarCommandExitObserverOptions,
   ): void {
     this.stopObservingSidebarCommandExit(sessionId);
     const interval = setInterval(() => {
@@ -6898,6 +6970,22 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           (pane) => `${pane.sessionId}:${pane.isVisible ? "visible" : "hidden"}`,
         ),
         type: message.type,
+        workspaceId: this.workspaceId,
+      },
+    );
+    void appendWorkspacePanelBlankGrayReproLog(
+      getDefaultWorkspaceCwd(),
+      "controller.refreshWorkspacePanel",
+      {
+        activeGroupId: message.activeGroupId,
+        durationMs: Date.now() - startedAt,
+        focusedSessionId: message.focusedSessionId,
+        paneCount: message.panes.length,
+        paneIds: message.panes.map(
+          (pane) => `${pane.sessionId}:${pane.isVisible ? "visible" : "hidden"}`,
+        ),
+        type: message.type,
+        visibleCount: message.visibleCount,
         workspaceId: this.workspaceId,
       },
     );
