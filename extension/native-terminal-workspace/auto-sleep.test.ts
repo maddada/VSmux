@@ -16,6 +16,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(true);
   });
@@ -28,6 +29,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(true);
   });
@@ -40,6 +42,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(true);
   });
@@ -52,6 +55,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(false);
   });
@@ -64,6 +68,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(false);
   });
@@ -76,6 +81,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(false);
   });
@@ -88,6 +94,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: false,
         isSleeping: false,
+        isVisible: false,
       }),
     ).toBe(false);
   });
@@ -100,6 +107,7 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: false,
         isRunning: true,
         isSleeping: true,
+        isVisible: false,
       }),
     ).toBe(false);
   });
@@ -112,6 +120,20 @@ describe("shouldAutoSleepSidebarSession", () => {
         isFocused: true,
         isRunning: true,
         isSleeping: false,
+        isVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("should skip visible surfaced sessions even when they are not focused", () => {
+    expect(
+      shouldAutoSleepSidebarSession({
+        activity: "idle",
+        agentIcon: "claude",
+        isFocused: false,
+        isRunning: true,
+        isSleeping: false,
+        isVisible: true,
       }),
     ).toBe(false);
   });

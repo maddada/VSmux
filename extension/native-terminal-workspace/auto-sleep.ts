@@ -10,10 +10,16 @@ export const AUTO_SLEEP_FOCUS_GRACE_MS = 10 * 60_000;
 export function shouldAutoSleepSidebarSession(
   session: Pick<
     SidebarSessionItem,
-    "activity" | "agentIcon" | "isFocused" | "isRunning" | "isSleeping" | "lifecycleState"
+    | "activity"
+    | "agentIcon"
+    | "isFocused"
+    | "isRunning"
+    | "isSleeping"
+    | "isVisible"
+    | "lifecycleState"
   >,
 ): boolean {
-  if (session.isSleeping === true || session.isFocused === true) {
+  if (session.isSleeping === true || session.isFocused === true || session.isVisible === true) {
     return false;
   }
 
