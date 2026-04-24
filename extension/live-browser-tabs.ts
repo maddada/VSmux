@@ -23,6 +23,7 @@ const EXTENSION_LABEL_FRAGMENT = "Extension:";
 const WORKING_TREE_LABEL_FRAGMENT = "(Working Tree)";
 const INDEX_LABEL_FRAGMENT = "(Index)";
 const FILE_LIKE_LABEL_SUFFIX_PATTERN = /\.(?:[a-z0-9]{1,8})(?:\s*\([^)]+\))?$/i;
+const UNKNOWN_BROWSER_TAB_STICKY_TTL_MS = 30_000;
 const IGNORED_WEBVIEW_VIEW_TYPES = new Set([
   "claudevscodepanel",
   "claudeplanpreview",
@@ -77,7 +78,21 @@ type StorybookBrowserTabDebugEntry = {
   viewType?: string;
 };
 
+type RecentUnknownBrowserTab = {
+  detail?: string;
+  expiresAt: number;
+  identity: string;
+  label: string;
+  url?: string;
+};
+
+type InspectedTab = {
+  inspection: LiveBrowserTabInspection;
+  tab: vscode.Tab;
+};
+
 let lastStorybookBrowserTabScanSummarySignature: string | undefined;
+const recentUnknownBrowserTabByViewColumn = new Map<vscode.ViewColumn, RecentUnknownBrowserTab>();
 
 export function getLiveBrowserTabs(
   tabGroups: readonly vscode.TabGroup[] = vscode.window.tabGroups.all,
@@ -98,9 +113,35 @@ export function getLiveBrowserTabs(
       continue;
     }
 
-    for (const tab of group.tabs) {
+    const inspectedTabs = group.tabs.map((tab): InspectedTab => {
       totalTabCount += 1;
-      const browserTabInspection = inspectLiveBrowserTab(tab);
+      return {
+        inspection: inspectLiveBrowserTab(tab),
+        tab,
+      };
+    });
+    const groupHasAcceptedBrowserTab = inspectedTabs.some(({ inspection }) => inspection.accepted);
+    let didAcceptStickyUnknownBrowserTab = false;
+
+    for (const { inspection, tab } of inspectedTabs) {
+      const browserTabInspection = maybeApplyRecentUnknownBrowserTabInspection(
+        group.viewColumn,
+        tab,
+        inspection,
+        Date.now(),
+        {
+          groupHasAcceptedBrowserTab,
+          stickyAlreadyAcceptedInGroup: didAcceptStickyUnknownBrowserTab,
+        },
+      );
+      if (
+        browserTabInspection.accepted &&
+        browserTabInspection.inputKind === "undefined" &&
+        browserTabInspection.reason === "accepted:recent-unknown-browser-title"
+      ) {
+        didAcceptStickyUnknownBrowserTab = true;
+      }
+      rememberRecentUnknownBrowserTab(group.viewColumn, tab, browserTabInspection, Date.now());
       storybookDebugEntries.push({
         accepted: browserTabInspection.accepted,
         groupIsActive: group.isActive,
@@ -177,6 +218,11 @@ export function findLiveBrowserTabBySessionId(
 
 export function isBrowserSidebarSessionId(sessionId: string): boolean {
   return sessionId.startsWith(BROWSER_SIDEBAR_SESSION_PREFIX);
+}
+
+export function resetLiveBrowserTabDetectionStateForTests(): void {
+  lastStorybookBrowserTabScanSummarySignature = undefined;
+  recentUnknownBrowserTabByViewColumn.clear();
 }
 
 export function normalizeSidebarBrowserUrl(url: string | undefined): string | undefined {
@@ -432,6 +478,65 @@ function createBrowserSidebarSessionId(
   ].join("|");
 }
 
+function maybeApplyRecentUnknownBrowserTabInspection(
+  viewColumn: vscode.ViewColumn,
+  tab: vscode.Tab,
+  inspection: LiveBrowserTabInspection,
+  now: number,
+  options: {
+    groupHasAcceptedBrowserTab: boolean;
+    stickyAlreadyAcceptedInGroup: boolean;
+  },
+): LiveBrowserTabInspection {
+  if (
+    inspection.accepted ||
+    inspection.inputKind !== "undefined" ||
+    inspection.reason !== "ignored:no-supported-browser-signal" ||
+    options.groupHasAcceptedBrowserTab ||
+    options.stickyAlreadyAcceptedInGroup ||
+    !isLikelyRecentUnknownBrowserTabTitle(tab.label)
+  ) {
+    return inspection;
+  }
+
+  const recentBrowserTab = recentUnknownBrowserTabByViewColumn.get(viewColumn);
+  if (!recentBrowserTab || recentBrowserTab.expiresAt <= now) {
+    recentUnknownBrowserTabByViewColumn.delete(viewColumn);
+    return inspection;
+  }
+
+  return {
+    accepted: true,
+    detail: recentBrowserTab.detail,
+    identity: recentBrowserTab.identity,
+    inputKind: inspection.inputKind,
+    labelUrl: inspection.labelUrl,
+    rawUrl: inspection.rawUrl,
+    reason: "accepted:recent-unknown-browser-title",
+    url: recentBrowserTab.url,
+    viewType: inspection.viewType,
+  };
+}
+
+function rememberRecentUnknownBrowserTab(
+  viewColumn: vscode.ViewColumn,
+  tab: vscode.Tab,
+  inspection: LiveBrowserTabInspection,
+  now: number,
+): void {
+  if (!inspection.accepted || inspection.inputKind !== "undefined") {
+    return;
+  }
+
+  recentUnknownBrowserTabByViewColumn.set(viewColumn, {
+    detail: inspection.detail,
+    expiresAt: now + UNKNOWN_BROWSER_TAB_STICKY_TTL_MS,
+    identity: inspection.identity,
+    label: tab.label,
+    url: inspection.url,
+  });
+}
+
 function inspectLiveBrowserTab(tab: vscode.Tab): LiveBrowserTabInspection {
   const inputKind = getBrowserTabInputKind(tab);
   if (tab.label.trim().startsWith(VSMUX_SEARCH_LABEL_PREFIX)) {
@@ -625,6 +730,19 @@ function isLikelyUnknownBrowserTabTitle(label: string): boolean {
     trimmedLabel.includes("\\") ||
     FILE_LIKE_LABEL_SUFFIX_PATTERN.test(trimmedLabel)
   ) {
+    return false;
+  }
+
+  return /[a-z]/i.test(trimmedLabel);
+}
+
+function isLikelyRecentUnknownBrowserTabTitle(label: string): boolean {
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) {
+    return false;
+  }
+
+  if (trimmedLabel.includes("\\") || FILE_LIKE_LABEL_SUFFIX_PATTERN.test(trimmedLabel)) {
     return false;
   }
 

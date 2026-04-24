@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 vi.mock("vscode", () => ({
   TabInputCustom: class TabInputCustom {
@@ -42,9 +42,13 @@ vi.mock("vscode", () => ({
 }));
 
 import * as vscode from "vscode";
-import { getLiveBrowserTabs } from "./live-browser-tabs";
+import { getLiveBrowserTabs, resetLiveBrowserTabDetectionStateForTests } from "./live-browser-tabs";
 
 describe("getLiveBrowserTabs", () => {
+  beforeEach(() => {
+    resetLiveBrowserTabDetectionStateForTests();
+  });
+
   test("should ignore browser webviews whose labels do not look like urls", () => {
     const browserTabs = getLiveBrowserTabs([
       {
@@ -195,6 +199,50 @@ describe("getLiveBrowserTabs", () => {
         detail: "https://example.com/docs/routing",
         inputKind: "undefined",
         url: "https://example.com/docs/routing",
+      }),
+    );
+  });
+
+  test("should keep a recently accepted unknown browser tab when it renames to a slash title", () => {
+    getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: undefined,
+            isActive: true,
+            label: "Storybook",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    const browserTabs = getLiveBrowserTabs([
+      {
+        isActive: true,
+        tabs: [
+          {
+            input: undefined,
+            isActive: true,
+            label: "Sidebar / Interactions - Toolb...",
+          },
+          {
+            input: undefined,
+            isActive: false,
+            label: "Sidebar / Interactions - Toolb...",
+          },
+        ],
+        viewColumn: 1,
+      } as never,
+    ]);
+
+    expect(browserTabs).toHaveLength(1);
+    expect(browserTabs[0]).toEqual(
+      expect.objectContaining({
+        inputKind: "undefined",
+        label: "Sidebar / Interactions - Toolb...",
+        url: undefined,
       }),
     );
   });
