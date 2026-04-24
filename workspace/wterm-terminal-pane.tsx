@@ -19,6 +19,7 @@ import "./terminal-pane.css";
 
 const IS_WINDOWS = navigator.platform.toLowerCase().includes("win");
 const SCROLL_TO_BOTTOM_SHOW_THRESHOLD_PX = 40;
+const RESTORE_RESIZE_SUPPRESSION_MS = 500;
 
 type WtermTerminalPaneProps = {
   autoFocusRequest?: WorkspacePanelAutoFocusRequest;
@@ -60,7 +61,10 @@ export const WtermTerminalPane: React.FC<WtermTerminalPaneProps> = ({
   const debugLogRef = useRef(debugLog);
   const isFocusedRef = useRef(isFocused);
   const isVisibleRef = useRef(isVisible);
+  const previousIsVisibleRef = useRef(isVisible);
   const isInitializingRef = useRef(true);
+  const restoreResizeSuppressedUntilRef = useRef(0);
+  const isRevertingRestoreResizeRef = useRef(false);
   const lastFocusActivationAtRef = useRef(0);
   const lastFocusActivationTargetRef = useRef<EventTarget | null>(null);
   const onAttentionInteractionRef = useRef(onAttentionInteraction);
@@ -77,6 +81,10 @@ export const WtermTerminalPane: React.FC<WtermTerminalPaneProps> = ({
   }, [isFocused]);
 
   useEffect(() => {
+    if (!previousIsVisibleRef.current && isVisible && termRef.current) {
+      restoreResizeSuppressedUntilRef.current = performance.now() + RESTORE_RESIZE_SUPPRESSION_MS;
+    }
+    previousIsVisibleRef.current = isVisible;
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
@@ -216,6 +224,30 @@ export const WtermTerminalPane: React.FC<WtermTerminalPaneProps> = ({
           }
         },
         onResize: (cols, rows) => {
+          const snapshotCols = pane.snapshot?.cols;
+          const snapshotRows = pane.snapshot?.rows;
+          if (
+            (!isVisibleRef.current ||
+              restoreResizeSuppressedUntilRef.current > performance.now()) &&
+            !isRevertingRestoreResizeRef.current &&
+            snapshotCols &&
+            snapshotRows &&
+            (cols !== snapshotCols || rows !== snapshotRows)
+          ) {
+            reportDebug("wterm.restoreResizeSuppressed", {
+              cols,
+              rows,
+              sessionId: pane.sessionId,
+              snapshotCols,
+              snapshotRows,
+            });
+            isRevertingRestoreResizeRef.current = true;
+            requestAnimationFrame(() => {
+              term.resize(snapshotCols, snapshotRows);
+              isRevertingRestoreResizeRef.current = false;
+            });
+            return;
+          }
           reportDebug("wterm.resizeObserved", {
             cols,
             rows,

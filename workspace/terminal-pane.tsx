@@ -12,7 +12,7 @@ import { logWorkspaceDebug } from "./workspace-debug";
 import { getResttyFontSources, getResttyTheme } from "./restty-terminal-config";
 import { TerminalLoadingOverlay } from "./terminal-loading-overlay";
 import {
-  getShiftEnterInputSequence,
+  getGhosttyResttyKeyRemap,
   getWindowsCtrlWordDeleteInputSequence,
 } from "./terminal-input-shortcuts";
 import { useTerminalLoadingOverlayProgress } from "./use-terminal-loading-overlay-progress";
@@ -28,6 +28,7 @@ import "./terminal-pane.css";
 
 let nextTerminalPaneInstanceId = 0;
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const remappedResttyKeyboardEvents = new WeakSet<KeyboardEvent>();
 const RESTTY_STARTUP_BACKGROUND = "#121212";
 const TYPING_AUTO_SCROLL_BURST_WINDOW_MS = 450;
 const TYPING_AUTO_SCROLL_TRIGGER_COUNT = 4;
@@ -42,6 +43,8 @@ const SEARCH_RESULTS_EMPTY = {
   resultCount: 0,
   resultIndex: -1,
 };
+const RESTORE_RESIZE_SUPPRESSION_MS = 500;
+const RESTORE_RESIZE_PIXEL_TOLERANCE = 4;
 
 const describeDebugElement = (element: Element | null | undefined) => {
   if (!element) {
@@ -170,6 +173,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   const debuggingModeRef = useRef(debuggingMode);
   const isFocusedRef = useRef(isFocused);
   const isVisibleRef = useRef(isVisible);
+  const previousIsVisibleRef = useRef(isVisible);
   const lagDetectedRef = useRef(false);
   const lagDetectedHandlerRef = useRef(onLagDetected);
   const handledAutoFocusRequestIdRef = useRef<number | undefined>(undefined);
@@ -196,6 +200,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   const postSettleAppearanceAppliedRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastMeasuredBoundsRef = useRef<{ height: number; width: number } | null>(null);
+  const restoreResizeSuppressedUntilRef = useRef(0);
   const liveFontAppearanceRef = useRef({
     fontFamily: terminalAppearance.fontFamily,
     fontSize: terminalAppearance.fontSize,
@@ -224,6 +229,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   }, [isFocused]);
 
   useEffect(() => {
+    if (!previousIsVisibleRef.current && isVisible && connectPtyStartedRef.current) {
+      restoreResizeSuppressedUntilRef.current = performance.now() + RESTORE_RESIZE_SUPPRESSION_MS;
+    }
+    previousIsVisibleRef.current = isVisible;
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
@@ -550,6 +559,29 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       width: Math.round(bounds.width),
     };
     const previousBounds = lastMeasuredBoundsRef.current;
+    if (
+      restoreResizeSuppressedUntilRef.current > performance.now() &&
+      connectPtyStartedRef.current &&
+      latestTermSizeRef.current &&
+      (!previousBounds ||
+        (Math.abs(previousBounds.width - roundedBounds.width) <= RESTORE_RESIZE_PIXEL_TOLERANCE &&
+          Math.abs(previousBounds.height - roundedBounds.height) <= RESTORE_RESIZE_PIXEL_TOLERANCE))
+    ) {
+      reportDebug("terminal.restoreResizeSuppressed", {
+        bounds: roundedBounds,
+        previousBounds,
+        terminalCols: latestTermSizeRef.current.cols,
+        terminalRows: latestTermSizeRef.current.rows,
+      });
+      return false;
+    }
+    if (
+      previousBounds &&
+      (Math.abs(previousBounds.width - roundedBounds.width) > RESTORE_RESIZE_PIXEL_TOLERANCE ||
+        Math.abs(previousBounds.height - roundedBounds.height) > RESTORE_RESIZE_PIXEL_TOLERANCE)
+    ) {
+      restoreResizeSuppressedUntilRef.current = 0;
+    }
     const boundsUnchanged =
       previousBounds?.width === roundedBounds.width &&
       previousBounds?.height === roundedBounds.height;
@@ -794,6 +826,30 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     }
 
     activePane.sendInput(data, "pty");
+    return true;
+  };
+
+  const remapResttyKeyboardEvent = (event: React.KeyboardEvent): boolean => {
+    const nativeEvent = event.nativeEvent;
+    if (remappedResttyKeyboardEvents.has(nativeEvent)) {
+      return false;
+    }
+
+    const remapped = getGhosttyResttyKeyRemap(nativeEvent, { isMac: IS_MAC });
+    if (!remapped) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const keyboardEvent = new KeyboardEvent(nativeEvent.type, remapped);
+    remappedResttyKeyboardEvents.add(keyboardEvent);
+    const target =
+      containerRef.current?.querySelector<HTMLCanvasElement>(
+        ".restty-native-scroll-canvas, .pane-canvas, canvas",
+      ) ?? (nativeEvent.target instanceof EventTarget ? nativeEvent.target : containerRef.current);
+    target?.dispatchEvent(keyboardEvent);
     return true;
   };
 
@@ -1805,15 +1861,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
           onTerminalEnter?.();
         }
 
-        if (event.key === "Enter" && event.shiftKey) {
-          event.preventDefault();
-          event.stopPropagation();
-          sendRawTerminalInput(
-            getShiftEnterInputSequence({
-              isMac: IS_MAC,
-              shellPath: pane.snapshot?.shell,
-            }),
-          );
+        if (remapResttyKeyboardEvent(event)) {
           return;
         }
 

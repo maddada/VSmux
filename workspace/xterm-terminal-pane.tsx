@@ -43,6 +43,8 @@ const SCROLL_ANCHOR_BOTTOM_THRESHOLD_ROWS = 1;
 const SOCKET_RECONNECT_BASE_DELAY_MS = 250;
 const SOCKET_RECONNECT_MAX_DELAY_MS = 2_000;
 const SOCKET_ACTIVITY_IDLE_SUMMARY_MS = 1_000;
+const RESTORE_RESIZE_SUPPRESSION_MS = 500;
+const RESTORE_RESIZE_PIXEL_TOLERANCE = 4;
 const SEARCH_RESULTS_EMPTY = {
   resultCount: 0,
   resultIndex: -1,
@@ -217,6 +219,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
   const handledRefreshRequestIdRef = useRef(refreshRequestId);
   const handledScrollToBottomRequestIdRef = useRef<number | undefined>(undefined);
   const isVisibleRef = useRef(isVisible);
+  const previousIsVisibleRef = useRef(isVisible);
   const isFocusedRef = useRef(isFocused);
   const isGeneratingFirstPromptTitle = pane.isGeneratingFirstPromptTitle === true;
   const loadingOverlay = useTerminalLoadingOverlayProgress(isGeneratingFirstPromptTitle);
@@ -228,6 +231,7 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
   >(null);
   const ensureTerminalVisibleReadyRef = useRef<(() => void) | null>(null);
   const lastMeasuredSizeRef = useRef<{ height: number; width: number } | undefined>(undefined);
+  const restoreResizeSuppressedUntilRef = useRef(0);
   const preserveTerminalBottomLockRef = useRef<(<T>(applyLayoutChange: () => T) => T) | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -263,6 +267,10 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
   }, [debuggingMode]);
 
   useEffect(() => {
+    if (!previousIsVisibleRef.current && isVisible && terminalRef.current) {
+      restoreResizeSuppressedUntilRef.current = performance.now() + RESTORE_RESIZE_SUPPRESSION_MS;
+    }
+    previousIsVisibleRef.current = isVisible;
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
@@ -656,6 +664,10 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
         return false;
       }
 
+      if (!isVisibleRef.current) {
+        return false;
+      }
+
       const currentContainer = containerRef.current;
       if (!currentContainer) {
         return false;
@@ -672,6 +684,31 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
         width: Math.round(bounds.width),
       };
       const previousMeasuredSize = lastMeasuredSizeRef.current;
+      if (
+        restoreResizeSuppressedUntilRef.current > performance.now() &&
+        previousMeasuredSize &&
+        Math.abs(previousMeasuredSize.width - nextMeasuredSize.width) <=
+          RESTORE_RESIZE_PIXEL_TOLERANCE &&
+        Math.abs(previousMeasuredSize.height - nextMeasuredSize.height) <=
+          RESTORE_RESIZE_PIXEL_TOLERANCE
+      ) {
+        reportDebug("terminal.restoreResizeSuppressed", {
+          bounds: nextMeasuredSize,
+          cols: terminal.cols,
+          previousBounds: previousMeasuredSize,
+          rows: terminal.rows,
+        });
+        return false;
+      }
+      if (
+        previousMeasuredSize &&
+        (Math.abs(previousMeasuredSize.width - nextMeasuredSize.width) >
+          RESTORE_RESIZE_PIXEL_TOLERANCE ||
+          Math.abs(previousMeasuredSize.height - nextMeasuredSize.height) >
+            RESTORE_RESIZE_PIXEL_TOLERANCE)
+      ) {
+        restoreResizeSuppressedUntilRef.current = 0;
+      }
       if (
         !options?.force &&
         previousMeasuredSize &&
@@ -1387,7 +1424,6 @@ export const XtermTerminalPane: React.FC<XtermTerminalPaneProps> = ({
 
   useEffect(() => {
     if (!isVisible) {
-      lastMeasuredSizeRef.current = undefined;
       return;
     }
 
