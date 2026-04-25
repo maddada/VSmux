@@ -324,10 +324,10 @@ export function CommandsPanel({
   };
 
   /**
-   * CDXC:Actions 2026-04-24-20:10
+   * CDXC:Actions 2026-04-25-04:00
    * Terminal action buttons need an explicit stop affordance while a run is active: middle-click
-   * and the custom context menu both end the associated terminal instead of letting the browser
-   * show its native text menu while the spinner is visible.
+   * and a red, top-positioned custom context-menu item both end the associated terminal instead
+   * of letting the browser show its native text menu while the spinner is visible.
    */
   const endCommandRun = (command: SidebarCommandButton) => {
     if (command.actionType !== "terminal") {
@@ -751,6 +751,27 @@ export function CommandsPanel({
             >
               {contextMenu.view === "root" ? (
                 <>
+                  {contextMenu.command.actionType === "terminal" && contextMenu.isRunActive ? (
+                    <>
+                      <button
+                        className="session-context-menu-item session-context-menu-item-danger"
+                        onClick={() => {
+                          setContextMenu(undefined);
+                          endCommandRun(contextMenu.command);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <IconPlayerStopFilled
+                          aria-hidden="true"
+                          className="session-context-menu-icon"
+                          size={14}
+                        />
+                        End run
+                      </button>
+                      <div className="session-context-menu-divider" role="separator" />
+                    </>
+                  ) : null}
                   <button
                     className="session-context-menu-item"
                     onClick={() => {
@@ -793,24 +814,6 @@ export function CommandsPanel({
                     Add Webpage
                   </button>
                   <div className="session-context-menu-divider" role="separator" />
-                  {contextMenu.command.actionType === "terminal" && contextMenu.isRunActive ? (
-                    <button
-                      className="session-context-menu-item"
-                      onClick={() => {
-                        setContextMenu(undefined);
-                        endCommandRun(contextMenu.command);
-                      }}
-                      role="menuitem"
-                      type="button"
-                    >
-                      <IconPlayerStopFilled
-                        aria-hidden="true"
-                        className="session-context-menu-icon"
-                        size={14}
-                      />
-                      End run
-                    </button>
-                  ) : null}
                   {contextMenu.command.actionType === "terminal" ? (
                     <button
                       className="session-context-menu-item"
@@ -1262,7 +1265,7 @@ function isConfigured(command: SidebarCommandButton): boolean {
 }
 
 /**
- * CDXC:Actions 2026-04-24-20:10
+ * CDXC:Actions 2026-04-25-04:00
  * A terminal action is endable when either its close-on-exit spinner is active or its persistent
  * command terminal is still running, so one End run path covers both action-button states.
  */

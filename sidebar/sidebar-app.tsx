@@ -1487,6 +1487,17 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
     return focusedSessionId ?? orderedSessionIds[0];
   }, [authoritativeSessionIdsByGroup, groupOrder, sessionsById]);
 
+  const togglePinnedPrompts = () => {
+    setIsOverflowMenuOpen(false);
+    setIsDaemonSessionsOpen(false);
+    setIsPreviousSessionsOpen(false);
+    setIsScratchPadOpen(false);
+    setIsSessionSearchSelectionVisible(false);
+    setIsSessionSearchOpen(false);
+    setSessionSearchQuery("");
+    setIsPinnedPromptsOpen((previous) => !previous);
+  };
+
   const topControlOptions = {
     completionBellEnabled,
     browserAccessSessionId,
@@ -1529,6 +1540,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
   return (
     <Tooltip.Provider delay={TOOLTIP_DELAY_MS}>
       <SidebarProjectHeader projectHeader={projectHeader} />
+      {renderFloatingOverflowMenu(topControlOptions)}
       <div
         className="stack"
         data-dimmed={String(isStartupInteractionBlocked)}
@@ -1544,16 +1556,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 ? renderSidebarTopControls({
                     ...topControlOptions,
                     isPinnedPromptsOpen,
-                    onTogglePinnedPrompts: () => {
-                      setIsOverflowMenuOpen(false);
-                      setIsDaemonSessionsOpen(false);
-                      setIsPreviousSessionsOpen(false);
-                      setIsScratchPadOpen(false);
-                      setIsSessionSearchSelectionVisible(false);
-                      setIsSessionSearchOpen(false);
-                      setSessionSearchQuery("");
-                      setIsPinnedPromptsOpen((previous) => !previous);
-                    },
+                    onTogglePinnedPrompts: togglePinnedPrompts,
                     showSearch: !shouldShowAgentsPanel,
                   })
                 : undefined
@@ -1575,16 +1578,7 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
                 ? renderAgentsHeaderControls({
                     ...topControlOptions,
                     isPinnedPromptsOpen,
-                    onTogglePinnedPrompts: () => {
-                      setIsOverflowMenuOpen(false);
-                      setIsDaemonSessionsOpen(false);
-                      setIsPreviousSessionsOpen(false);
-                      setIsScratchPadOpen(false);
-                      setIsSessionSearchSelectionVisible(false);
-                      setIsSessionSearchOpen(false);
-                      setSessionSearchQuery("");
-                      setIsPinnedPromptsOpen((previous) => !previous);
-                    },
+                    onTogglePinnedPrompts: togglePinnedPrompts,
                     showMenu: !shouldShowActionsPanel,
                   })
                 : undefined
@@ -1601,7 +1595,11 @@ export function SidebarApp({ messageSource = window, vscode }: SidebarAppProps) 
         <section className="session-groups-panel" ref={sessionGroupsPanelRef}>
           <div className="session-groups-top">
             {!shouldShowActionsPanel && !shouldShowAgentsPanel
-              ? renderSidebarTopControls(topControlOptions)
+              ? renderSidebarTopControls({
+                  ...topControlOptions,
+                  isPinnedPromptsOpen,
+                  onTogglePinnedPrompts: togglePinnedPrompts,
+                })
               : null}
             {isSessionSearchOpen ? (
               <SidebarSessionSearchField
@@ -1961,10 +1959,6 @@ function OverflowIcon() {
   );
 }
 
-function getCompletionBellMenuLabel(completionBellEnabled: boolean): string {
-  return completionBellEnabled ? "Disable Notifying" : "Enable Notifying";
-}
-
 function getActiveSessionsSortMenuLabel(isManualActiveSessionsSort: boolean): string {
   return isManualActiveSessionsSort ? "Manual Sort" : "Last Activity Sort";
 }
@@ -2047,7 +2041,7 @@ function renderSidebarTopControls({
       >
         <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
       </ToolbarIconButton>
-      {renderOverflowMenuToolbarButton(options)}
+      {renderCompletionBellToolbarButton(options)}
     </div>
   );
 }
@@ -2087,10 +2081,40 @@ function renderAgentsHeaderControls({
           >
             <IconBookmark aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
           </ToolbarIconButton>
-          {renderOverflowMenuToolbarButton(options)}
+          {renderCompletionBellToolbarButton(options)}
         </>
       ) : null}
     </div>
+  );
+}
+
+function renderCompletionBellToolbarButton({
+  completionBellEnabled,
+  onToggleBell,
+}: Pick<RenderSidebarTopControlsOptions, "completionBellEnabled" | "onToggleBell">) {
+  return (
+    <ToolbarIconButton
+      ariaLabel={completionBellEnabled ? "Disable completion sound" : "Enable completion sound"}
+      className={`floating-toolbar-button section-titlebar-action-button completion-bell-toolbar-button${
+        completionBellEnabled ? "" : " completion-bell-toolbar-button-disabled"
+      }`}
+      /*
+       * CDXC:Sidebar-controls 2026-04-25-10:08
+       * The completion bell's enabled state should be communicated by the bell
+       * glyph, not by a selected button background in the compact title controls.
+       */
+      isSelected={false}
+      onClick={() => {
+        onToggleBell();
+      }}
+      tooltip={completionBellEnabled ? "Completion Sound On" : "Completion Sound Off"}
+    >
+      {completionBellEnabled ? (
+        <IconBell aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+      ) : (
+        <IconBellOff aria-hidden="true" className="toolbar-tabler-icon" stroke={1.8} />
+      )}
+    </ToolbarIconButton>
   );
 }
 
@@ -2135,8 +2159,7 @@ function renderPreviousSessionsToolbarButton({
   );
 }
 
-function renderOverflowMenuToolbarButton({
-  completionBellEnabled,
+function renderFloatingOverflowMenu({
   browserAccessSessionId,
   isManualActiveSessionsSort,
   isOverflowMenuOpen,
@@ -2147,7 +2170,6 @@ function renderOverflowMenuToolbarButton({
   onOpenSettings,
   onShowRunning,
   onToggleActiveSessionsSortMode,
-  onToggleBell,
   onToggleShowLastInteractionTimeOnSessionCards,
   onToggleMenu,
   onToggleScratchPad,
@@ -2157,12 +2179,18 @@ function renderOverflowMenuToolbarButton({
 }: RenderSidebarTopControlsOptions) {
   return (
     <>
+      {/*
+       * CDXC:Sidebar-controls 2026-04-25-09:50
+       * The overflow menu must stay available even when project/section headers
+       * are hidden, so its trigger floats at the top-right of the whole sidebar
+       * instead of being owned by a header titlebar.
+       */}
       <ToolbarIconButton
         ariaControls="sidebar-overflow-menu"
         ariaExpanded={isOverflowMenuOpen}
         ariaHasPopup="menu"
         ariaLabel="Open sidebar menu"
-        className="floating-toolbar-button section-titlebar-action-button"
+        className="floating-toolbar-button sidebar-floating-overflow-trigger"
         isSelected={isOverflowMenuOpen}
         onClick={(event) => onToggleMenu(event.currentTarget)}
         tooltip="More"
@@ -2196,23 +2224,6 @@ function renderOverflowMenuToolbarButton({
                 >
                   <IconEye aria-hidden="true" className="session-context-menu-icon" size={14} />
                   {getSessionCardTimeToggleLabel(showLastInteractionTimeOnSessionCards)}
-                </button>
-                <button
-                  className="session-context-menu-item"
-                  onClick={onToggleBell}
-                  role="menuitem"
-                  type="button"
-                >
-                  {completionBellEnabled ? (
-                    <IconBellOff
-                      aria-hidden="true"
-                      className="session-context-menu-icon"
-                      size={14}
-                    />
-                  ) : (
-                    <IconBell aria-hidden="true" className="session-context-menu-icon" size={14} />
-                  )}
-                  {getCompletionBellMenuLabel(completionBellEnabled)}
                 </button>
               </div>
               <div className="session-context-menu-divider" role="separator" />

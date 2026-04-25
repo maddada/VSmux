@@ -382,6 +382,33 @@ button:disabled {
   visibility: visible;
 }
 
+.sidebar-floating-overflow-trigger {
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  right: 4px;
+  top: 4px;
+  transition:
+    opacity 120ms ease,
+    visibility 0s linear 120ms;
+  visibility: hidden;
+  z-index: 260;
+}
+
+/*
+ * CDXC:Sidebar-controls 2026-04-25-10:01
+ * The floating overflow menu is a global sidebar control, but it should stay
+ * visually quiet until the user is interacting with the sidebar or its menu.
+ */
+body:hover .sidebar-floating-overflow-trigger,
+body:has(:focus-visible) .sidebar-floating-overflow-trigger,
+.sidebar-floating-overflow-trigger[data-selected="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+  visibility: visible;
+}
+
 .card {
   border: 1px solid var(--app-border);
   border-radius: calc(16px * var(--sidebar-density-scale));

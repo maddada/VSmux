@@ -81,6 +81,21 @@
   background: color-mix(in srgb, var(--app-button-background) 16%, transparent);
 }
 
+/*
+ * CDXC:Sidebar-controls 2026-04-25-10:01
+ * Disabled completion notifications should read as intentionally off without
+ * hiding the bell affordance, so the off state uses a light red icon treatment.
+ */
+.completion-bell-toolbar-button-disabled {
+  color: color-mix(in srgb, #ff8a80 74%, var(--app-foreground) 26%);
+}
+
+.completion-bell-toolbar-button-disabled:hover,
+.completion-bell-toolbar-button-disabled:focus-visible {
+  background: color-mix(in srgb, #ff8a80 14%, transparent);
+  color: color-mix(in srgb, #ffb0a8 82%, var(--app-foreground) 18%);
+}
+
 .floating-toolbar-button .toolbar-icon,
 .floating-toolbar-button .toolbar-tabler-icon {
   height: 12px;
