@@ -1,6 +1,12 @@
 import type { TerminalEngine } from "./session-grid-contract";
 
-export const TERMINAL_HOST_PROTOCOL_VERSION = 26;
+/**
+ * CDXC:Daemon-lifecycle 2026-04-25-09:25
+ * Bump this whenever terminal-daemon-process behavior changes. The daemon is
+ * intentionally reused across extension reloads when the protocol matches, so
+ * behavior-only daemon fixes need a version change to replace old processes.
+ */
+export const TERMINAL_HOST_PROTOCOL_VERSION = 29;
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error" | "disconnected";
 
@@ -102,6 +108,13 @@ export type TerminalHostSyncSessionLeasesRequest = {
   leaseDurationMs: number | null;
 };
 
+export type TerminalHostSyncResizeEligibleSessionsRequest = {
+  type: "syncResizeEligibleSessions";
+  requestId: string;
+  workspaceId: string;
+  sessionIds: string[];
+};
+
 export type TerminalHostHeartbeatOwnerRequest = {
   type: "heartbeatOwner";
   requestId: string;
@@ -120,6 +133,7 @@ export type TerminalHostRequest =
   | TerminalHostListSessionsRequest
   | TerminalHostConfigureRequest
   | TerminalHostSyncSessionLeasesRequest
+  | TerminalHostSyncResizeEligibleSessionsRequest
   | TerminalHostHeartbeatOwnerRequest;
 
 export type TerminalHostAuthenticatedEvent = {

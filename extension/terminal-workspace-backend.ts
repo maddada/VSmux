@@ -42,6 +42,7 @@ export type TerminalWorkspaceBackend = vscode.Disposable & {
   readPersistedSessionState: (sessionId: string) => Promise<PersistedSessionState>;
   renameSession: (sessionRecord: SessionRecord) => Promise<void>;
   restartSession: (sessionRecord: SessionRecord) => Promise<TerminalSessionSnapshot>;
+  syncResizeEligibleSessions: (sessionIds: readonly string[]) => Promise<void>;
   syncSessions: (sessionRecords: readonly SessionRecord[]) => void;
   syncConfiguration: () => Promise<void>;
   writeText: (sessionId: string, data: string, shouldExecute?: boolean) => Promise<void>;

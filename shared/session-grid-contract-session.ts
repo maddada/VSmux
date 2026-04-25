@@ -24,7 +24,13 @@ import {
 } from "./session-grid-contract-core";
 import { normalizeT3SessionMetadata } from "./t3-session-metadata";
 
-const LEADING_TERMINAL_TITLE_STATUS_MARKER_PATTERN = /^[\s\u2800-\u28ff·•⋅◦✳*✦◇🤖🔔]+/u;
+/**
+ * CDXC:Claude-session-status 2026-04-25-08:29
+ * Visible session titles should remove agent status glyphs, including Claude
+ * Code's animated star markers, while the activity parser uses them for
+ * running/done indicators.
+ */
+const LEADING_TERMINAL_TITLE_STATUS_MARKER_PATTERN = /^[\s\u2800-\u28ff·•⋅◦✳*✶✻✽✸✹✺✷✴✦◇🤖🔔]+/u;
 const LEADING_TERMINAL_TITLE_PREFIX_PATTERN = /^(?:OC\s*\|\s*)+/iu;
 const DEFAULT_TERMINAL_ENGINE: TerminalEngine = "ghostty-non-persistent";
 const IGNORED_GENERIC_TERMINAL_TITLES = new Set([

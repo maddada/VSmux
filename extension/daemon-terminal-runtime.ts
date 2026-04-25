@@ -12,6 +12,7 @@ import type {
   TerminalHostListSessionsRequest,
   TerminalHostRequest,
   TerminalHostResponse,
+  TerminalHostSyncResizeEligibleSessionsRequest,
   TerminalHostSyncSessionLeasesRequest,
   TerminalHostWriteRequest,
   TerminalHostResizeRequest,
@@ -279,6 +280,20 @@ export class DaemonTerminalRuntime implements vscode.Disposable {
       },
     );
     return true;
+  }
+
+  public async syncResizeEligibleSessions(
+    workspaceId: string,
+    sessionIds: string[],
+  ): Promise<void> {
+    await this.ensureReady();
+    const request: TerminalHostSyncResizeEligibleSessionsRequest = {
+      requestId: this.nextRequestId(),
+      sessionIds,
+      type: "syncResizeEligibleSessions",
+      workspaceId,
+    };
+    await this.sendRequest(request);
   }
 
   public async createOrAttach(

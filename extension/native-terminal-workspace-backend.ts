@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
+  getVisibleTerminalTitle,
   isTerminalSession,
   getTerminalSessionSurfaceTitle,
   normalizeTerminalTitle,
@@ -49,6 +50,7 @@ import {
 } from "./native-terminal-workspace-backend/workbench";
 import { createWorkspaceTrace } from "./runtime-trace";
 import { getDaemonDebuggingModeEnv } from "./daemon-debugging-mode";
+import { appendAgentTerminalTitlePipelineDebugLog } from "./agent-terminal-title-pipeline-debug-log";
 import {
   readPersistedSessionStateSnapshotFromFile,
   updatePersistedSessionStateFile,
@@ -56,6 +58,7 @@ import {
 } from "./session-state-file";
 import { logVSmuxDebug } from "./vsmux-debug-log";
 import { appendCodeModeDebugLog } from "./code-mode-debug-log";
+import { getDebuggingMode } from "./native-terminal-workspace/settings";
 
 const AGENT_STATE_DIR_NAME = "terminal-session-state";
 const POLL_INTERVAL_MS = 500;
@@ -102,6 +105,7 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   private readonly sessionRecordBySessionId = new Map<string, TerminalSessionRecord>();
   private readonly sessionTitleBySessionId = new Map<string, string>();
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
+  private readonly titlePipelineLogSignatureByKey = new Map<string, string>();
   private readonly terminalToSessionId = new Map<vscode.Terminal, string>();
   private readonly trace = createWorkspaceTrace(TRACE_FILE_NAME);
 
@@ -163,6 +167,10 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       vscode.window.onDidChangeTerminalState((terminal) => {
         void this.attachManagedTerminal(terminal);
         const sessionId = this.terminalToSessionId.get(terminal);
+        void this.logNativeTerminalTitlePipeline("native.terminalStateChanged", {
+          sessionId,
+          terminal,
+        });
         if (!sessionId) {
           return;
         }
@@ -214,6 +222,8 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
   }
 
   public async syncConfiguration(): Promise<void> {}
+
+  public async syncResizeEligibleSessions(_sessionIds: readonly string[]): Promise<void> {}
 
   public dispose(): void {
     if (this.pollTimer) {
@@ -1104,6 +1114,10 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     }
 
     this.observedEditorGroupIndexBySessionId.set(sessionId, activeGroupIndex);
+    void this.logNativeTerminalTitlePipeline("native.activeTerminalTabObserved", {
+      sessionId,
+      terminal: activeTerminal,
+    });
 
     if (this.lastActivatedEditorSessionId === sessionId) {
       return;
@@ -1115,6 +1129,96 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
       terminalTitle: getActiveEditorTerminalTabLabel(),
     });
     this.activateSessionEmitter.fire(sessionId);
+  }
+
+  private async logNativeTerminalTitlePipeline(
+    event: string,
+    options: {
+      persistedState?: PersistedSessionState;
+      sessionId?: string;
+      terminal?: vscode.Terminal;
+    },
+  ): Promise<void> {
+    if (!getDebuggingMode()) {
+      return;
+    }
+
+    const sessionId = options.sessionId;
+    const persistedState =
+      options.persistedState ??
+      (sessionId ? await this.readPersistedSessionState(sessionId) : undefined);
+    const sessionRecord = sessionId ? this.sessionRecordBySessionId.get(sessionId) : undefined;
+    const snapshot = sessionId ? this.sessions.get(sessionId) : undefined;
+    const terminalName = options.terminal?.name;
+    const terminalCreationName = options.terminal?.creationOptions.name;
+    const terminalDisplayName = options.terminal
+      ? (getTerminalDisplayName(options.terminal) ?? terminalName)
+      : undefined;
+    const activeEditorTerminalTabLabel = getActiveEditorTerminalTabLabel();
+    const activePanelTerminalTabLabel = getActivePanelTerminalTabLabel();
+    const visibleTerminalName = getVisibleTerminalTitle(terminalDisplayName ?? terminalName);
+    const agentName = persistedState?.agentName ?? snapshot?.agentName;
+    const agentNameKey = agentName?.trim().toLowerCase();
+    const titleText = [
+      terminalName,
+      terminalCreationName,
+      terminalDisplayName,
+      activeEditorTerminalTabLabel,
+      activePanelTerminalTabLabel,
+      persistedState?.title,
+      snapshot?.title,
+    ]
+      .join(" ")
+      .toLowerCase();
+    const isRelevant =
+      agentNameKey === "claude" ||
+      agentNameKey === "codex" ||
+      titleText.includes("claude") ||
+      titleText.includes("codex") ||
+      Boolean(sessionId && this.sessionRecordBySessionId.has(sessionId));
+
+    if (!isRelevant) {
+      return;
+    }
+
+    const details = {
+      activeEditorTerminalTabLabel,
+      activePanelTerminalTabLabel,
+      agentName,
+      persistedHasAutoTitleFromFirstPrompt: persistedState?.hasAutoTitleFromFirstPrompt === true,
+      persistedTitle: persistedState?.title,
+      sessionId,
+      sessionTitleMapTitle: sessionId ? this.sessionTitleBySessionId.get(sessionId) : undefined,
+      snapshotAgentName: snapshot?.agentName,
+      snapshotAgentStatus: snapshot?.agentStatus,
+      snapshotTitle: snapshot?.title,
+      surfaceTitle: sessionId ? this.getSessionSurfaceTitle(sessionId) : undefined,
+      terminalCreationName,
+      terminalDisplayName,
+      terminalEngine: sessionRecord?.terminalEngine,
+      terminalName,
+      visibleTerminalName,
+      workspaceId: this.options.workspaceId,
+    };
+    const signature = JSON.stringify(details);
+    const signatureKey = `${event}:${sessionId ?? "unbound"}`;
+    if (this.titlePipelineLogSignatureByKey.get(signatureKey) === signature) {
+      return;
+    }
+    this.titlePipelineLogSignatureByKey.set(signatureKey, signature);
+
+    /**
+     * CDXC:Terminal-title-pipeline 2026-04-25-07:44
+     * Native/non-persistent terminals can expose a changed VS Code tab name without
+     * emitting a pty OSC title. Log the VS Code terminal-name source separately so
+     * Codex and Claude title behavior can be compared without guessing.
+     */
+    await appendAgentTerminalTitlePipelineDebugLog({
+      details,
+      enabled: true,
+      event,
+      workspaceRoot: getDefaultWorkspaceCwd(),
+    });
   }
 
   private findSessionRecordBySurfaceTitleHeuristic(
@@ -1583,6 +1687,11 @@ export class NativeTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     this.sessions.set(sessionId, nextSnapshot);
 
     const nextTitle = normalizeTitle(persistedState.title);
+    void this.logNativeTerminalTitlePipeline("native.refreshSessionSnapshotTitleSource", {
+      persistedState,
+      sessionId,
+      terminal: projection?.terminal,
+    });
     const persistedActivityAtMs = getPersistedSessionActivityAtMs(persistedState);
     if (persistedActivityAtMs !== undefined) {
       if (this.updateLastTerminalActivityAt(sessionId, persistedActivityAtMs)) {

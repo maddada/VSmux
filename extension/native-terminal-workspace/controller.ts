@@ -68,7 +68,10 @@ import {
   createPreviousSessionEntry,
 } from "../native-terminal-workspace-sidebar-state";
 import { getInterestingTitleSymbols } from "../session-title-activity";
-import { resolveFirstPromptAutoRenameStrategy } from "../first-prompt-session-title";
+import {
+  isGenericAgentSessionTitle,
+  resolveFirstPromptAutoRenameStrategy,
+} from "../first-prompt-session-title";
 import {
   getEffectiveSessionActivity,
   getDisplayedLastInteractionIso,
@@ -132,6 +135,8 @@ import {
   resetVSmuxDebugLog,
 } from "../vsmux-debug-log";
 import { appendClaudeFirstMessageRenameReproLog } from "../claude-first-message-rename-repro-log";
+import { appendClaudeIndicatorStatusDebugLog } from "../claude-indicator-status-debug-log";
+import { appendCompletionSoundDebugLog } from "../completion-sound-debug-log";
 import { appendFirstPromptAutoRenameReproLog } from "../first-prompt-auto-rename-repro-log";
 import { resolveSidebarProjectHeader } from "../sidebar-project-header";
 import { resolveSidebarProjectWorktrees } from "../sidebar-project-worktrees";
@@ -446,6 +451,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private readonly sidebarCommandExitObserversBySessionId = new Map<string, NodeJS.Timeout>();
   private readonly store: SessionGridStore;
   private readonly terminalTitleBySessionId = new Map<string, string>();
+  private readonly claudeFirstPromptAutoRenameTriggeredSessionIds = new Set<string>();
   private readonly terminalPaneRenderNonceBySessionId = new Map<string, number>();
   private readonly reloadingSessionIds = new Set<string>();
   private readonly lastPostedSidebarPresentationBySessionId = new Map<
@@ -795,21 +801,34 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         void this.postSessionPresentationMessage(sessionId);
       }),
       this.backend.onDidChangeSessionPresentation(({ sessionId, title }) => {
-        const snapshot = this.backend.getSessionSnapshot(sessionId);
-        this.syncSessionActivityState(sessionId, true);
-        this.logSessionTitleSymbols(sessionId, title ?? snapshot?.title, snapshot?.agentName);
-        logVSmuxDebug("controller.sessionPresentationChanged", {
-          agentName: snapshot?.agentName,
-          agentStatus: snapshot?.agentStatus,
-          sessionId,
-          title,
-        });
-        if (title) {
-          this.terminalTitleBySessionId.set(sessionId, title);
-        } else {
-          this.terminalTitleBySessionId.delete(sessionId);
-        }
-        void this.postSessionPresentationMessage(sessionId);
+        void (async () => {
+          const snapshot = this.backend.getSessionSnapshot(sessionId);
+          this.syncSessionActivityState(sessionId, true);
+          this.logSessionTitleSymbols(sessionId, title ?? snapshot?.title, snapshot?.agentName);
+          logVSmuxDebug("controller.sessionPresentationChanged", {
+            agentName: snapshot?.agentName,
+            agentStatus: snapshot?.agentStatus,
+            sessionId,
+            title,
+          });
+          if (title) {
+            this.terminalTitleBySessionId.set(sessionId, title);
+          } else {
+            this.terminalTitleBySessionId.delete(sessionId);
+          }
+          await this.appendClaudeTitlePipelineLog("controller.presentationTitleObserved", {
+            markerPresent: this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId),
+            rawTitle: title,
+            sessionId,
+            snapshotAgentName: snapshot?.agentName,
+            snapshotAgentStatus: snapshot?.agentStatus,
+            snapshotTitle: snapshot?.title,
+            storeTitle: this.store.getSession(sessionId)?.title,
+            visibleTitle: getVisibleTerminalTitle(title ?? snapshot?.title),
+          });
+          await this.persistClaudeAutoRenameTitleFromPresentation(sessionId, title);
+          await this.postSessionPresentationMessage(sessionId);
+        })();
       }),
       this.t3ActivityMonitor.onDidChange(() => {
         void (async () => {
@@ -1699,7 +1718,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           return;
         }
 
+        this.claudeFirstPromptAutoRenameTriggeredSessionIds.add(sessionId);
         await this.backend.markFirstPromptAutoRenameTriggered(sessionId);
+        const persistedStateAfterMark = await this.backend.readPersistedSessionState(sessionId);
         await this.appendFirstPromptAutoRenameReproLog(
           "controller.firstPromptAutoRename.appliedClaudeRenameCommand",
           {
@@ -1712,8 +1733,14 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           sessionId,
         });
         await this.appendClaudeFirstMessageRenameIssueLog("controller.markedTriggered", {
+          markerPresent: this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId),
+          persistedHasAutoTitleFromFirstPrompt:
+            persistedStateAfterMark.hasAutoTitleFromFirstPrompt === true,
+          persistedTitle: persistedStateAfterMark.title,
           requestVersion,
           sessionId,
+          storeTitle: this.store.getSession(sessionId)?.title,
+          terminalTitle: this.terminalTitleBySessionId.get(sessionId),
         });
         return;
       }
@@ -1827,7 +1854,89 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
   }
 
+  private async persistClaudeAutoRenameTitleFromPresentation(
+    sessionId: string,
+    title: string | undefined,
+  ): Promise<boolean> {
+    const normalizedTitle = getVisibleTerminalTitle(title);
+    const isGenericTitle = isGenericAgentSessionTitle("claude", normalizedTitle);
+    if (!normalizedTitle || isGenericAgentSessionTitle("claude", normalizedTitle)) {
+      await this.appendClaudeTitlePipelineLog("controller.claudeTitlePersistDecision", {
+        decision: "skip",
+        isGenericTitle,
+        markerPresent: this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId),
+        rawTitle: title,
+        reason: "missing-or-generic-visible-title",
+        sessionId,
+        visibleTitle: normalizedTitle,
+      });
+      return false;
+    }
+
+    const persistedState = await this.backend.readPersistedSessionState(sessionId);
+    const didTriggerClaudeFirstPromptRename =
+      this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId);
+    const storeSessionBefore = this.store.getSession(sessionId);
+    if (
+      persistedState.agentName?.trim().toLowerCase() !== "claude" ||
+      (persistedState.hasAutoTitleFromFirstPrompt !== true && !didTriggerClaudeFirstPromptRename)
+    ) {
+      await this.appendClaudeTitlePipelineLog("controller.claudeTitlePersistDecision", {
+        decision: "skip",
+        didTriggerClaudeFirstPromptRename,
+        markerPresent: didTriggerClaudeFirstPromptRename,
+        persistedAgentName: persistedState.agentName,
+        persistedHasAutoTitleFromFirstPrompt: persistedState.hasAutoTitleFromFirstPrompt === true,
+        persistedTitle: persistedState.title,
+        rawTitle: title,
+        reason:
+          persistedState.agentName?.trim().toLowerCase() !== "claude"
+            ? "persisted-agent-not-claude"
+            : "no-auto-rename-marker-or-state",
+        sessionId,
+        storeTitleBefore: storeSessionBefore?.title,
+        visibleTitle: normalizedTitle,
+      });
+      return false;
+    }
+
+    const changed = await this.store.setSessionTitle(sessionId, normalizedTitle);
+    await this.backend.applyFirstPromptAutoRename(sessionId, normalizedTitle);
+    this.claudeFirstPromptAutoRenameTriggeredSessionIds.delete(sessionId);
+    const persistedStateAfter = await this.backend.readPersistedSessionState(sessionId);
+    const storeSessionAfter = this.store.getSession(sessionId);
+    /**
+     * CDXC:Claude-session-naming 2026-04-25-07:19
+     * Claude terminal titles are ignored for deciding whether first-message `/rename`
+     * is needed, because Claude can set a transient title before persisting a Code
+     * session name. After VSmux sends bare `/rename`, the next non-generic Claude
+     * terminal title is the generated name and should replace the numeric sidebar card.
+     */
+    await this.appendClaudeFirstMessageRenameIssueLog("controller.persistedClaudeRenameTitle", {
+      changed,
+      didTriggerClaudeFirstPromptRename,
+      persistedTitleAfter: persistedStateAfter.title,
+      persistedTitleBefore: persistedState.title,
+      sessionId,
+      storeTitleAfter: storeSessionAfter?.title,
+      storeTitleBefore: storeSessionBefore?.title,
+      title: normalizedTitle,
+    });
+    logVSmuxDebug("controller.persistedClaudeRenameTitle", {
+      changed,
+      didTriggerClaudeFirstPromptRename,
+      persistedTitleAfter: persistedStateAfter.title,
+      persistedTitleBefore: persistedState.title,
+      sessionId,
+      storeTitleAfter: storeSessionAfter?.title,
+      storeTitleBefore: storeSessionBefore?.title,
+      title: normalizedTitle,
+    });
+    return changed;
+  }
+
   private async cancelFirstPromptAutoRename(sessionId: string): Promise<void> {
+    this.claudeFirstPromptAutoRenameTriggeredSessionIds.delete(sessionId);
     if (!this.pendingFirstPromptAutoRenameBySessionId.has(sessionId)) {
       return;
     }
@@ -3351,8 +3460,27 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     void appendWtermWorkspaceDebugLog(getDefaultWorkspaceCwd(), event, details);
   }
 
+  private logCompletionSoundDebug(event: string, details?: unknown): void {
+    if (!getDebuggingMode()) {
+      return;
+    }
+
+    void appendCompletionSoundDebugLog({
+      details: {
+        details,
+        workspaceId: this.workspaceId,
+      },
+      enabled: true,
+      event,
+      workspaceRoot: getDefaultWorkspaceCwd(),
+    });
+  }
+
   private async handleSidebarMessage(message: SidebarToExtensionMessage): Promise<void> {
     if (message.type === "sidebarDebugLog") {
+      if (message.event.startsWith("completionSound.")) {
+        this.logCompletionSoundDebug(`sidebar.webview.${message.event}`, message.details);
+      }
       if (message.event.startsWith("repro.sidebarStartup.")) {
         void appendTerminalRestartReproLog(
           getDefaultWorkspaceCwd(),
@@ -4110,6 +4238,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     const workspaceSnapshot = this.getPresentedWorkspaceSnapshot();
+    const activeSnapshot = this.getActiveSnapshot();
     const sessionActivityContext = this.createSessionActivityContext();
     const sidebarSession = this.createSidebarSessionItem(
       sessionRecord,
@@ -4119,6 +4248,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     if (sidebarSession) {
       const previousSidebarPresentation =
         this.lastPostedSidebarPresentationBySessionId.get(sessionId);
+      const backendSnapshot = this.backend.getSessionSnapshot(sessionId);
       const nextSidebarPresentation = {
         activity: sidebarSession.activity,
         activityLabel: sidebarSession.activityLabel,
@@ -4143,6 +4273,41 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           nextSidebarPresentation.lastInteractionAt ||
         previousSidebarPresentation?.primaryTitle !== nextSidebarPresentation.primaryTitle ||
         previousSidebarPresentation?.terminalTitle !== nextSidebarPresentation.terminalTitle;
+      await this.appendClaudeTitlePipelineLog("controller.sidebarPresentationBuilt", {
+        agentIcon: sidebarSession.agentIcon,
+        backendSnapshotAgentName: backendSnapshot?.agentName,
+        backendSnapshotTitle: backendSnapshot?.title,
+        isPrimaryTitleTerminalTitle: sidebarSession.isPrimaryTitleTerminalTitle,
+        markerPresent: this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId),
+        payloadChanged,
+        previousPrimaryTitle: previousSidebarPresentation?.primaryTitle,
+        previousTerminalTitle: previousSidebarPresentation?.terminalTitle,
+        primaryTitle: sidebarSession.primaryTitle,
+        sessionId,
+        storeTitle: sessionRecord.title,
+        terminalTitle: sidebarSession.terminalTitle,
+        terminalTitleBySessionId: this.terminalTitleBySessionId.get(sessionId),
+      });
+      this.appendClaudeIndicatorStatusLog("controller.sidebarIndicatorDecision", {
+        activity: sidebarSession.activity,
+        activeFocusedSessionId: activeSnapshot.focusedSessionId,
+        activeGroupId: workspaceSnapshot.activeGroupId,
+        activeVisibleSessionIds: activeSnapshot.visibleSessionIds,
+        agentIcon: sidebarSession.agentIcon,
+        backendSnapshotAgentName: backendSnapshot?.agentName,
+        backendSnapshotAgentStatus: backendSnapshot?.agentStatus,
+        backendSnapshotTitle: backendSnapshot?.title,
+        isFocusedSession: activeSnapshot.focusedSessionId === sessionId,
+        isOrangeIndicatorShown: sidebarSession.activity === "working",
+        isVisibleSession: activeSnapshot.visibleSessionIds.includes(sessionId),
+        lifecycleState: sidebarSession.lifecycleState,
+        payloadChanged,
+        previousActivity: previousSidebarPresentation?.activity,
+        primaryTitle: sidebarSession.primaryTitle,
+        rawTerminalTitle: this.terminalTitleBySessionId.get(sessionId),
+        sessionId,
+        visibleTerminalTitle: getVisibleTerminalTitle(this.terminalTitleBySessionId.get(sessionId)),
+      });
       logVSmuxDebug("controller.postSessionPresentationMessage.sidebar", {
         activity: sidebarSession.activity,
         activityChanged: previousSidebarPresentation?.activity !== nextSidebarPresentation.activity,
@@ -5290,14 +5455,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
   private createSessionActivityContext(): Parameters<typeof getEffectiveSessionActivity>[0] {
     return {
-      cancelPendingCompletionSound: (sessionId) => this.clearPendingCompletionSound(sessionId),
+      cancelPendingCompletionSound: (sessionId) => {
+        this.logCompletionSoundDebug("controller.completionSound.cancelRequestedFromBulkSync", {
+          sessionId,
+        });
+        this.clearPendingCompletionSound(sessionId);
+      },
       getAttentionSuppressedUntil: (sessionRecord) =>
         this.getAttentionSuppressedUntil(sessionRecord),
       getActivitySuppressedUntil: (sessionRecord) => this.getActivitySuppressedUntil(sessionRecord),
       getSessionSnapshot: (sessionId) => this.backend.getSessionSnapshot(sessionId),
       getT3ActivityState: (sessionRecord) => this.getT3ActivityState(sessionRecord),
       lastKnownActivityBySessionId: this.lastKnownActivityBySessionId,
-      queueCompletionSound: (sessionId) => this.queueCompletionSound(sessionId),
+      queueCompletionSound: (sessionId) => {
+        this.logCompletionSoundDebug("controller.completionSound.queueRequestedFromBulkSync", {
+          agentStatus: this.backend.getSessionSnapshot(sessionId)?.agentStatus,
+          sessionId,
+        });
+        this.queueCompletionSound(sessionId);
+      },
       workingStartedAtBySessionId: this.workingStartedAtBySessionId,
       workspaceId: this.workspaceId,
     };
@@ -5649,6 +5825,15 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
           ).activity
         : "idle";
     const previousActivity = this.lastKnownActivityBySessionId.get(sessionId);
+    this.logCompletionSoundDebug("controller.completionSound.activityDecision", {
+      agentName: sessionSnapshot?.agentName,
+      backendAgentStatus: sessionSnapshot?.agentStatus,
+      nextActivity,
+      playSound,
+      previousActivity,
+      sessionId,
+      terminalTitle: this.terminalTitleBySessionId.get(sessionId),
+    });
     this.recordLastActivityTransition(sessionRecord, previousActivity, nextActivity);
     if (playSound && nextActivity === "attention") {
       if (previousActivity !== undefined && previousActivity !== "attention") {
@@ -5777,26 +5962,37 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   private clearPendingCompletionSound(sessionId: string): void {
     const timeout = this.pendingCompletionSoundTimeoutBySessionId.get(sessionId);
     if (!timeout) {
+      this.logCompletionSoundDebug("controller.completionSound.clearNoop", {
+        sessionId,
+      });
       return;
     }
 
     clearTimeout(timeout);
     this.pendingCompletionSoundTimeoutBySessionId.delete(sessionId);
+    this.logCompletionSoundDebug("controller.completionSound.cleared", {
+      sessionId,
+    });
     logVSmuxDebug("controller.completionSound.cleared", {
       sessionId,
     });
   }
 
   private queueCompletionSound(sessionId: string): void {
+    const queuedAt = Date.now();
     this.attentionAcknowledgementAvailableAtBySessionId.set(
       sessionId,
-      Date.now() + DONE_ATTENTION_MIN_NOTICE_MS,
+      queuedAt + DONE_ATTENTION_MIN_NOTICE_MS,
     );
     this.syncFocusedAttentionAcknowledgement({
       reason: "completion",
     });
 
     if (!this.getCompletionBellEnabled()) {
+      this.logCompletionSoundDebug("controller.completionSound.skippedDisabled", {
+        completionBellEnabled: false,
+        sessionId,
+      });
       logVSmuxDebug("controller.completionSound.skippedDisabled", {
         sessionId,
       });
@@ -5804,12 +6000,20 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     if (this.pendingCompletionSoundTimeoutBySessionId.has(sessionId)) {
+      this.logCompletionSoundDebug("controller.completionSound.alreadyQueued", {
+        sessionId,
+      });
       logVSmuxDebug("controller.completionSound.alreadyQueued", {
         sessionId,
       });
       return;
     }
 
+    this.logCompletionSoundDebug("controller.completionSound.queued", {
+      delayMs: COMPLETION_SOUND_CONFIRMATION_DELAY_MS,
+      sessionId,
+      sound: getClampedCompletionSoundSetting(),
+    });
     logVSmuxDebug("controller.completionSound.queued", {
       delayMs: COMPLETION_SOUND_CONFIRMATION_DELAY_MS,
       sessionId,
@@ -5818,6 +6022,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const timeout = setTimeout(() => {
       this.pendingCompletionSoundTimeoutBySessionId.delete(sessionId);
       if (!this.getCompletionBellEnabled()) {
+        this.logCompletionSoundDebug("controller.completionSound.skippedDisabledAtFire", {
+          sessionId,
+        });
         logVSmuxDebug("controller.completionSound.skippedDisabledAtFire", {
           sessionId,
         });
@@ -5825,6 +6032,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       }
 
       if (this.backend.getSessionSnapshot(sessionId)?.agentStatus !== "attention") {
+        this.logCompletionSoundDebug("controller.completionSound.skippedNotAttentionAtFire", {
+          agentStatus: this.backend.getSessionSnapshot(sessionId)?.agentStatus,
+          sessionId,
+        });
         logVSmuxDebug("controller.completionSound.skippedNotAttentionAtFire", {
           agentStatus: this.backend.getSessionSnapshot(sessionId)?.agentStatus,
           sessionId,
@@ -5832,6 +6043,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         return;
       }
 
+      this.logCompletionSoundDebug("controller.completionSound.firing", {
+        elapsedMs: Date.now() - queuedAt,
+        sessionId,
+        sound: getClampedCompletionSoundSetting(),
+      });
       logVSmuxDebug("controller.completionSound.firing", {
         sessionId,
         sound: getClampedCompletionSoundSetting(),
@@ -5840,6 +6056,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         sound: getClampedCompletionSoundSetting(),
         sessionId,
         type: "playCompletionSound",
+      });
+      this.logCompletionSoundDebug("controller.completionSound.sidebarPostMessageRequested", {
+        sessionId,
+        sound: getClampedCompletionSoundSetting(),
       });
       void this.workspacePanel.postMessage({
         sessionId,
@@ -7041,12 +7261,26 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     const startedAt = Date.now();
     const workspaceSnapshot = this.store.getSnapshot();
     const activeSnapshot = this.getActiveSnapshot();
+    const resizeEligibleTerminalSessionIds = activeSnapshot.visibleSessionIds.filter(
+      (sessionId) => this.store.getSession(sessionId)?.kind === "terminal",
+    );
+    await this.backend.syncResizeEligibleSessions(resizeEligibleTerminalSessionIds);
+    const projectedWorkspacePaneSessions = getWorkspacePaneSessionRecords(workspaceSnapshot);
+    const activeGroupSessionIdSet = new Set(
+      activeSnapshot.sessions.map((session) => session.sessionId),
+    );
     const activeGroupSessions = sortWorkspacePaneSessionRecords(
-      getWorkspacePaneSessionRecords(workspaceSnapshot),
+      projectedWorkspacePaneSessions.filter((sessionRecord) =>
+        activeGroupSessionIdSet.has(sessionRecord.sessionId),
+      ),
       getWorkspacePaneOrderPreference(
         this.context,
         this.workspaceId,
         workspaceSnapshot.activeGroupId,
+      ),
+    ).concat(
+      projectedWorkspacePaneSessions.filter(
+        (sessionRecord) => !activeGroupSessionIdSet.has(sessionRecord.sessionId),
       ),
     );
     const visibleSessionIdSet = new Set(activeSnapshot.visibleSessionIds);
@@ -7076,6 +7310,25 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
               ? getEffectiveSessionActivity(sessionActivityContext, sessionRecord, snapshot)
                   .activity
               : "idle";
+            this.appendClaudeIndicatorStatusLog("controller.workspacePaneIndicatorDecision", {
+              activity: effectiveActivity,
+              activeFocusedSessionId: activeSnapshot.focusedSessionId,
+              activeGroupId: workspaceSnapshot.activeGroupId,
+              activeVisibleSessionIds: activeSnapshot.visibleSessionIds,
+              backendSnapshotAgentName: snapshot?.agentName,
+              backendSnapshotAgentStatus: snapshot?.agentStatus,
+              backendSnapshotTitle: snapshot?.title,
+              isFocusedSession: activeSnapshot.focusedSessionId === sessionRecord.sessionId,
+              isOrangeIndicatorShown: effectiveActivity === "working",
+              isVisible: visibleSessionIdSet.has(sessionRecord.sessionId),
+              isVisibleSession: activeSnapshot.visibleSessionIds.includes(sessionRecord.sessionId),
+              rawTerminalTitle: this.terminalTitleBySessionId.get(sessionRecord.sessionId),
+              sessionId: sessionRecord.sessionId,
+              visibleSlotIndex: visibleSlotIndexBySessionId.get(sessionRecord.sessionId),
+              visibleTerminalTitle: getVisibleTerminalTitle(
+                this.terminalTitleBySessionId.get(sessionRecord.sessionId),
+              ),
+            });
             return {
               activity: effectiveActivity,
               isGeneratingFirstPromptTitle: this.isFirstPromptAutoRenameInProgress(
@@ -7299,6 +7552,95 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       enabled: getDebuggingMode(),
       event,
       workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    });
+  }
+
+  private async appendClaudeTitlePipelineLog(
+    event: string,
+    details: Record<string, unknown> & { sessionId?: string },
+  ): Promise<void> {
+    const sessionId = details.sessionId;
+    const snapshot = sessionId ? this.backend.getSessionSnapshot(sessionId) : undefined;
+    const markerPresent =
+      sessionId !== undefined && this.claudeFirstPromptAutoRenameTriggeredSessionIds.has(sessionId);
+    const isClaudeRelevant =
+      markerPresent ||
+      this.isFirstPromptAutoRenameInProgress(sessionId ?? "") ||
+      details.agentIcon === "claude" ||
+      String(details.persistedAgentName ?? "")
+        .trim()
+        .toLowerCase() === "claude" ||
+      String(details.snapshotAgentName ?? "")
+        .trim()
+        .toLowerCase() === "claude" ||
+      snapshot?.agentName?.trim().toLowerCase() === "claude";
+
+    if (!isClaudeRelevant) {
+      return;
+    }
+
+    /**
+     * CDXC:Claude-session-naming 2026-04-25-07:44
+     * Debug logs for Claude auto-renames must trace the existing terminal-title
+     * pipeline end to end: pty-derived presentation title, persist decision, store
+     * title, and sidebar payload. This keeps debugging focused without adding a
+     * fallback title source.
+     */
+    await this.appendClaudeFirstMessageRenameIssueLog(event, {
+      ...details,
+      markerPresent,
+      snapshotAgentName: snapshot?.agentName ?? details.snapshotAgentName,
+      snapshotAgentStatus: snapshot?.agentStatus ?? details.snapshotAgentStatus,
+      snapshotTitle: snapshot?.title ?? details.snapshotTitle,
+    });
+  }
+
+  private appendClaudeIndicatorStatusLog(
+    event: string,
+    details: Record<string, unknown> & { sessionId?: string },
+  ): void {
+    const sessionId = details.sessionId;
+    const snapshot = sessionId ? this.backend.getSessionSnapshot(sessionId) : undefined;
+    const rawTerminalTitle =
+      typeof details.rawTerminalTitle === "string"
+        ? details.rawTerminalTitle
+        : sessionId
+          ? this.terminalTitleBySessionId.get(sessionId)
+          : undefined;
+    const isClaudeRelevant =
+      details.agentIcon === "claude" ||
+      String(details.backendSnapshotAgentName ?? "")
+        .trim()
+        .toLowerCase() === "claude" ||
+      snapshot?.agentName?.trim().toLowerCase() === "claude" ||
+      rawTerminalTitle?.toLowerCase().includes("claude") === true ||
+      rawTerminalTitle?.includes("⠐") === true ||
+      rawTerminalTitle?.includes("⠂") === true ||
+      rawTerminalTitle?.includes("✳") === true;
+
+    if (!isClaudeRelevant) {
+      return;
+    }
+
+    /**
+     * CDXC:Claude-session-status 2026-04-25-09:09
+     * Indicator repro logs must show the raw terminal title before marker
+     * stripping, final projected activity, and active visible/focused session
+     * state so orange flicker can be traced to daemon parsing, visibility, or
+     * sidebar/workspace projection.
+     */
+    void appendClaudeIndicatorStatusDebugLog({
+      details: {
+        ...details,
+        backendSnapshotAgentName: snapshot?.agentName ?? details.backendSnapshotAgentName,
+        backendSnapshotAgentStatus: snapshot?.agentStatus ?? details.backendSnapshotAgentStatus,
+        backendSnapshotTitle: snapshot?.title ?? details.backendSnapshotTitle,
+        rawTerminalTitle,
+        sessionId,
+      },
+      enabled: getDebuggingMode(),
+      event,
+      workspaceRoot: getDefaultWorkspaceCwd(),
     });
   }
 

@@ -29,7 +29,6 @@ type CodexWatcherHandle = {
 };
 
 const CODEX_LOG_POLL_INTERVAL_MS = 200;
-const CLAUDE_CODE_DISABLE_TERMINAL_TITLE_ENV_KEY = "CLAUDE_CODE_DISABLE_TERMINAL_TITLE";
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -130,15 +129,16 @@ export function createAgentEnvironment(
   agent: AgentName,
   baseEnvironment: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
+  /**
+   * CDXC:Claude-session-status 2026-04-25-08:10
+   * Claude Code terminal-title OSC updates must stay enabled. VSmux uses those
+   * title transitions to derive Claude sidebar names and working/done indicators.
+   */
   const environment: NodeJS.ProcessEnv = {
     ...baseEnvironment,
     VSMUX_AGENT: agent,
     VSMUX_WRAPPER_PID: String(process.pid),
   };
-
-  if (agent === "claude") {
-    environment[CLAUDE_CODE_DISABLE_TERMINAL_TITLE_ENV_KEY] = "1";
-  }
 
   return environment;
 }

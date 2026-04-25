@@ -1,7 +1,25 @@
 import type { SidebarSessionActivityState } from "../shared/session-grid-contract";
 
 const CLAUDE_CODE_IDLE_MARKERS = ["✳", "*"] as const;
-const CLAUDE_CODE_WORKING_MARKERS = ["⠐", "⠂", "·"] as const;
+/**
+ * CDXC:Claude-session-status 2026-04-25-08:29
+ * Claude Code terminal titles drive VSmux running/done indicators. Claude uses
+ * braille glyphs such as `⠐` while running; keep star-glyph support scoped here
+ * for title variants while `✳` remains the idle/done marker.
+ */
+const CLAUDE_CODE_WORKING_MARKERS = [
+  "⠐",
+  "⠂",
+  "·",
+  "✶",
+  "✻",
+  "✽",
+  "✸",
+  "✹",
+  "✺",
+  "✷",
+  "✴",
+] as const;
 const CLAUDE_CODE_TITLE = "Claude Code";
 const CLAUDE_TITLE_KEYWORD = "claude";
 const CODEX_TITLE_KEYWORD = "codex";
@@ -217,6 +235,14 @@ export function hasOpenCodeTitlePrefix(title: string): boolean {
   return OPENCODE_TITLE_PREFIX_PATTERN.test(title);
 }
 
+export function hasClaudeCodeWorkingTitleMarker(title: string | undefined): boolean {
+  return title !== undefined && getClaudeCodeTitleState(title, true) === "working";
+}
+
+export function hasClaudeCodeIdleTitleMarker(title: string | undefined): boolean {
+  return title !== undefined && getClaudeCodeTitleState(title, true) === "idle";
+}
+
 function getClaudeCodeTitleState(
   title: string,
   allowAgentHintMatch = false,
@@ -228,7 +254,8 @@ function getClaudeCodeTitleState(
   const hasClaudeKeyword =
     lowerTitle.includes(lowerClaudeCodeTitle) || lowerTitle.includes(CLAUDE_TITLE_KEYWORD);
   const hasClaudeInferenceMarker =
-    normalizedTitle.includes("✳") || normalizedTitle.includes("⠐") || normalizedTitle.includes("⠂");
+    containsAnyMarker(normalizedTitle, CLAUDE_CODE_IDLE_MARKERS) ||
+    containsAnyMarker(normalizedTitle, CLAUDE_CODE_WORKING_MARKERS);
   if (!allowAgentHintMatch && !hasClaudeKeyword && !hasClaudeInferenceMarker) {
     return undefined;
   }
@@ -245,11 +272,9 @@ function getClaudeCodeTitleState(
   }
 
   if (
-    normalizedTitle.includes("⠐") ||
-    normalizedTitle.includes("⠂") ||
+    containsAnyMarker(normalizedTitle, CLAUDE_CODE_WORKING_MARKERS) ||
     allowAgentHintMatch ||
-    hasClaudeKeyword ||
-    normalizedTitle.includes("·")
+    hasClaudeKeyword
   ) {
     if (containsAnyMarker(normalizedTitle, CLAUDE_CODE_WORKING_MARKERS)) {
       return "working";

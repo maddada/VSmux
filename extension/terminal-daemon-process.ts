@@ -30,7 +30,12 @@ import {
 } from "./terminal-daemon-session-state";
 import { appendFirstPromptAutoRenameReproLog } from "./first-prompt-auto-rename-repro-log";
 import { appendXtermResizeReproLog } from "./xterm-resize-repro-log";
+import { appendAgentTerminalTitlePipelineDebugLog } from "./agent-terminal-title-pipeline-debug-log";
+import { appendClaudeIndicatorStatusDebugLog } from "./claude-indicator-status-debug-log";
+import { getDaemonSafeDebuggingMode } from "./daemon-debugging-mode";
 import {
+  hasClaudeCodeIdleTitleMarker,
+  hasClaudeCodeWorkingTitleMarker,
   hasOpenCodeTitlePrefix,
   getTitleActivityWindowMs,
   acknowledgeTitleDerivedSessionActivity,
@@ -56,6 +61,7 @@ import type {
   TerminalHostRequest,
   TerminalHostResponse,
   TerminalHostSessionStateEvent,
+  TerminalHostSyncResizeEligibleSessionsRequest,
   TerminalHostSyncSessionLeasesRequest,
   TerminalHostWriteRequest,
   TerminalHostResizeRequest,
@@ -86,6 +92,8 @@ type DaemonInfo = {
 };
 
 type ManagedSession = {
+  claudeDoneVisibleTitle?: string;
+  claudeDoneRunningMarkerIgnoreUntil?: number;
   cols: number;
   cwd: string;
   frontendAttachmentGeneration: number;
@@ -135,6 +143,7 @@ const SESSION_ATTACH_READY_TIMEOUT_MS = 15_000;
 const REPLAY_CHUNK_BYTES = 128 * 1024;
 const MAX_XTERM_HEADLESS_SCROLLBACK = 100_000;
 const DEFAULT_XTERM_HEADLESS_SCROLLBACK = 50_000;
+const CLAUDE_DONE_STALE_RUNNING_MARKER_IGNORE_MS = 1_000;
 const INFO_FILE_NAME = "daemon-info.json";
 const stateDir = getStateDirFromArgs();
 const infoFilePath = path.join(stateDir, INFO_FILE_NAME);
@@ -143,6 +152,7 @@ const sessions = new Map<string, ManagedSession>();
 const controlClients = new Set<ControlClient>();
 const pendingSessionAttachmentSockets = new Set<WebSocket>();
 const sessionSocketsBySessionKey = new Map<string, WebSocket>();
+const resizeEligibleSessionIdsByWorkspaceId = new Map<string, Set<string>>();
 
 let idleShutdownTimeoutMs: number | null = DEFAULT_IDLE_SHUTDOWN_TIMEOUT_MS;
 let lifecycleTimer: NodeJS.Timeout | undefined;
@@ -285,6 +295,9 @@ async function handleControlMessage(client: ControlClient, rawMessage: string): 
       case "syncSessionLeases":
         await handleSyncSessionLeasesRequest(client.socket, request);
         return;
+      case "syncResizeEligibleSessions":
+        await handleSyncResizeEligibleSessionsRequest(client.socket, request);
+        return;
       case "createOrAttach":
         await handleCreateOrAttachRequest(client.socket, request);
         return;
@@ -352,6 +365,14 @@ async function handleSyncSessionLeasesRequest(
 
   clearLifecycleTimer();
   scheduleDaemonLifecycleCheckIfNeeded();
+  socket.send(JSON.stringify(okResponse(request.requestId)));
+}
+
+async function handleSyncResizeEligibleSessionsRequest(
+  socket: WebSocket,
+  request: TerminalHostSyncResizeEligibleSessionsRequest,
+): Promise<void> {
+  resizeEligibleSessionIdsByWorkspaceId.set(request.workspaceId, new Set(request.sessionIds));
   socket.send(JSON.stringify(okResponse(request.requestId)));
 }
 
@@ -604,6 +625,33 @@ function resizeSession(session: ManagedSession, cols: number, rows: number, reas
   session.pty.resize(cols, rows);
 }
 
+function isFrontendResizeAllowed(session: ManagedSession): boolean {
+  const resizeEligibleSessionIds = resizeEligibleSessionIdsByWorkspaceId.get(session.workspaceId);
+  return !resizeEligibleSessionIds || resizeEligibleSessionIds.has(session.sessionId);
+}
+
+function logSuppressedFrontendResize(
+  session: ManagedSession,
+  cols: number,
+  rows: number,
+  reason: string,
+): void {
+  void appendXtermResizeReproLog(
+    session.workspaceRoot,
+    `daemon.resizeSessionSuppressed.${reason}`,
+    {
+      cols,
+      currentCols: session.cols,
+      currentRows: session.rows,
+      isXtermSession: isXtermSession(session),
+      rows,
+      sessionId: session.sessionId,
+      terminalEngine: session.terminalEngine,
+      workspaceId: session.workspaceId,
+    },
+  );
+}
+
 async function buildSnapshot(
   session: ManagedSession,
   includeHistory: boolean,
@@ -718,6 +766,10 @@ async function handleSessionSocketMessage(
       await activatePendingSessionAttachment(session, sessionKey, socket, attachment);
       return;
     }
+    if (!isFrontendResizeAllowed(session)) {
+      logSuppressedFrontendResize(session, message.cols, message.rows, message.type);
+      return;
+    }
     resizeSession(session, message.cols, message.rows, message.type);
     if (attachment.activated) {
       const snapshot = await buildSnapshot(session, false);
@@ -759,11 +811,40 @@ function okResponse(
 function updateSessionLiveTitle(session: ManagedSession, chunk: string): boolean {
   const { carryover, title } = parseTerminalTitleFromOutputChunk(session.titleCarryover, chunk);
   session.titleCarryover = carryover;
-  if (!title || title === session.liveTitle) {
+  if (!title) {
     return false;
   }
 
+  if (title === session.liveTitle) {
+    logClaudeIndicatorStatusDebug(session, "daemon.titleUnchanged", {
+      rawTitle: title,
+      snapshotAgentName: session.snapshot.agentName,
+      snapshotAgentStatus: session.snapshot.agentStatus,
+      titleActivityAgentName: session.titleActivity?.agentName,
+      titleActivityStatus: session.titleActivity?.activity,
+      visibleTitle: getVisibleTerminalTitle(title),
+    });
+    return false;
+  }
+
+  if (shouldIgnoreClaudeStaleRunningTitleAfterDone(session, title)) {
+    logClaudeIndicatorStatusDebug(session, "daemon.claudeStaleRunningTitleIgnoredAfterDone", {
+      ignoreUntil: session.claudeDoneRunningMarkerIgnoreUntil,
+      protectedVisibleTitle: session.claudeDoneVisibleTitle,
+      rawTitle: title,
+      snapshotAgentName: session.snapshot.agentName,
+      snapshotAgentStatus: session.snapshot.agentStatus,
+      titleActivityAgentName: session.titleActivity?.agentName,
+      titleActivityStatus: session.titleActivity?.activity,
+      visibleTitle: getVisibleTerminalTitle(title),
+    });
+    return false;
+  }
+
+  const previousSnapshotAgentName = session.snapshot.agentName;
+  const previousSnapshotAgentStatus = session.snapshot.agentStatus;
   const previousTitle = session.liveTitle;
+  const previousTitleActivity = session.titleActivity;
   session.liveTitle = title;
   session.titleActivity = getTitleDerivedSessionActivityFromTransition(
     previousTitle,
@@ -772,9 +853,45 @@ function updateSessionLiveTitle(session: ManagedSession, chunk: string): boolean
     session.snapshot.agentName,
   );
   applySessionTitleActivity(session);
+  updateClaudeDoneTitleProtection(session, title, previousTitleActivity);
   scheduleTitleActivityRefresh(session);
   const normalizedTitle = title.trim().replace(/\s+/g, " ");
   const presentationTitle = getSessionPresentationTitle(title, normalizedTitle);
+  /**
+   * CDXC:Terminal-title-pipeline 2026-04-25-07:44
+   * Codex and other pty-backed agents can name sessions by emitting OSC terminal
+   * title sequences. Log this source separately from VS Code terminal tab-name
+   * changes so we can prove which path each agent uses before fixing sync behavior.
+   */
+  void appendAgentTerminalTitlePipelineDebugLog({
+    details: {
+      agentName: session.snapshot.agentName,
+      normalizedTitle,
+      presentationTitle,
+      previousLiveTitle: previousTitle,
+      rawTitle: title,
+      sessionId: session.sessionId,
+      terminalEngine: session.terminalEngine,
+      titleActivityAgentName: session.titleActivity?.agentName,
+      titleActivityStatus: session.titleActivity?.activity,
+      visibleTitle: getVisibleTerminalTitle(title),
+      workspaceId: session.workspaceId,
+    },
+    enabled: getDaemonSafeDebuggingMode(),
+    event: "daemon.ptyTitleParsed",
+    workspaceRoot: session.workspaceRoot,
+  });
+  logClaudeIndicatorStatusDebug(session, "daemon.titleParsed", {
+    previousRawTitle: previousTitle,
+    previousSnapshotAgentName,
+    previousSnapshotAgentStatus,
+    rawTitle: title,
+    snapshotAgentName: session.snapshot.agentName,
+    snapshotAgentStatus: session.snapshot.agentStatus,
+    titleActivityAgentName: session.titleActivity?.agentName,
+    titleActivityStatus: session.titleActivity?.activity,
+    visibleTitle: getVisibleTerminalTitle(title),
+  });
   if (presentationTitle) {
     void persistSessionLiveTitle(session, presentationTitle);
     session.snapshot = {
@@ -798,6 +915,19 @@ export function getSessionPresentationTitle(
 
 async function persistSessionLiveTitle(session: ManagedSession, title: string): Promise<void> {
   if (title === session.lastKnownPersistedTitle) {
+    void appendAgentTerminalTitlePipelineDebugLog({
+      details: {
+        decision: "skip",
+        reason: "same-as-last-known-persisted-title",
+        sessionId: session.sessionId,
+        terminalEngine: session.terminalEngine,
+        title,
+        workspaceId: session.workspaceId,
+      },
+      enabled: getDaemonSafeDebuggingMode(),
+      event: "daemon.ptyTitlePersistDecision",
+      workspaceRoot: session.workspaceRoot,
+    });
     return;
   }
 
@@ -830,10 +960,38 @@ async function persistSessionLiveTitle(session: ManagedSession, title: string): 
   ).catch(() => undefined);
 
   if (!persistedState) {
+    void appendAgentTerminalTitlePipelineDebugLog({
+      details: {
+        decision: "skip",
+        reason: "persisted-state-update-failed",
+        sessionId: session.sessionId,
+        terminalEngine: session.terminalEngine,
+        title,
+        workspaceId: session.workspaceId,
+      },
+      enabled: getDaemonSafeDebuggingMode(),
+      event: "daemon.ptyTitlePersistDecision",
+      workspaceRoot: session.workspaceRoot,
+    });
     return;
   }
 
   if (skippedBecauseGenericTitle) {
+    void appendAgentTerminalTitlePipelineDebugLog({
+      details: {
+        agentName: previousAgentName,
+        decision: "skip",
+        previousHasAutoTitleFromFirstPrompt,
+        reason: "generic-title-while-auto-title-active",
+        sessionId: session.sessionId,
+        terminalEngine: session.terminalEngine,
+        title,
+        workspaceId: session.workspaceId,
+      },
+      enabled: getDaemonSafeDebuggingMode(),
+      event: "daemon.ptyTitlePersistDecision",
+      workspaceRoot: session.workspaceRoot,
+    });
     void appendFirstPromptAutoRenameReproLog(
       process.cwd(),
       "daemon.firstPromptAutoRename.persistSessionLiveTitle.skippedGenericTitle",
@@ -847,6 +1005,21 @@ async function persistSessionLiveTitle(session: ManagedSession, title: string): 
     previousHasAutoTitleFromFirstPrompt &&
     persistedState.hasAutoTitleFromFirstPrompt !== true
   ) {
+    void appendAgentTerminalTitlePipelineDebugLog({
+      details: {
+        agentName: previousAgentName,
+        decision: "persisted",
+        previousHasAutoTitleFromFirstPrompt,
+        resetAutoTitleFromFirstPrompt: true,
+        sessionId: session.sessionId,
+        terminalEngine: session.terminalEngine,
+        title: persistedState.title,
+        workspaceId: session.workspaceId,
+      },
+      enabled: getDaemonSafeDebuggingMode(),
+      event: "daemon.ptyTitlePersistDecision",
+      workspaceRoot: session.workspaceRoot,
+    });
     void appendFirstPromptAutoRenameReproLog(
       process.cwd(),
       "daemon.firstPromptAutoRename.persistSessionLiveTitle.resetAutoNamedFlag",
@@ -859,6 +1032,23 @@ async function persistSessionLiveTitle(session: ManagedSession, title: string): 
         title: persistedState.title,
       },
     );
+  }
+
+  if (!skippedBecauseGenericTitle && !previousHasAutoTitleFromFirstPrompt) {
+    void appendAgentTerminalTitlePipelineDebugLog({
+      details: {
+        agentName: previousAgentName,
+        decision: "persisted",
+        previousHasAutoTitleFromFirstPrompt,
+        sessionId: session.sessionId,
+        terminalEngine: session.terminalEngine,
+        title: persistedState.title,
+        workspaceId: session.workspaceId,
+      },
+      enabled: getDaemonSafeDebuggingMode(),
+      event: "daemon.ptyTitlePersistDecision",
+      workspaceRoot: session.workspaceRoot,
+    });
   }
 
   session.lastKnownPersistedTitle = persistedState.title;
@@ -904,19 +1094,65 @@ function scheduleTitleActivityRefresh(session: ManagedSession): void {
     return;
   }
 
+  /**
+   * CDXC:Claude-session-status 2026-04-25-09:12
+   * Claude Code pauses its spinner/title updates when the terminal pane is not
+   * visible, but it still emits `✳` when work finishes. Keep Claude marked as
+   * running while the last pty title contains a Claude running marker instead
+   * of treating the paused glyph as a completed session.
+   */
+  if (
+    session.titleActivity.agentName === "claude" &&
+    hasClaudeCodeWorkingTitleMarker(session.liveTitle)
+  ) {
+    logClaudeIndicatorStatusDebug(session, "daemon.activityTimerSkippedClaudeRunningTitle", {
+      lastTitleChangeAt: session.titleActivity.lastTitleChangeAt,
+      rawTitle: session.liveTitle,
+      snapshotAgentName: session.snapshot.agentName,
+      snapshotAgentStatus: session.snapshot.agentStatus,
+      titleActivityAgentName: session.titleActivity.agentName,
+      titleActivityStatus: session.titleActivity.activity,
+      visibleTitle: getVisibleTerminalTitle(session.liveTitle),
+    });
+    return;
+  }
+
   const delayMs = Math.max(
     0,
     getTitleActivityWindowMs(session.titleActivity.agentName) -
       (Date.now() - session.titleActivity.lastTitleChangeAt) +
       50,
   );
+  logClaudeIndicatorStatusDebug(session, "daemon.activityTimerScheduled", {
+    delayMs,
+    lastTitleChangeAt: session.titleActivity.lastTitleChangeAt,
+    rawTitle: session.liveTitle,
+    snapshotAgentName: session.snapshot.agentName,
+    snapshotAgentStatus: session.snapshot.agentStatus,
+    titleActivityAgentName: session.titleActivity.agentName,
+    titleActivityStatus: session.titleActivity.activity,
+    visibleTitle: getVisibleTerminalTitle(session.liveTitle),
+  });
   session.titleActivityTimer = setTimeout(() => {
     session.titleActivityTimer = undefined;
+    const previousTitleActivity = session.titleActivity;
+    const previousSnapshotAgentName = session.snapshot.agentName;
+    const previousSnapshotAgentStatus = session.snapshot.agentStatus;
     const nextTitleActivity = getTitleDerivedSessionActivity(
       session.liveTitle ?? "",
       session.titleActivity,
       session.snapshot.agentName,
     );
+    logClaudeIndicatorStatusDebug(session, "daemon.activityTimerFired", {
+      nextTitleActivityAgentName: nextTitleActivity?.agentName,
+      nextTitleActivityStatus: nextTitleActivity?.activity,
+      previousSnapshotAgentName,
+      previousSnapshotAgentStatus,
+      previousTitleActivityAgentName: previousTitleActivity?.agentName,
+      previousTitleActivityStatus: previousTitleActivity?.activity,
+      rawTitle: session.liveTitle,
+      visibleTitle: getVisibleTerminalTitle(session.liveTitle),
+    });
     if (!nextTitleActivity || nextTitleActivity.activity === session.titleActivity?.activity) {
       return;
     }
@@ -925,6 +1161,100 @@ function scheduleTitleActivityRefresh(session: ManagedSession): void {
     applySessionTitleActivity(session);
     broadcastControlSessionState(session.snapshot);
   }, delayMs);
+}
+
+function logClaudeIndicatorStatusDebug(
+  session: ManagedSession,
+  event: string,
+  details: Record<string, unknown>,
+): void {
+  const isClaudeRelevant =
+    session.snapshot.agentName?.trim().toLowerCase() === "claude" ||
+    session.titleActivity?.agentName === "claude" ||
+    String(details.titleActivityAgentName ?? "")
+      .trim()
+      .toLowerCase() === "claude" ||
+    String(details.rawTitle ?? "")
+      .toLowerCase()
+      .includes("claude") ||
+    String(details.rawTitle ?? "").includes("⠐") ||
+    String(details.rawTitle ?? "").includes("⠂") ||
+    String(details.rawTitle ?? "").includes("✳");
+
+  if (!isClaudeRelevant) {
+    return;
+  }
+
+  void appendClaudeIndicatorStatusDebugLog({
+    details: {
+      ...details,
+      isOrangeIndicatorSource: session.snapshot.agentStatus === "working",
+      sessionId: session.sessionId,
+      terminalEngine: session.terminalEngine,
+      workspaceId: session.workspaceId,
+    },
+    enabled: getDaemonSafeDebuggingMode(),
+    event,
+    workspaceRoot: session.workspaceRoot,
+  });
+}
+
+function shouldIgnoreClaudeStaleRunningTitleAfterDone(
+  session: ManagedSession,
+  title: string,
+): boolean {
+  const ignoreUntil = session.claudeDoneRunningMarkerIgnoreUntil;
+  if (ignoreUntil === undefined || Date.now() > ignoreUntil) {
+    return false;
+  }
+
+  return (
+    hasClaudeCodeWorkingTitleMarker(title) &&
+    getVisibleTerminalTitle(title) === session.claudeDoneVisibleTitle
+  );
+}
+
+function updateClaudeDoneTitleProtection(
+  session: ManagedSession,
+  title: string,
+  previousTitleActivity: TitleDerivedSessionActivity | undefined,
+): void {
+  const titleActivity = session.titleActivity;
+  const isClaudeDoneTitle =
+    previousTitleActivity?.agentName === "claude" &&
+    previousTitleActivity.activity === "working" &&
+    titleActivity?.agentName === "claude" &&
+    titleActivity.activity === "attention" &&
+    hasClaudeCodeIdleTitleMarker(title);
+
+  if (!isClaudeDoneTitle || !titleActivity) {
+    if (session.titleActivity?.activity === "working") {
+      session.claudeDoneVisibleTitle = undefined;
+      session.claudeDoneRunningMarkerIgnoreUntil = undefined;
+    }
+    return;
+  }
+
+  /**
+   * CDXC:Claude-session-status 2026-04-25-09:30
+   * Claude can emit the final `✳ <title>` and then replay one stale running
+   * glyph for the same visible title milliseconds later. Protect the done state
+   * briefly so completion remains visible instead of flashing back to running.
+   */
+  session.claudeDoneVisibleTitle = getVisibleTerminalTitle(title);
+  session.claudeDoneRunningMarkerIgnoreUntil =
+    Date.now() + CLAUDE_DONE_STALE_RUNNING_MARKER_IGNORE_MS;
+  logClaudeIndicatorStatusDebug(session, "daemon.claudeDoneTitleProtectionStarted", {
+    ignoreMs: CLAUDE_DONE_STALE_RUNNING_MARKER_IGNORE_MS,
+    ignoreUntil: session.claudeDoneRunningMarkerIgnoreUntil,
+    protectedVisibleTitle: session.claudeDoneVisibleTitle,
+    rawTitle: title,
+    snapshotAgentName: session.snapshot.agentName,
+    snapshotAgentStatus: session.snapshot.agentStatus,
+    titleActivityAgentName: titleActivity.agentName,
+    titleActivityStatus: titleActivity.activity,
+    visibleTitle: getVisibleTerminalTitle(title),
+  });
 }
 
 function clearTitleActivityTimer(session: ManagedSession): void {
@@ -1354,12 +1684,21 @@ async function activatePendingSessionAttachment(
   clearPendingSessionAttachmentTimeout(attachment);
 
   if (attachment.initialCols && attachment.initialRows) {
-    resizeSession(
-      session,
-      attachment.initialCols,
-      attachment.initialRows,
-      "pending-attachment-initial-size",
-    );
+    if (isFrontendResizeAllowed(session)) {
+      resizeSession(
+        session,
+        attachment.initialCols,
+        attachment.initialRows,
+        "pending-attachment-initial-size",
+      );
+    } else {
+      logSuppressedFrontendResize(
+        session,
+        attachment.initialCols,
+        attachment.initialRows,
+        "pending-attachment-initial-size",
+      );
+    }
   }
 
   const pendingAttachQueue = createPendingAttachQueue(session.historyBuffer.bytesWritten);

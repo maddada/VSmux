@@ -450,6 +450,9 @@ describe("visible primary titles", () => {
   test("should strip leading progress markers from terminal titles for supported agents", () => {
     expect(normalizeTerminalTitle("  ⠸ OpenAI Codex  ")).toBe("OpenAI Codex");
     expect(normalizeTerminalTitle("✳ Claude Code")).toBe("Claude Code");
+    expect(normalizeTerminalTitle("✻ check-implementation-status")).toBe(
+      "check-implementation-status",
+    );
     expect(normalizeTerminalTitle("✦ agent-tiler")).toBe("agent-tiler");
     expect(normalizeTerminalTitle("◇ agent-tiler")).toBe("agent-tiler");
     expect(normalizeTerminalTitle("🤖 Copilot fix")).toBe("Copilot fix");
@@ -467,6 +470,12 @@ describe("visible primary titles", () => {
   test("should prefer the terminal title when choosing a visible session title", () => {
     expect(getPreferredSessionTitle("Session 1", "Claude Code / repo sweep")).toBe(
       "Claude Code / repo sweep",
+    );
+  });
+
+  test("should prefer Claude generated rename titles over numeric session card titles", () => {
+    expect(getPreferredSessionTitle("00", "✳ check-implementation-status")).toBe(
+      "check-implementation-status",
     );
   });
 

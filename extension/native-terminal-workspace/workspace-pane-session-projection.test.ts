@@ -12,7 +12,7 @@ import {
 } from "./workspace-pane-session-projection";
 
 describe("getWorkspacePaneSessionRecords", () => {
-  test("should return active-group sessions first and retain t3 sessions from inactive groups", () => {
+  test("should return active-group sessions first and retain inactive group panes", () => {
     const workspaceSnapshot = createDefaultGroupedSessionWorkspaceSnapshot();
     const mainTerminal = createSessionRecord(1, 0);
     const mainT3 = createSessionRecord(2, 1, {
@@ -54,6 +54,7 @@ describe("getWorkspacePaneSessionRecords", () => {
     expect(getWorkspacePaneSessionRecords(workspaceSnapshot)).toEqual([
       mainTerminal,
       mainT3,
+      otherGroupTerminal,
       otherGroupT3,
     ]);
   });

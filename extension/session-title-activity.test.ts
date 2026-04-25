@@ -5,6 +5,8 @@ import {
   getInterestingTitleSymbols,
   getTitleDerivedSessionActivity,
   getTitleDerivedSessionActivityFromTransition,
+  hasClaudeCodeIdleTitleMarker,
+  hasClaudeCodeWorkingTitleMarker,
 } from "./session-title-activity";
 
 beforeEach(() => {
@@ -245,6 +247,27 @@ describe("getTitleDerivedSessionActivity", () => {
     });
   });
 
+  test("should treat the Claude idle star marker as not running", () => {
+    /**
+     * CDXC:Claude-session-status 2026-04-25-08:34
+     * `✳` is Claude Code's idle/done title marker. It must not be included in
+     * running markers, otherwise completed sessions keep showing orange.
+     */
+    expect(
+      getTitleDerivedSessionActivity(
+        "✳ Review implementation status in overview.md",
+        undefined,
+        "claude",
+      ),
+    ).toEqual({
+      activity: "idle",
+      agentName: "claude",
+      hasSeenWorking: false,
+      isAcknowledged: false,
+      lastTitleChangeAt: undefined,
+    });
+  });
+
   test("should detect a bare Claude title as the Claude agent", () => {
     expect(getTitleDerivedSessionActivity("Claude")).toEqual({
       activity: "idle",
@@ -303,6 +326,72 @@ describe("getTitleDerivedSessionActivity", () => {
 
     expect(
       getTitleDerivedSessionActivity("⠐ Determine project purpose and scope", derivedActivity),
+    ).toEqual({
+      activity: "working",
+      agentName: "claude",
+      hasSeenWorking: true,
+      isAcknowledged: false,
+      lastTitleChangeAt: Date.now(),
+    });
+  });
+
+  test("should detect the current Claude braille spinner title as working", () => {
+    const derivedActivity = getTitleDerivedSessionActivityFromTransition(
+      undefined,
+      "⠐ Review implementation status in overview.md",
+      undefined,
+      "claude",
+    );
+
+    expect(
+      getTitleDerivedSessionActivity(
+        "⠐ Review implementation status in overview.md",
+        derivedActivity,
+        "claude",
+      ),
+    ).toEqual({
+      activity: "working",
+      agentName: "claude",
+      hasSeenWorking: true,
+      isAcknowledged: false,
+      lastTitleChangeAt: Date.now(),
+    });
+  });
+
+  test("should identify Claude working titles that should not expire while hidden", () => {
+    /**
+     * CDXC:Claude-session-status 2026-04-25-09:12
+     * Hidden Claude panes pause title animation, so a last-seen running glyph
+     * must remain the running source until Claude emits the idle/done `✳`.
+     */
+    expect(hasClaudeCodeWorkingTitleMarker("⠐ Review implementation status in overview.md")).toBe(
+      true,
+    );
+    expect(hasClaudeCodeWorkingTitleMarker("⠂ Review implementation status in overview.md")).toBe(
+      true,
+    );
+    expect(hasClaudeCodeWorkingTitleMarker("✻ check-implementation-status")).toBe(true);
+    expect(hasClaudeCodeWorkingTitleMarker("✳ Review implementation status in overview.md")).toBe(
+      false,
+    );
+    expect(hasClaudeCodeIdleTitleMarker("✳ Review implementation status in overview.md")).toBe(
+      true,
+    );
+    expect(hasClaudeCodeIdleTitleMarker("⠂ Review implementation status in overview.md")).toBe(
+      false,
+    );
+  });
+
+  test("should detect Claude star spinner titles as working", () => {
+    const derivedActivity = getTitleDerivedSessionActivityFromTransition(
+      undefined,
+      "✻ check-implementation-status",
+      undefined,
+      "claude",
+    );
+
+    expect(
+      getTitleDerivedSessionActivity("✻ check-implementation-status", derivedActivity, "claude"),
     ).toEqual({
       activity: "working",
       agentName: "claude",
@@ -485,6 +574,28 @@ describe("getTitleDerivedSessionActivityFromTransition", () => {
       getTitleDerivedSessionActivityFromTransition(
         "⠐ Determine project purpose and scope",
         "✳ Review repository...",
+        {
+          activity: "working",
+          agentName: "claude",
+          hasSeenWorking: true,
+          isAcknowledged: false,
+          lastTitleChangeAt: Date.now(),
+        },
+      ),
+    ).toEqual({
+      activity: "attention",
+      agentName: "claude",
+      hasSeenWorking: true,
+      isAcknowledged: false,
+      lastTitleChangeAt: expect.any(Number),
+    });
+  });
+
+  test("should mark Claude as attention when a star spinner becomes the idle title", () => {
+    expect(
+      getTitleDerivedSessionActivityFromTransition(
+        "✻ check-implementation-status",
+        "✳ check-implementation-status",
         {
           activity: "working",
           agentName: "claude",

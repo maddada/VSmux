@@ -513,6 +513,18 @@ export class DaemonTerminalWorkspaceBackend implements TerminalWorkspaceBackend 
     void this.syncManagedSessionLeases();
   }
 
+  public async syncResizeEligibleSessions(sessionIds: readonly string[]): Promise<void> {
+    try {
+      await this.runtime.syncResizeEligibleSessions(this.options.workspaceId, [...sessionIds]);
+    } catch (error) {
+      logVSmuxDebug("backend.daemon.syncResizeEligibleSessions.failed", {
+        error: error instanceof Error ? error.message : String(error),
+        sessionCount: sessionIds.length,
+        workspaceId: this.options.workspaceId,
+      });
+    }
+  }
+
   public async syncConfiguration(): Promise<void> {
     await this.runtime.configure(this.getIdleShutdownTimeoutMs());
     await this.syncManagedSessionLeases();

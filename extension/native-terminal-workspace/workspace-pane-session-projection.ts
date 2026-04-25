@@ -17,15 +17,16 @@ export function getWorkspacePaneSessionRecords(
   const activeGroupSessionIds = new Set(
     activeGroup.snapshot.sessions.map((session) => session.sessionId),
   );
-  const retainedT3Sessions = workspaceSnapshot.groups.flatMap((group) =>
+  const retainedInactiveSessions = workspaceSnapshot.groups.flatMap((group) =>
     group.snapshot.sessions.filter(
       (sessionRecord) =>
-        sessionRecord.kind === "t3" && !activeGroupSessionIds.has(sessionRecord.sessionId),
+        (sessionRecord.kind === "terminal" || sessionRecord.kind === "t3") &&
+        !activeGroupSessionIds.has(sessionRecord.sessionId),
     ),
   );
 
   return activeGroup.snapshot.sessions
-    .concat(retainedT3Sessions)
+    .concat(retainedInactiveSessions)
     .filter((sessionRecord): sessionRecord is SessionRecord => sessionRecord !== undefined);
 }
 

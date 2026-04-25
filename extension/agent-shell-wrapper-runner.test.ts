@@ -28,8 +28,13 @@ describe("getCandidateExecutableNames", () => {
 });
 
 describe("createAgentEnvironment", () => {
-  test("should disable Claude terminal title changes at the source", () => {
-    expect(createAgentEnvironment("claude", {}).CLAUDE_CODE_DISABLE_TERMINAL_TITLE).toBe("1");
+  test("should keep Claude terminal title changes enabled for sidebar status sync", () => {
+    /**
+     * CDXC:Claude-session-status 2026-04-25-08:10
+     * Claude sidebar titles and working/done indicators depend on Claude Code's
+     * own terminal-title updates, so the wrapper must not suppress them.
+     */
+    expect(createAgentEnvironment("claude", {}).CLAUDE_CODE_DISABLE_TERMINAL_TITLE).toBeUndefined();
   });
 
   test("should not add the Claude title override for other agents", () => {
