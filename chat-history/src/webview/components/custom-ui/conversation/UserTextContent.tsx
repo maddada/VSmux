@@ -69,7 +69,7 @@ export const UserTextContent: FC<{ text: string; id?: string }> = ({ text, id })
           </div>
         </CardHeader>
         <CardContent className="py-0 px-4">
-          <pre className="text-xs overflow-x-auto whitespace-pre-wrap break-words">
+          <pre className="text-xs overflow-x-auto scroll-mask-x whitespace-pre-wrap break-words">
             {parsed.stdout}
           </pre>
         </CardContent>

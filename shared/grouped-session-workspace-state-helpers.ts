@@ -159,7 +159,10 @@ export function normalizeWorkspaceSessionDisplayIds(groups: readonly SessionGrou
   const nextGroups = groups.map((group) => {
     const sessions = group.snapshot.sessions.map((session) => {
       const normalizedDisplayId = formatSessionDisplayId(session.displayId ?? "");
-      if (!usedDisplayIds.has(normalizedDisplayId) && /^\d{2}$/.test(normalizedDisplayId)) {
+      if (
+        !usedDisplayIds.has(normalizedDisplayId) &&
+        isValidSessionDisplayId(normalizedDisplayId)
+      ) {
         usedDisplayIds.add(normalizedDisplayId);
         return {
           ...session,
@@ -234,4 +237,8 @@ export function findNextAvailableDisplayId(
   }
 
   return startDisplayId % MAX_SESSION_DISPLAY_ID_COUNT;
+}
+
+function isValidSessionDisplayId(displayId: string): boolean {
+  return /^\d{2}$/.test(displayId) || /^s-[a-z0-9-]+$/i.test(displayId);
 }

@@ -72,11 +72,13 @@ describe("createSessionInWorkspace", () => {
     snapshot = first.snapshot;
     const second = createSessionInWorkspace(snapshot);
 
-    expect(first.session?.sessionId).toBe("session-1");
-    expect(second.session?.sessionId).toBe("session-2");
+    expect(first.session?.sessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
+    expect(second.session?.sessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
+    expect(first.session?.displayId).toBe(first.session?.sessionId);
+    expect(second.session?.displayId).toBe(second.session?.sessionId);
     expect(
       second.snapshot.groups[0]?.snapshot.sessions.map((session) => session.sessionId),
-    ).toEqual(["session-1", "session-2"]);
+    ).toEqual([first.session?.sessionId, second.session?.sessionId]);
     expect(second.snapshot.nextSessionNumber).toBe(3);
   });
 });
@@ -327,8 +329,12 @@ describe("active-group preferences", () => {
   test("should keep view mode, visible count, and fullscreen state scoped to the active group", () => {
     let snapshot = createDefaultGroupedSessionWorkspaceSnapshot();
     snapshot = createSessionInWorkspace(snapshot).snapshot;
-    snapshot = createSessionInWorkspace(snapshot).snapshot;
-    snapshot = createGroupFromSessionInWorkspace(snapshot, "session-2").snapshot;
+    const secondSessionResult = createSessionInWorkspace(snapshot);
+    snapshot = secondSessionResult.snapshot;
+    snapshot = createGroupFromSessionInWorkspace(
+      snapshot,
+      secondSessionResult.session?.sessionId ?? "",
+    ).snapshot;
     snapshot = setVisibleCountInWorkspace(snapshot, 1);
     snapshot = setViewModeInWorkspace(snapshot, "vertical");
     snapshot = toggleFullscreenSessionInWorkspace(snapshot);

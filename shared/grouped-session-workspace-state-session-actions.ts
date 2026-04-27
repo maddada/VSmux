@@ -1,4 +1,5 @@
 import {
+  createTimestampedSessionId,
   type CreateSessionRecordOptions,
   type GroupedSessionWorkspaceSnapshot,
   type SessionRecord,
@@ -18,7 +19,6 @@ import {
 } from "./session-grid-state";
 import { reorderGroupSessions } from "./session-order-reorder";
 import {
-  claimNextSessionDisplayId,
   findGroupContainingSession,
   updateActiveGroupSnapshot,
   updateGroup,
@@ -33,6 +33,7 @@ import {
 export function createSessionInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   options?: CreateSessionRecordOptions,
+  createOptions?: { usedSessionIds?: readonly string[] },
 ): {
   session?: SessionRecord;
   snapshot: GroupedSessionWorkspaceSnapshot;
@@ -43,13 +44,17 @@ export function createSessionInWorkspace(
     return { snapshot: normalizedSnapshot };
   }
 
-  const nextDisplayId = claimNextSessionDisplayId(normalizedSnapshot);
+  const sessionId = createTimestampedSessionId([
+    ...getWorkspaceSessionIds(normalizedSnapshot),
+    ...(createOptions?.usedSessionIds ?? []),
+  ]);
   const result = createSessionInSnapshot(
     activeGroup.snapshot,
     normalizedSnapshot.nextSessionNumber,
     {
       ...options,
-      displayId: nextDisplayId.displayId,
+      displayId: sessionId,
+      sessionId,
     } as CreateSessionRecordOptions & { displayId: string },
   );
   if (!result.session) {
@@ -61,10 +66,19 @@ export function createSessionInWorkspace(
     snapshot: {
       ...normalizedSnapshot,
       groups: updateGroup(normalizedSnapshot.groups, activeGroup.groupId, result.snapshot),
-      nextSessionDisplayId: nextDisplayId.nextSessionDisplayId,
       nextSessionNumber: normalizedSnapshot.nextSessionNumber + 1,
     },
   };
+}
+
+function getWorkspaceSessionIds(snapshot: GroupedSessionWorkspaceSnapshot): string[] {
+  return snapshot.groups.flatMap((group) =>
+    group.snapshot.sessions.flatMap((session) => [
+      session.sessionId,
+      session.displayId,
+      session.alias,
+    ]),
+  );
 }
 
 export function focusSessionInWorkspace(

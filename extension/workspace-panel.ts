@@ -218,16 +218,19 @@ export class WorkspacePanelManager implements vscode.Disposable {
 
     const existingWorkspaceTab = findWorkspaceTab(vscode.window.tabGroups.all);
     if (existingWorkspaceTab) {
-      const targetViewColumn = existingWorkspaceTab.group.viewColumn ?? vscode.ViewColumn.One;
-      const closedTabCount = await closeWorkspacePanelTabs();
-      logVSmuxDebug("workspace.panel.replacedExistingTabWithoutPanel", {
-        closedTabCount,
+      /**
+       * CDXC:Workspace-panel 2026-04-27-04:27
+       * When the workbench already has a VSmux webview tab but this extension
+       * instance has no panel handle, revealing VSmux must preserve and focus
+       * that tab instead of closing it and creating a replacement.
+       */
+      const revealedExistingTab = await this.revealWorkspaceTab(existingWorkspaceTab);
+      logVSmuxDebug("workspace.panel.reusedExistingTabWithoutPanel", {
         hasLatestMessage: this.latestMessage !== undefined,
-        targetViewColumn,
+        revealedExistingTab,
+        targetViewColumn: existingWorkspaceTab.group.viewColumn,
       });
-      const panel = this.getOrCreatePanel(targetViewColumn);
-      await this.pinWorkspaceTab();
-      return panel;
+      return undefined;
     }
 
     const panel = this.getOrCreatePanel();

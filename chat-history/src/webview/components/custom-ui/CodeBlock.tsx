@@ -56,7 +56,9 @@ export const CodeBlock: FC<CodeBlockProps> = ({ children, language, className })
       <div
         className={cn(
           "bg-muted/20 p-4 text-sm font-mono",
-          wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre overflow-x-auto",
+          wordWrap
+            ? "whitespace-pre-wrap break-words"
+            : "whitespace-pre overflow-x-auto scroll-mask-x",
         )}
       >
         <code className="text-foreground">{children}</code>

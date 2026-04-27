@@ -97,12 +97,14 @@ export type CreateSessionRecordOptions =
       displayId?: string;
       initialPresentation?: "background" | "focused";
       kind: "browser";
+      sessionId?: string;
       title?: string;
     }
   | {
       displayId?: string;
       initialPresentation?: "background" | "focused";
       kind?: "terminal";
+      sessionId?: string;
       terminalEngine?: TerminalEngine;
       title?: string;
     }
@@ -110,6 +112,7 @@ export type CreateSessionRecordOptions =
       displayId?: string;
       initialPresentation?: "background" | "focused";
       kind: "t3";
+      sessionId?: string;
       t3: T3SessionMetadata;
       title?: string;
     };

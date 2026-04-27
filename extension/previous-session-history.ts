@@ -47,6 +47,14 @@ export class PreviousSessionHistory {
     return this.history.find((entry) => entry.historyId === historyId);
   }
 
+  public getSessionIds(): string[] {
+    return this.history.flatMap((entry) => [
+      entry.sessionRecord.sessionId,
+      entry.sessionRecord.displayId,
+      entry.sessionRecord.alias,
+    ]);
+  }
+
   public getItems(): SidebarPreviousSessionItem[] {
     return this.history.flatMap((entry) => {
       const sidebarItem = getNormalizedHistorySidebarItem(entry);

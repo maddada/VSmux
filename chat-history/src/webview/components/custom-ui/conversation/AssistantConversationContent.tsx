@@ -114,7 +114,7 @@ export const AssistantConversationContent: FC<{
                   <h4 className="text-xs font-medium text-muted-foreground mb-2">Result</h4>
                   <div className="bg-background rounded border p-3">
                     {typeof toolResult.content === "string" ? (
-                      <pre className="text-xs overflow-x-auto whitespace-pre-wrap break-words">
+                      <pre className="text-xs overflow-x-auto scroll-mask-x whitespace-pre-wrap break-words">
                         {toolResult.content}
                       </pre>
                     ) : (
@@ -132,7 +132,7 @@ export const AssistantConversationContent: FC<{
                           return (
                             <pre
                               key={`${item.text.slice(0, 20)}-${index}`}
-                              className="text-xs overflow-x-auto whitespace-pre-wrap break-words"
+                              className="text-xs overflow-x-auto scroll-mask-x whitespace-pre-wrap break-words"
                             >
                               {item.text}
                             </pre>

@@ -1,0 +1,223 @@
+/**
+ * CDXC:ScrollableAreas 2026-04-27-03:51
+ * The project has Tailwind and non-Tailwind webview bundles; every user-facing scroll area needs the scroll-mask edge fade behavior, and builds must work before the user runs install, so this layer exposes plugin-compatible scroll-mask classes locally.
+ */
+@property --vsmux-scroll-mask-l {
+  syntax: "*";
+  inherits: false;
+  initial-value: linear-gradient(#fff, #fff);
+}
+
+@property --vsmux-scroll-mask-r {
+  syntax: "*";
+  inherits: false;
+  initial-value: linear-gradient(#fff, #fff);
+}
+
+@property --vsmux-scroll-mask-t {
+  syntax: "*";
+  inherits: false;
+  initial-value: linear-gradient(#fff, #fff);
+}
+
+@property --vsmux-scroll-mask-b {
+  syntax: "*";
+  inherits: false;
+  initial-value: linear-gradient(#fff, #fff);
+}
+
+@property --vsmux-scroll-mask-l-size {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-r-size {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-t-size {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-b-size {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-l-fade {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-r-fade {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-t-fade {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vsmux-scroll-mask-b-fade {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes vsmux-scroll-mask-l-in {
+  to {
+    --vsmux-scroll-mask-l-fade: var(--vsmux-scroll-mask-l-size);
+  }
+}
+
+@keyframes vsmux-scroll-mask-r-out {
+  from {
+    --vsmux-scroll-mask-r-fade: var(--vsmux-scroll-mask-r-size);
+  }
+}
+
+@keyframes vsmux-scroll-mask-t-in {
+  to {
+    --vsmux-scroll-mask-t-fade: var(--vsmux-scroll-mask-t-size);
+  }
+}
+
+@keyframes vsmux-scroll-mask-b-out {
+  from {
+    --vsmux-scroll-mask-b-fade: var(--vsmux-scroll-mask-b-size);
+  }
+}
+
+.scroll-mask,
+.vsmux-scroll-mask,
+.session-groups-content,
+.confirm-modal-root,
+.confirm-modal,
+.daemon-sessions-modal-body,
+.previous-sessions-modal-body,
+.pinned-prompts-list,
+.command-icon-picker-menu,
+.workspace-welcome-body,
+.terminal-pane-wterm-host.wterm,
+.json-block {
+  --vsmux-scroll-mask-l-size: 1rem;
+  --vsmux-scroll-mask-r-size: 1rem;
+  --vsmux-scroll-mask-t-size: 1rem;
+  --vsmux-scroll-mask-b-size: 1rem;
+  --vsmux-scroll-mask-l: linear-gradient(
+    to right,
+    transparent,
+    black var(--vsmux-scroll-mask-l-fade),
+    black
+  );
+  --vsmux-scroll-mask-r: linear-gradient(
+    to left,
+    transparent,
+    black var(--vsmux-scroll-mask-r-fade),
+    black
+  );
+  --vsmux-scroll-mask-t: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--vsmux-scroll-mask-t-fade),
+    black
+  );
+  --vsmux-scroll-mask-b: linear-gradient(
+    to top,
+    transparent,
+    black var(--vsmux-scroll-mask-b-fade),
+    black
+  );
+  mask-composite: intersect;
+  mask-image:
+    var(--vsmux-scroll-mask-l), var(--vsmux-scroll-mask-r), var(--vsmux-scroll-mask-t),
+    var(--vsmux-scroll-mask-b);
+}
+
+.scroll-mask-y {
+  --vsmux-scroll-mask-t-size: 1rem;
+  --vsmux-scroll-mask-b-size: 1rem;
+  --vsmux-scroll-mask-t: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--vsmux-scroll-mask-t-fade),
+    black
+  );
+  --vsmux-scroll-mask-b: linear-gradient(
+    to top,
+    transparent,
+    black var(--vsmux-scroll-mask-b-fade),
+    black
+  );
+  mask-composite: intersect;
+  mask-image:
+    var(--vsmux-scroll-mask-l), var(--vsmux-scroll-mask-r), var(--vsmux-scroll-mask-t),
+    var(--vsmux-scroll-mask-b);
+}
+
+.scroll-mask-x,
+.vsmux-scroll-mask-x,
+.workspace-welcome-callout-snippet {
+  --vsmux-scroll-mask-l-size: 1rem;
+  --vsmux-scroll-mask-r-size: 1rem;
+  --vsmux-scroll-mask-l: linear-gradient(
+    to right,
+    transparent,
+    black var(--vsmux-scroll-mask-l-fade),
+    black
+  );
+  --vsmux-scroll-mask-r: linear-gradient(
+    to left,
+    transparent,
+    black var(--vsmux-scroll-mask-r-fade),
+    black
+  );
+  mask-composite: intersect;
+  mask-image:
+    var(--vsmux-scroll-mask-l), var(--vsmux-scroll-mask-r), var(--vsmux-scroll-mask-t),
+    var(--vsmux-scroll-mask-b);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    .scroll-mask,
+    .scroll-mask-y,
+    .scroll-mask-x,
+    .vsmux-scroll-mask,
+    .vsmux-scroll-mask-x,
+    .session-groups-content,
+    .confirm-modal-root,
+    .confirm-modal,
+    .daemon-sessions-modal-body,
+    .previous-sessions-modal-body,
+    .pinned-prompts-list,
+    .command-icon-picker-menu,
+    .workspace-welcome-body,
+    .workspace-welcome-callout-snippet,
+    .terminal-pane-wterm-host.wterm,
+    .json-block {
+      animation:
+        vsmux-scroll-mask-l-in linear both,
+        vsmux-scroll-mask-r-out linear both,
+        vsmux-scroll-mask-t-in linear both,
+        vsmux-scroll-mask-b-out linear both;
+      animation-range:
+        0 var(--vsmux-scroll-mask-l-size),
+        calc(100% - var(--vsmux-scroll-mask-r-size)) 100%,
+        0 var(--vsmux-scroll-mask-t-size),
+        calc(100% - var(--vsmux-scroll-mask-b-size)) 100%;
+      animation-timeline:
+        scroll(self inline), scroll(self inline), scroll(self block), scroll(self block);
+    }
+  }
+}

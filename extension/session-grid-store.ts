@@ -45,10 +45,17 @@ import { logVSmuxDebug } from "./vsmux-debug-log";
 
 const WORKSPACE_SNAPSHOT_KEY = "VSmux.sessionGridSnapshot";
 
+type SessionGridStoreOptions = {
+  getReservedSessionIds?: () => readonly string[];
+};
+
 export class SessionGridStore {
   private snapshot: GroupedSessionWorkspaceSnapshot;
 
-  public constructor(private readonly context: vscode.ExtensionContext) {
+  public constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly options: SessionGridStoreOptions = {},
+  ) {
     this.snapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot(
       context.workspaceState.get<GroupedSessionWorkspaceSnapshot>(WORKSPACE_SNAPSHOT_KEY),
     );
@@ -73,7 +80,9 @@ export class SessionGridStore {
   public async createSession(
     options?: CreateSessionRecordOptions,
   ): Promise<SessionRecord | undefined> {
-    const result = createSessionInSimpleWorkspace(this.snapshot, options);
+    const result = createSessionInSimpleWorkspace(this.snapshot, options, {
+      usedSessionIds: this.options.getReservedSessionIds?.() ?? [],
+    });
     this.snapshot = result.snapshot;
     await this.persist();
     return result.session;

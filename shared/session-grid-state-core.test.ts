@@ -7,6 +7,7 @@ import {
   createSidebarSessionItems,
   createSessionAlias,
   createSessionRecord,
+  DEFAULT_TERMINAL_SESSION_TITLE,
   getPreferredSessionTitle,
   getT3SessionSurfaceTitle,
   getTerminalSessionSurfaceTitle,
@@ -31,9 +32,9 @@ describe("createSessionInSnapshot", () => {
     expect(second.session?.slotIndex).toBe(1);
     expect(third.session?.slotIndex).toBe(2);
     expect(third.snapshot.sessions.map((session) => session.title)).toEqual([
-      "Session 1",
-      "Session 2",
-      "Session 3",
+      DEFAULT_TERMINAL_SESSION_TITLE,
+      DEFAULT_TERMINAL_SESSION_TITLE,
+      DEFAULT_TERMINAL_SESSION_TITLE,
     ]);
     expect(third.snapshot.sessions.map((session) => session.alias)).toEqual([
       createSessionAlias(1, 0),

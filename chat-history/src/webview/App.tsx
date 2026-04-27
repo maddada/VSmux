@@ -500,7 +500,7 @@ export function App() {
           }
         }}
       />
-      <main ref={mainContainerRef} className="flex-1 overflow-y-auto scrollbar-thin">
+      <main ref={mainContainerRef} className="flex-1 overflow-y-auto scrollbar-thin scroll-mask-y">
         <div className="max-w-4xl mx-auto px-4 py-6">
           <ConversationList conversations={conversations} getToolResult={getToolResult} />
         </div>

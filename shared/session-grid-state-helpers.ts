@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TERMINAL_SESSION_TITLE,
   GRID_COLUMN_COUNT,
   createSessionAlias,
   formatSessionDisplayId,
@@ -209,7 +210,7 @@ export function reindexSessionsInOrder(sessions: readonly SessionRecord[]): Sess
 export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
   const sessionNumber = getSessionNumber(session);
   const defaultAlias = createSessionAlias(sessionNumber, session.slotIndex, session.displayId);
-  const defaultTitle = `Session ${sessionNumber}`;
+  const defaultTitle = DEFAULT_TERMINAL_SESSION_TITLE;
   const alias =
     typeof session.alias === "string" && session.alias.trim().length > 0
       ? session.alias.trim()

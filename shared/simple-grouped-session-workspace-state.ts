@@ -6,7 +6,7 @@ import {
   createDefaultGroupedSessionWorkspaceSnapshot,
   createDefaultSessionGridSnapshot,
   createSessionRecord,
-  formatSessionDisplayId,
+  createTimestampedSessionId,
   getOrderedSessions,
   getSessionNumberFromSessionId,
   getSlotPosition,
@@ -19,10 +19,7 @@ import {
   type VisibleSessionCount,
   type CreateSessionRecordOptions,
 } from "./session-grid-contract";
-import {
-  claimNextSessionDisplayId,
-  normalizeWorkspaceSessionDisplayIds,
-} from "./grouped-session-workspace-state-helpers";
+import { normalizeWorkspaceSessionDisplayIds } from "./grouped-session-workspace-state-helpers";
 import { normalizeSessionRecord } from "./session-grid-state-helpers";
 import { reorderGroupSessions } from "./session-order-reorder";
 import { normalizeT3SessionMetadata } from "./t3-session-metadata";
@@ -35,6 +32,10 @@ type WorkspaceMutationResult = {
 type CreateSessionResult = {
   session?: SessionRecord;
   snapshot: GroupedSessionWorkspaceSnapshot;
+};
+
+type CreateSessionInSimpleWorkspaceOptions = {
+  usedSessionIds?: readonly string[];
 };
 
 type CreateGroupResult = WorkspaceMutationResult & {
@@ -104,6 +105,7 @@ export function getGroupForSession(
 export function createSessionInSimpleWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   options?: CreateSessionRecordOptions,
+  createOptions?: CreateSessionInSimpleWorkspaceOptions,
 ): CreateSessionResult {
   const normalizedSnapshot = normalizeSimpleGroupedSessionWorkspaceSnapshot(snapshot);
   const activeGroup = getActiveGroup(normalizedSnapshot);
@@ -111,16 +113,20 @@ export function createSessionInSimpleWorkspace(
     return { snapshot: normalizedSnapshot };
   }
 
-  const nextDisplayId = claimNextSessionDisplayId(normalizedSnapshot);
+  const sessionId = createTimestampedSessionId([
+    ...getWorkspaceSessionIds(normalizedSnapshot),
+    ...(createOptions?.usedSessionIds ?? []),
+  ]);
   const nextSession = createSessionRecord(
     normalizedSnapshot.nextSessionNumber,
     activeGroup.snapshot.sessions.length,
     {
       ...options,
-      displayId: nextDisplayId.displayId,
+      displayId: sessionId,
+      sessionId,
     } as CreateSessionRecordOptions & { displayId: string },
   );
-  const nextSessionRecord = withCanonicalSessionId(nextSession);
+  const nextSessionRecord = normalizeSessionRecord(nextSession);
   const shouldCreateInBackground = options?.initialPresentation === "background";
   const nextSnapshot = updateGroup(normalizedSnapshot, activeGroup.groupId, (group) => {
     const nextGroup = {
@@ -148,7 +154,7 @@ export function createSessionInSimpleWorkspace(
     session: nextSessionRecord,
     snapshot: {
       ...nextSnapshot,
-      nextSessionDisplayId: nextDisplayId.nextSessionDisplayId,
+      nextSessionDisplayId: normalizedSnapshot.nextSessionDisplayId,
       nextSessionNumber: normalizedSnapshot.nextSessionNumber + 1,
     },
   };
@@ -851,7 +857,9 @@ function prepareGroupForDisplayIdNormalization(
     snapshot: {
       ...createDefaultSessionGridSnapshot(),
       ...group.snapshot,
-      sessions: group.snapshot.sessions.filter((session) => session.kind !== "browser"),
+      sessions: group.snapshot.sessions
+        .filter((session) => session.kind !== "browser")
+        .map((session) => normalizeSessionRecord(session)),
     },
     title: group.title?.trim() || (index === 0 ? DEFAULT_MAIN_GROUP_TITLE : `Group ${index + 1}`),
   };
@@ -867,7 +875,7 @@ function normalizeGroupSnapshot(
     sessions: snapshot.sessions.filter((session) => session.kind !== "browser"),
   }).map((session, index) => {
     const position = getSlotPosition(index);
-    const nextSession = withCanonicalSessionId(session);
+    const nextSession = normalizeSessionRecord(session);
     sessionIdByLegacyId.set(session.sessionId, nextSession.sessionId);
     return {
       ...nextSession,
@@ -1034,23 +1042,6 @@ function getStableVisibleIds(
   return visibleSessionIds;
 }
 
-function withCanonicalSessionId(session: SessionRecord): SessionRecord {
-  const normalizedSession = normalizeSessionRecord(session);
-  const canonicalSessionId = createCanonicalSessionId(session.displayId);
-  if (normalizedSession.sessionId === canonicalSessionId) {
-    return normalizedSession;
-  }
-
-  return {
-    ...normalizedSession,
-    sessionId: canonicalSessionId,
-  };
-}
-
-function createCanonicalSessionId(displayId: string | number | undefined): string {
-  return `session-${formatSessionDisplayId(displayId ?? 0)}`;
-}
-
 function getFallbackActiveGroupId(
   snapshot: GroupedSessionWorkspaceSnapshot,
   emptiedGroupId: string,
@@ -1160,6 +1151,16 @@ function getNextSessionNumber(groups: readonly SessionGroupRecord[]): number {
     );
   }
   return nextSessionNumber;
+}
+
+function getWorkspaceSessionIds(snapshot: GroupedSessionWorkspaceSnapshot): string[] {
+  return snapshot.groups.flatMap((group) =>
+    group.snapshot.sessions.flatMap((session) => [
+      session.sessionId,
+      session.displayId,
+      session.alias,
+    ]),
+  );
 }
 
 function areSnapshotsEqual(

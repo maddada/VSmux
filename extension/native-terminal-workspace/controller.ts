@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 import {
+  createAgentSessionDefaultTitle,
   createSidebarHudState,
   getPreferredSessionTitle,
   getOrderedSessions,
@@ -561,8 +562,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
   public readonly sidebarProvider: SessionSidebarViewProvider;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
-    this.store = new SessionGridStore(context);
     this.previousSessionHistory = new PreviousSessionHistory(context);
+    this.store = new SessionGridStore(context, {
+      getReservedSessionIds: () => this.previousSessionHistory.getSessionIds(),
+    });
     this.workspaceId = getWorkspaceId();
     this.sessionAgentLaunchBySessionId = loadStoredSessionAgentLaunches(context, this.workspaceId);
     this.sidebarCommandSessionByCommandId = loadStoredSidebarCommandSessions(
@@ -2263,7 +2266,10 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
 
     await this.store.focusGroup(sourceGroup.groupId);
-    const forkedSession = await this.createTerminalSession();
+    const sourceAgentLaunch = this.sessionAgentLaunchBySessionId.get(sessionId);
+    const forkedSession = await this.createTerminalSession({
+      title: this.getAgentSessionDefaultTitle(sourceAgentLaunch?.agentId),
+    });
     if (!forkedSession) {
       return;
     }
@@ -2273,7 +2279,6 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       this.sidebarAgentIconBySessionId.set(forkedSession.sessionId, sourceAgentIcon);
     }
 
-    const sourceAgentLaunch = this.sessionAgentLaunchBySessionId.get(sessionId);
     if (sourceAgentLaunch) {
       this.sessionAgentLaunchBySessionId.set(forkedSession.sessionId, sourceAgentLaunch);
     }
@@ -2910,6 +2915,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       agentId: agentButton.agentId,
       command: agentCommand,
       icon: agentButton.icon,
+      name: agentButton.name,
     });
   }
 
@@ -2924,7 +2930,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    const sessionRecord = await this.createTerminalSession();
+    const sessionRecord = await this.createTerminalSession({
+      title: createAgentSessionDefaultTitle(agentButton.name),
+    });
     if (!sessionRecord) {
       return;
     }
@@ -4959,6 +4967,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         agentId: string;
         command: string;
         icon?: SidebarAgentIcon;
+        name: string;
       }
     | undefined {
     const configuredAgentId = getFindPreviousSessionAgentId();
@@ -4977,6 +4986,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         agentId: candidate.agentId,
         command,
         icon: candidate.icon,
+        name: candidate.name,
       };
     }
 
@@ -4987,8 +4997,11 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     agentId: string;
     command: string;
     icon?: SidebarAgentIcon;
+    name: string;
   }): Promise<SessionRecord | undefined> {
-    const sessionRecord = await this.createTerminalSession();
+    const sessionRecord = await this.createTerminalSession({
+      title: createAgentSessionDefaultTitle(agentButton.name),
+    });
     if (!sessionRecord) {
       return undefined;
     }
@@ -5016,6 +5029,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     await this.backend.writeText(sessionRecord.sessionId, agentButton.command, true);
     return sessionRecord;
+  }
+
+  private getAgentSessionDefaultTitle(agentId: string | undefined): string {
+    return createAgentSessionDefaultTitle(
+      getSidebarAgentButtonById(agentId ?? "")?.name ?? agentId,
+    );
   }
 
   private async launchSidebarCommandInWorkspace(

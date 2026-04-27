@@ -32,6 +32,7 @@ import { normalizeT3SessionMetadata } from "./t3-session-metadata";
  */
 const LEADING_TERMINAL_TITLE_STATUS_MARKER_PATTERN = /^[\s\u2800-\u28ff·•⋅◦✳*✶✻✽✸✹✺✷✴✦◇🤖🔔]+/u;
 const LEADING_TERMINAL_TITLE_PREFIX_PATTERN = /^(?:OC\s*\|\s*)+/iu;
+export const DEFAULT_TERMINAL_SESSION_TITLE = "Terminal Session";
 const DEFAULT_TERMINAL_ENGINE: TerminalEngine = "ghostty-non-persistent";
 const IGNORED_GENERIC_TERMINAL_TITLES = new Set([
   "claude",
@@ -172,9 +173,49 @@ export function createDefaultGroupedSessionWorkspaceSnapshot(): GroupedSessionWo
   };
 }
 
+/**
+ * CDXC:Session-identity 2026-04-26-20:44
+ * New workspace sessions use one opaque, timestamped ID for sessionId,
+ * displayId, and the generated alias so daemon state, socket routing, and
+ * sidebar labels do not reuse numeric identities from closed sessions. The
+ * ID embeds local YYMMDD-HHmmss creation time plus a 3-character base36 suffix.
+ */
+export function createTimestampedSessionId(
+  usedSessionIds: Iterable<string>,
+  now = new Date(),
+  random = Math.random,
+): string {
+  const usedSessionIdSet = new Set(usedSessionIds);
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const suffix = Math.floor(random() * 36 ** 3)
+      .toString(36)
+      .padStart(3, "0")
+      .slice(-3);
+    const sessionId = `s-${formatSessionIdTimestamp(now)}-${suffix}`;
+    if (!usedSessionIdSet.has(sessionId)) {
+      return sessionId;
+    }
+  }
+
+  for (let index = 0; index < 36 ** 3; index += 1) {
+    const suffix = index.toString(36).padStart(3, "0");
+    const sessionId = `s-${formatSessionIdTimestamp(now)}-${suffix}`;
+    if (!usedSessionIdSet.has(sessionId)) {
+      return sessionId;
+    }
+  }
+
+  throw new Error("Unable to allocate a unique VSmux session ID for this timestamp.");
+}
+
 export function formatSessionDisplayId(displayId: number | string): string {
   if (typeof displayId === "string") {
     const trimmedDisplayId = displayId.trim();
+    if (/^s-[a-z0-9-]+$/i.test(trimmedDisplayId)) {
+      return trimmedDisplayId;
+    }
+
     if (/^\d{2}$/.test(trimmedDisplayId)) {
       return trimmedDisplayId;
     }
@@ -222,6 +263,17 @@ export function createSessionAlias(
   return formatSessionDisplayId(displayId ?? sessionNumber - 1);
 }
 
+/**
+ * CDXC:Session-title-defaults 2026-04-27-03:58
+ * Newly created sessions should not expose their routing/session id as the
+ * primary title. Creation source owns the default title until the live terminal
+ * emits a meaningful title or the user explicitly renames the session.
+ */
+export function createAgentSessionDefaultTitle(agentName: string | undefined): string {
+  const normalizedAgentName = agentName?.replace(/\s+/g, " ").trim();
+  return normalizedAgentName ? `${normalizedAgentName} Session` : DEFAULT_TERMINAL_SESSION_TITLE;
+}
+
 export function isNumericSessionAlias(alias: string | undefined): boolean {
   return /^\d+$/.test(alias?.trim() ?? "");
 }
@@ -241,11 +293,13 @@ export function createSessionRecord(
   options?: CreateSessionRecordOptions,
 ): SessionRecord {
   const position = getSlotPosition(slotIndex);
-  const displayId = formatSessionDisplayId(options?.displayId ?? sessionNumber - 1);
+  const sessionId = options?.sessionId?.trim() || `session-${sessionNumber}`;
+  const displayId = formatSessionDisplayId(
+    options?.displayId ?? (isTimestampedSessionId(sessionId) ? sessionId : sessionNumber - 1),
+  );
   const alias = createSessionAlias(sessionNumber, slotIndex, displayId);
   const createdAt = new Date().toISOString();
-  const sessionId = `session-${sessionNumber}`;
-  const title = options?.title?.trim() || `Session ${sessionNumber}`;
+  const title = options?.title?.trim() || DEFAULT_TERMINAL_SESSION_TITLE;
 
   if (options?.kind === "browser") {
     return {
@@ -436,4 +490,18 @@ function formatSessionSurfaceTitle(
   }
 
   return isGeneratedSessionAlias(session) ? displayId : `${displayId} ${session.alias}`;
+}
+
+function formatSessionIdTimestamp(value: Date): string {
+  const year = String(value.getFullYear() % 100).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  const hour = String(value.getHours()).padStart(2, "0");
+  const minute = String(value.getMinutes()).padStart(2, "0");
+  const second = String(value.getSeconds()).padStart(2, "0");
+  return `${year}${month}${day}-${hour}${minute}${second}`;
+}
+
+function isTimestampedSessionId(sessionId: string): boolean {
+  return /^s-\d{6}-\d{6}-[a-z0-9]{3}$/i.test(sessionId);
 }

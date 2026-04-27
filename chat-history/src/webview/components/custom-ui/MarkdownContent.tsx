@@ -164,7 +164,7 @@ export const MarkdownContent: FC<MarkdownContentProps> = ({ content, className =
 
             // Fallback for other pre content
             return (
-              <pre className="overflow-x-auto bg-muted/20 p-4 rounded-lg border border-border my-4 text-sm">
+              <pre className="overflow-x-auto scroll-mask-x bg-muted/20 p-4 rounded-lg border border-border my-4 text-sm">
                 {children}
               </pre>
             );
@@ -194,7 +194,7 @@ export const MarkdownContent: FC<MarkdownContentProps> = ({ content, className =
           },
           table({ children, ...props }) {
             return (
-              <div className="overflow-x-auto my-6 rounded-lg border border-border max-w-full">
+              <div className="overflow-x-auto scroll-mask-x my-6 rounded-lg border border-border max-w-full">
                 <table className="w-full border-collapse" {...props}>
                   {children}
                 </table>

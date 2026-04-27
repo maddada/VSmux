@@ -88,7 +88,7 @@ export const ExportDialog: FC<ExportDialogProps> = ({ conversations, fileName, c
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={children as React.ReactElement} />
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto scroll-mask-y">
         <DialogHeader>
           <DialogTitle>Export Conversation</DialogTitle>
           <DialogDescription>

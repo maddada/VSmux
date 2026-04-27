@@ -1,4 +1,6 @@
 import {
+  createAgentSessionDefaultTitle,
+  DEFAULT_TERMINAL_SESSION_TITLE,
   getSessionShortcutLabel,
   getSessionGridLayoutVisibleCount,
   getVisiblePrimaryTitle,
@@ -21,6 +23,7 @@ import {
   type SidebarSessionItem,
 } from "../shared/session-grid-contract";
 import {
+  getSidebarAgentNameByIcon,
   shouldPreferTerminalTitleForAgentIcon,
   type SidebarAgentIcon,
 } from "../shared/sidebar-agents";
@@ -399,7 +402,9 @@ function buildSidebarItem(
     effectiveActivity.agentName,
   );
   const shouldPreferTerminalTitle =
-    Boolean(visibleTerminalTitle) && shouldPreferTerminalTitleForAgentIcon(agentIcon);
+    Boolean(visibleTerminalTitle) &&
+    (shouldPreferTerminalTitleForAgentIcon(agentIcon) ||
+      isDefaultCreatedSessionTitle(visiblePrimaryTitle, agentIcon));
   const lifecycleState = resolveTerminalSessionLifecycleState({
     hasLiveRuntime:
       sessionSnapshot.status === "running" &&
@@ -458,6 +463,16 @@ function getDebuggingSessionNumber(
   }
 
   return getVisibleSessionNumber(sessionRecord);
+}
+
+function isDefaultCreatedSessionTitle(
+  title: string | undefined,
+  agentIcon: SidebarAgentIcon | undefined,
+): boolean {
+  return (
+    title === DEFAULT_TERMINAL_SESSION_TITLE ||
+    title === createAgentSessionDefaultTitle(getSidebarAgentNameByIcon(agentIcon))
+  );
 }
 
 function isPendingT3ThreadId(threadId: string): boolean {

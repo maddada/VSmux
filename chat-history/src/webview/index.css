@@ -1,7 +1,13 @@
 @import "tailwindcss";
+@import "../../../shared/scroll-mask.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+
+/**
+ * CDXC:ChatHistory 2026-04-27-03:51
+ * User-facing scrollable chat-history surfaces use the project-local scroll-mask layer because builds must work before the user runs the install command that materializes tailwindcss-scroll-mask in node_modules.
+ */
 
 .copy-cursor {
   cursor: pointer !important;

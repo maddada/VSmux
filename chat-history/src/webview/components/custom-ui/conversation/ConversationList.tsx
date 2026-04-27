@@ -95,7 +95,7 @@ const SchemaErrorDisplay: FC<{ errorLine: string }> = ({ errorLine }) => {
                 </Alert>
                 <div className="bg-muted border rounded px-3 py-2">
                   <h5 className="text-xs font-medium text-muted-foreground mb-2">Raw Content</h5>
-                  <pre className="text-xs overflow-x-auto whitespace-pre-wrap break-all font-mono text-foreground">
+                  <pre className="text-xs overflow-x-auto scroll-mask-x whitespace-pre-wrap break-all font-mono text-foreground">
                     {errorLine}
                   </pre>
                 </div>

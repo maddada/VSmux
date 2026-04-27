@@ -150,7 +150,9 @@ export const UserConversationContent: FC<{
             <CollapsibleContent>
               <div className="py-3 px-4 border-t border-green-200 dark:border-green-800">
                 <div className="rounded-lg border overflow-hidden bg-background">
-                  <pre className="p-4 text-sm overflow-auto max-h-96">{content.source.data}</pre>
+                  <pre className="p-4 text-sm overflow-auto scroll-mask max-h-96">
+                    {content.source.data}
+                  </pre>
                 </div>
               </div>
             </CollapsibleContent>

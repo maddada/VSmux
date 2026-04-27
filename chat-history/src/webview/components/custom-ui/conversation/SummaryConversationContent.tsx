@@ -18,7 +18,7 @@ export const SummaryConversationContent: FC<PropsWithChildren> = ({ children }) 
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="bg-background rounded border p-3 mt-2">
-          <pre className="text-xs overflow-x-auto">{children}</pre>
+          <pre className="text-xs overflow-x-auto scroll-mask-x">{children}</pre>
         </div>
       </CollapsibleContent>
     </Collapsible>

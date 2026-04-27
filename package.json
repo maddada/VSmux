@@ -133,6 +133,7 @@
     "node-pty": "1.2.0-beta.12",
     "storybook": "^10.3.0",
     "tailwindcss": "^4.1.17",
+    "tailwindcss-scroll-mask": "^0.0.3",
     "typescript": "~5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest"

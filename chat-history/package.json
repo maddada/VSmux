@@ -54,6 +54,7 @@
     "esbuild": "^0.24.0",
     "eslint": "^9.39.1",
     "tailwindcss": "^4.1.17",
+    "tailwindcss-scroll-mask": "^0.0.3",
     "typescript": "~5.9.3"
   },
   "contributes": {

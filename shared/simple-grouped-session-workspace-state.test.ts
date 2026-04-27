@@ -3,6 +3,7 @@ import {
   DEFAULT_MAIN_GROUP_ID,
   createDefaultGroupedSessionWorkspaceSnapshot,
   createSessionRecord,
+  createTimestampedSessionId,
   formatSessionDisplayId,
   type GroupedSessionWorkspaceSnapshot,
 } from "./session-grid-contract";
@@ -139,16 +140,32 @@ describe("normalizeSimpleGroupedSessionWorkspaceSnapshot", () => {
     const sessions = snapshot.groups[0]?.snapshot.sessions ?? [];
     expect(sessions.map((session) => session.displayId)).toEqual(["52", "00"]);
     expect(sessions.map((session) => session.alias)).toEqual(["52", "00"]);
-    expect(sessions.map((session) => session.sessionId)).toEqual([
-      sessionIdForDisplay("52"),
-      sessionIdForDisplay("00"),
-    ]);
+    expect(sessions.map((session) => session.sessionId)).toEqual(["session-1", "session-2"]);
   });
 });
 
 const sessionIdForDisplay = (displayId: number | string): string => {
-  return `session-${formatSessionDisplayId(displayId)}`;
+  const numericDisplayId = Number.parseInt(formatSessionDisplayId(displayId), 10);
+  return `session-${numericDisplayId + 1}`;
 };
+
+describe("createTimestampedSessionId", () => {
+  test("should include two-digit creation time and a three-character base36 suffix", () => {
+    const sessionId = createTimestampedSessionId([], new Date(2026, 3, 26, 20, 44, 12), () => 0.5);
+
+    expect(sessionId).toBe("s-260426-204412-i00");
+  });
+
+  test("should avoid active or archived session ids before accepting a suffix", () => {
+    const sessionId = createTimestampedSessionId(
+      ["s-260426-204412-000"],
+      new Date(2026, 3, 26, 20, 44, 12),
+      () => 0,
+    );
+
+    expect(sessionId).toBe("s-260426-204412-001");
+  });
+});
 
 describe("focusSessionInSimpleWorkspace", () => {
   test("should replace the focused visible session when selecting a hidden session in split 2", () => {
@@ -545,17 +562,20 @@ describe("createSessionInSimpleWorkspace", () => {
     const firstResult = createSessionInSimpleWorkspace(snapshot);
     snapshot = setVisibleCountInSimpleWorkspace(firstResult.snapshot, 2);
     const secondResult = createSessionInSimpleWorkspace(snapshot);
+    const firstSessionId = firstResult.session?.sessionId;
+    const secondSessionId = secondResult.session?.sessionId;
 
-    expect(secondResult.session?.sessionId).toBe(sessionIdForDisplay(1));
+    expect(firstSessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
+    expect(secondSessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
     expect(secondResult.snapshot.groups[0]?.snapshot.visibleCount).toBe(2);
     expect(secondResult.snapshot.groups[0]?.snapshot.visibleSessionIds).toEqual([
-      sessionIdForDisplay(0),
-      sessionIdForDisplay(1),
+      firstSessionId,
+      secondSessionId,
     ]);
-    expect(secondResult.snapshot.groups[0]?.snapshot.focusedSessionId).toBe(sessionIdForDisplay(1));
+    expect(secondResult.snapshot.groups[0]?.snapshot.focusedSessionId).toBe(secondSessionId);
   });
 
-  test("should allocate the first free display id instead of wrapping into a duplicate", () => {
+  test("should use one timestamped opaque id for session id, display id, and alias", () => {
     const result = createSessionInSimpleWorkspace(
       createWorkspaceSnapshot({
         activeGroupId: DEFAULT_MAIN_GROUP_ID,
@@ -582,9 +602,9 @@ describe("createSessionInSimpleWorkspace", () => {
       }),
     );
 
-    expect(result.session?.displayId).toBe("01");
-    expect(result.session?.alias).toBe("01");
-    expect(result.session?.sessionId).toBe(sessionIdForDisplay("01"));
+    expect(result.session?.sessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
+    expect(result.session?.displayId).toBe(result.session?.sessionId);
+    expect(result.session?.alias).toBe(result.session?.sessionId);
   });
 
   test("should keep the current focus and visible slots when creating a background session", () => {
@@ -618,7 +638,7 @@ describe("createSessionInSimpleWorkspace", () => {
       },
     );
 
-    expect(result.session?.sessionId).toBe(sessionIdForDisplay("02"));
+    expect(result.session?.sessionId).toMatch(/^s-\d{6}-\d{6}-[a-z0-9]{3}$/);
     expect(result.snapshot.groups[0]?.snapshot.focusedSessionId).toBe(sessionIdForDisplay("00"));
     expect(result.snapshot.groups[0]?.snapshot.visibleSessionIds).toEqual([
       sessionIdForDisplay("00"),
