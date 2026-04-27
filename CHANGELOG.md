@@ -2,6 +2,15 @@
 
 All notable user-facing changes are documented in this file.
 
+## 5.0.0 - 2026-04-27
+
+- New sessions now use stable timestamped session IDs instead of recycled numeric identities, so restored history, daemon routing, socket state, and sidebar labels stay aligned even after older sessions are closed.
+- Newly created terminals now start with neutral or agent-aware titles like `Terminal Session` or `<Agent> Session`, then hand off to the live terminal title once the agent emits something meaningful.
+- Forked and previous-session launches keep cleaner agent context now, including better default titles and reserved-ID protection so restored sessions do not collide with new sessions.
+- Scrollable areas are easier to read across the sidebar, workspace, debug panel, and chat-history webview thanks to shared scroll-mask edge fades for long lists, menus, code blocks, tables, and modal bodies.
+- Opening VSmux is less disruptive when VS Code already has a VSmux webview tab but the extension instance no longer owns the panel handle: VSmux now reveals the existing tab instead of closing and recreating it.
+- The Rich Prompt Editor is still available from the active session with `Ctrl+G`: press `Ctrl+G` to edit in a VS Code modal, then press `Ctrl+G` again to save and close it back into the session.
+
 ## 4.9.0 - 2026-04-25
 
 - Claude session status is more accurate now: VSmux keeps Claude's own terminal-title updates enabled, understands the newer Claude spinner and done markers, and avoids stale running markers after a completed title appears.

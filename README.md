@@ -52,11 +52,11 @@ VSmux works great with my other tool that shows all running agent sessions in a 
 
 ## Recent Updates
 
-### 4.9.0
+### 5.0.0
 
-- Claude status indicators are more accurate now, with better handling for Claude spinner/done title markers and stale running updates.
-- Workspace restore and terminal sizing are steadier, with fresh restored-panel startup and more focused repro diagnostics.
-- Sidebar controls are cleaner: active terminal actions can be ended, the overflow menu floats globally, and the completion-sound bell has clearer on/off feedback.
+- Sessions now use stable timestamped IDs and neutral or agent-aware default titles, so restored history, daemon routing, and sidebar labels stay aligned instead of reusing confusing numeric identities.
+- Scrollable lists, menus, code blocks, tables, and modal bodies have cleaner edge fades across the sidebar, workspace, debug panel, and chat-history webview.
+- Opening VSmux is less disruptive when an existing workspace tab is already present: VSmux now reveals that tab instead of replacing it.
 - **Rich Prompt Editor:** press `Ctrl+G` to edit a prompt in a VS Code modal editor, then press `Ctrl+G` again to save and close it back into the active session.
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md)
