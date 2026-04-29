@@ -2,6 +2,15 @@
 
 All notable user-facing changes are documented in this file.
 
+## 5.1.0 - 2026-04-29
+
+- Embedded agent terminals now keep Claude, Codex, and other interactive CLIs attached to the foreground terminal TTY instead of detaching them into a separate Unix process group, so resize events and Ctrl-C cancellation behave like a normal terminal.
+- Agent shell diagnostics are more useful when debugging terminal resize issues, with launch, TTY, child PID, and signal-handling details written to the configured agent shell debug log.
+- Session titles now track their source, so VSmux can distinguish user-authored names, generated first-prompt titles, terminal-auto titles, and placeholder titles during restore, sidebar display, and rename decisions.
+- First-prompt auto-naming is safer now: placeholder and path-like titles can still be named, but existing meaningful user, terminal, or generated titles are preserved instead of being overwritten by queued hook prompts.
+- Sidebar cards now show sensible placeholder titles such as `Terminal Session` or `Codex Session` while still avoiding those placeholders as persisted/resumable session names.
+- Agent Manager X workspace snapshots now identify VSmux as their source, which lets companion tooling merge VSmux and zmux publishers on the same port without relying on the WebSocket URL.
+
 ## 5.0.0 - 2026-04-27
 
 - New sessions now use stable timestamped session IDs instead of recycled numeric identities, so restored history, daemon routing, socket state, and sidebar labels stay aligned even after older sessions are closed.

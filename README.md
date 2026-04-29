@@ -52,11 +52,12 @@ VSmux works great with my other tool that shows all running agent sessions in a 
 
 ## Recent Updates
 
-### 5.0.0
+### 5.1.0
 
-- Sessions now use stable timestamped IDs and neutral or agent-aware default titles, so restored history, daemon routing, and sidebar labels stay aligned instead of reusing confusing numeric identities.
-- Scrollable lists, menus, code blocks, tables, and modal bodies have cleaner edge fades across the sidebar, workspace, debug panel, and chat-history webview.
-- Opening VSmux is less disruptive when an existing workspace tab is already present: VSmux now reveals that tab instead of replacing it.
+- Embedded agent terminals now keep interactive CLIs attached to the foreground terminal TTY, improving resize behavior and Ctrl-C cancellation for Claude, Codex, and similar agents.
+- Session titles now track where they came from, so user names, generated first-prompt titles, terminal-auto titles, and placeholders are handled more predictably.
+- First-prompt auto-naming is safer: placeholder/path-like titles can still be named, but meaningful existing titles are preserved.
+- Agent Manager X snapshots now identify VSmux as their source, which helps companion tooling merge VSmux and zmux sessions correctly.
 - **Rich Prompt Editor:** press `Ctrl+G` to edit a prompt in a VS Code modal editor, then press `Ctrl+G` again to save and close it back into the active session.
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md)
