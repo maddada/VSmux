@@ -735,7 +735,7 @@ describe("createGroupFromSessionInSimpleWorkspace", () => {
     ).toEqual([sessionIdForDisplay(1)]);
   });
 
-  test("should remove the canonicalized dragged session from the source group", () => {
+  test("should preserve the stable dragged session id when moving it to a new group", () => {
     const draggedSession = {
       ...createSessionRecord(5, 1, { displayId: "04" }),
       sessionId: sessionIdForDisplay("00"),
@@ -761,7 +761,7 @@ describe("createGroupFromSessionInSimpleWorkspace", () => {
         nextSessionDisplayId: 5,
         nextSessionNumber: 6,
       },
-      sessionIdForDisplay("04"),
+      draggedSession.sessionId,
     );
 
     expect(result.groupId).toBe("group-2");
@@ -774,9 +774,9 @@ describe("createGroupFromSessionInSimpleWorkspace", () => {
     ]);
     expect(
       result.snapshot.groups[1]?.snapshot.sessions.map((session) => session.sessionId),
-    ).toEqual([sessionIdForDisplay("04")]);
+    ).toEqual([draggedSession.sessionId]);
     expect(result.snapshot.groups[1]?.snapshot.visibleSessionIds).toEqual([
-      sessionIdForDisplay("04"),
+      draggedSession.sessionId,
     ]);
   });
 });
