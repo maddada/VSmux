@@ -3,10 +3,12 @@ import {
   GRID_COLUMN_COUNT,
   createSessionAlias,
   formatSessionDisplayId,
+  getVisiblePrimaryTitle,
   getSessionGridLayoutVisibleCount,
   getSlotPosition,
   isSessionGridFocusModeActive,
   normalizeTerminalEngine,
+  type SessionTitleSource,
   type SessionGridDirection,
   type SessionGridSnapshot,
   type SessionRecord,
@@ -220,6 +222,7 @@ export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
       ? session.title.trim()
       : defaultTitle;
   const displayId = formatSessionDisplayId(session.displayId ?? sessionNumber - 1);
+  const titleSource = normalizeSessionTitleSource(session, title);
 
   if (
     session.kind === "t3" &&
@@ -242,6 +245,7 @@ export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
         workspaceRoot: session.t3.workspaceRoot,
       }),
       title,
+      titleSource,
     };
   }
 
@@ -255,6 +259,7 @@ export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
       displayId,
       kind: "browser",
       title,
+      titleSource,
     };
   }
 
@@ -267,7 +272,31 @@ export function normalizeSessionRecord(session: SessionRecord): SessionRecord {
       session.kind === "terminal" ? session.terminalEngine : undefined,
     ),
     title,
+    titleSource,
   };
+}
+
+function normalizeSessionTitleSource(
+  session: SessionRecord,
+  title: string,
+): SessionTitleSource | undefined {
+  const candidateSource = session.titleSource;
+  if (
+    candidateSource === "generated" ||
+    candidateSource === "placeholder" ||
+    candidateSource === "terminal-auto" ||
+    candidateSource === "user"
+  ) {
+    return candidateSource;
+  }
+  if (
+    session.kind === "terminal" &&
+    (session as SessionRecord & { titleAutoCapturedFromTerminal?: boolean })
+      .titleAutoCapturedFromTerminal === true
+  ) {
+    return "terminal-auto";
+  }
+  return getVisiblePrimaryTitle(title) ? undefined : "placeholder";
 }
 
 export function revealSessionId(snapshot: SessionGridSnapshot, sessionId: string): string[] {

@@ -3,6 +3,7 @@ import {
   type CreateSessionRecordOptions,
   type GroupedSessionWorkspaceSnapshot,
   type SessionRecord,
+  type SessionTitleSource,
   type TerminalViewMode,
   type VisibleSessionCount,
 } from "./session-grid-contract";
@@ -116,9 +117,10 @@ export function setSessionTitleInWorkspace(
   snapshot: GroupedSessionWorkspaceSnapshot,
   sessionId: string,
   title: string,
+  options: { titleSource?: SessionTitleSource } = {},
 ): { changed: boolean; snapshot: GroupedSessionWorkspaceSnapshot } {
   return updateOwningGroupSnapshot(snapshot, sessionId, (groupSnapshot) =>
-    setSessionTitleInSnapshot(groupSnapshot, sessionId, title),
+    setSessionTitleInSnapshot(groupSnapshot, sessionId, title, options),
   );
 }
 

@@ -31,6 +31,7 @@ import {
   type SidebarSessionItem,
   type SidebarSessionStateMessage,
   type SidebarToExtensionMessage,
+  type SessionTitleSource,
   type TerminalEngine,
   type TerminalSessionRecord,
   type TerminalViewMode,
@@ -70,6 +71,7 @@ import {
 } from "../native-terminal-workspace-sidebar-state";
 import { getInterestingTitleSymbols } from "../session-title-activity";
 import {
+  explainFirstPromptAutoRenameDecision,
   isGenericAgentSessionTitle,
   resolveFirstPromptAutoRenameStrategy,
 } from "../first-prompt-session-title";
@@ -1475,8 +1477,12 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
     }
   }
 
-  public async renameSession(sessionId: string, title: string): Promise<void> {
-    const changed = await this.store.setSessionTitle(sessionId, title);
+  public async renameSession(
+    sessionId: string,
+    title: string,
+    options: { titleSource?: SessionTitleSource } = {},
+  ): Promise<void> {
+    const changed = await this.store.setSessionTitle(sessionId, title, options);
 
     const renamedSessionRecord = this.store.getSession(sessionId);
     const isCodexTerminalSession =
@@ -1590,6 +1596,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     const persistedState = await this.backend.readPersistedSessionState(sessionId);
     const pendingPrompt = persistedState.pendingFirstPromptAutoRenamePrompt?.trim();
+    const currentTitle =
+      persistedState.title || sessionRecord.title || this.terminalTitleBySessionId.get(sessionId);
     const shouldLogClaudeRenameIssue = persistedState.agentName?.trim().toLowerCase() === "claude";
     await this.appendFirstPromptAutoRenameReproLog("controller.firstPromptAutoRename.inspect", {
       agentName: persistedState.agentName,
@@ -1613,12 +1621,35 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         title: persistedState.title,
       });
     }
-    if (!pendingPrompt || persistedState.hasAutoTitleFromFirstPrompt) {
+    const decision = explainFirstPromptAutoRenameDecision({
+      agentName: persistedState.agentName,
+      /**
+       * CDXC:SessionTitleSync 2026-04-28-16:14
+       * First-prompt title generation in VSmux follows zmux's current rules:
+       * only placeholder/path-like untitled sessions can be named. Existing
+       * meaningful titles from users, terminals, or previous generation block
+       * queued hook prompts so mid-conversation prompts cannot overwrite them.
+       */
+      currentTitle,
+      hasAutoTitleFromFirstPrompt: persistedState.hasAutoTitleFromFirstPrompt,
+      pendingFirstPromptAutoRenamePrompt: undefined,
+      prompt: pendingPrompt,
+    });
+    if (!decision.shouldAutoName || !pendingPrompt) {
+      const shouldClearStalePendingPrompt =
+        Boolean(pendingPrompt) &&
+        (decision.reason === "nonGenericCurrentTitle" || decision.reason === "alreadyAutoNamed");
+      if (shouldClearStalePendingPrompt) {
+        await this.backend.cancelPendingFirstPromptAutoRename(sessionId);
+      }
       await this.appendFirstPromptAutoRenameReproLog(
         "controller.firstPromptAutoRename.skippedNoPendingOrAlreadyNamed",
         {
+          currentTitle,
+          decisionReason: decision.reason,
           hasAutoTitleFromFirstPrompt: persistedState.hasAutoTitleFromFirstPrompt === true,
           hasPendingPrompt: Boolean(pendingPrompt),
+          pendingPromptCleared: shouldClearStalePendingPrompt,
           sessionId,
         },
       );
@@ -1635,7 +1666,8 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return;
     }
 
-    const autoRenameStrategy = resolveFirstPromptAutoRenameStrategy(persistedState.agentName);
+    const autoRenameStrategy =
+      decision.strategy ?? resolveFirstPromptAutoRenameStrategy(persistedState.agentName);
     if (!autoRenameStrategy) {
       await this.appendFirstPromptAutoRenameReproLog(
         "controller.firstPromptAutoRename.skippedUnsupportedAgent",
@@ -1795,7 +1827,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
         return;
       }
 
-      await this.renameSession(sessionId, normalizedTitle);
+      await this.renameSession(sessionId, normalizedTitle, { titleSource: "generated" });
       if (!this.isCurrentFirstPromptAutoRenameRequest(sessionId, requestVersion)) {
         await this.appendFirstPromptAutoRenameReproLog(
           "controller.firstPromptAutoRename.skippedPersistAfterCancel",
@@ -1903,7 +1935,9 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
       return false;
     }
 
-    const changed = await this.store.setSessionTitle(sessionId, normalizedTitle);
+    const changed = await this.store.setSessionTitle(sessionId, normalizedTitle, {
+      titleSource: "generated",
+    });
     await this.backend.applyFirstPromptAutoRename(sessionId, normalizedTitle);
     this.claudeFirstPromptAutoRenameTriggeredSessionIds.delete(sessionId);
     const persistedStateAfter = await this.backend.readPersistedSessionState(sessionId);
@@ -3904,6 +3938,7 @@ export class NativeTerminalWorkspaceController implements vscode.Disposable {
 
     return {
       sessions,
+      source: "vsmux",
       type: "workspaceSnapshot",
       updatedAt: new Date().toISOString(),
       workspaceFaviconDataUrl: projectHeader?.faviconDataUrl,

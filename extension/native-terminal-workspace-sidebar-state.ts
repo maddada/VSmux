@@ -1,6 +1,7 @@
 import {
   createAgentSessionDefaultTitle,
   DEFAULT_TERMINAL_SESSION_TITLE,
+  getSessionCardPrimaryTitle,
   getSessionShortcutLabel,
   getSessionGridLayoutVisibleCount,
   getVisiblePrimaryTitle,
@@ -401,6 +402,10 @@ function buildSidebarItem(
     sessionSnapshot.agentName,
     effectiveActivity.agentName,
   );
+  const sessionCardPrimaryTitle = getSessionCardPrimaryTitle({
+    title: sessionRecord.title,
+    agentName: getSidebarAgentNameByIcon(agentIcon),
+  });
   const shouldPreferTerminalTitle =
     Boolean(visibleTerminalTitle) &&
     (shouldPreferTerminalTitleForAgentIcon(agentIcon) ||
@@ -440,7 +445,7 @@ function buildSidebarItem(
       sessionRecord.createdAt,
     primaryTitle: shouldPreferTerminalTitle
       ? visibleTerminalTitle
-      : (visiblePrimaryTitle ?? visibleTerminalTitle),
+      : (visiblePrimaryTitle ?? visibleTerminalTitle ?? sessionCardPrimaryTitle),
     row: sessionRecord.row,
     sessionId: sessionRecord.sessionId,
     sessionKind: "terminal",

@@ -3,6 +3,7 @@ import {
   clampAgentManagerZoomPercent,
   clampTerminalViewMode,
   createDefaultSessionGridSnapshot,
+  createAgentSessionDefaultTitle,
   createSidebarHudState,
   createSidebarSessionItems,
   createSessionAlias,
@@ -164,31 +165,37 @@ describe("normalizeSessionGridSnapshot", () => {
 
   test("should migrate legacy ghostty terminal sessions to ghostty non-persistent", () => {
     const normalized = normalizeSessionRecord({
-      ...createSessionRecord(1, 0),
+      ...createSessionRecord(1, 0, { kind: "terminal" }),
       terminalEngine: undefined as unknown as "ghostty",
-    });
+    } as unknown as Parameters<typeof normalizeSessionRecord>[0]);
 
-    expect(normalized.kind).toBe("terminal");
+    if (normalized.kind !== "terminal") {
+      throw new Error(`Expected terminal session, got ${normalized.kind}`);
+    }
     expect(normalized.terminalEngine).toBe("ghostty-non-persistent");
   });
 
   test("should preserve the ghostty non-persistent engine", () => {
     const normalized = normalizeSessionRecord({
-      ...createSessionRecord(1, 0),
+      ...createSessionRecord(1, 0, { kind: "terminal" }),
       terminalEngine: "ghostty-non-persistent",
-    });
+    } as Parameters<typeof normalizeSessionRecord>[0]);
 
-    expect(normalized.kind).toBe("terminal");
+    if (normalized.kind !== "terminal") {
+      throw new Error(`Expected terminal session, got ${normalized.kind}`);
+    }
     expect(normalized.terminalEngine).toBe("ghostty-non-persistent");
   });
 
   test("should preserve explicit wterm engines while normalizing", () => {
     const normalized = normalizeSessionRecord({
-      ...createSessionRecord(1, 0),
+      ...createSessionRecord(1, 0, { kind: "terminal" }),
       terminalEngine: "wterm",
-    });
+    } as Parameters<typeof normalizeSessionRecord>[0]);
 
-    expect(normalized.kind).toBe("terminal");
+    if (normalized.kind !== "terminal") {
+      throw new Error(`Expected terminal session, got ${normalized.kind}`);
+    }
     expect(normalized.terminalEngine).toBe("wterm");
   });
 
@@ -465,6 +472,9 @@ describe("visible primary titles", () => {
   test("should hide generated Session N placeholder titles in sidebar items", () => {
     expect(getVisiblePrimaryTitle("Session 1")).toBeUndefined();
     expect(getVisiblePrimaryTitle(" Session 12 ")).toBeUndefined();
+    expect(getVisiblePrimaryTitle(DEFAULT_TERMINAL_SESSION_TITLE)).toBeUndefined();
+    expect(getVisiblePrimaryTitle("Codex Session")).toBeUndefined();
+    expect(getVisiblePrimaryTitle("…/dev/_active/agent-tiler")).toBeUndefined();
     expect(getVisiblePrimaryTitle("Claude Code")).toBe("Claude Code");
   });
 
@@ -486,6 +496,19 @@ describe("visible primary titles", () => {
 
   test("should ignore generic VSmux terminal titles when choosing a visible session title", () => {
     expect(getPreferredSessionTitle("Session 1", "VSmux")).toBeUndefined();
+  });
+
+  test("should ignore placeholder and path-like terminal titles when choosing persisted titles", () => {
+    expect(getPreferredSessionTitle("Codex Session", "…/dev/_active/agent-tiler")).toBeUndefined();
+    expect(
+      getPreferredSessionTitle("Terminal Session", "/Users/madda/dev/_active/agent-tiler"),
+    ).toBeUndefined();
+  });
+
+  test("should expose agent-aware placeholder titles without making them persisted titles", () => {
+    expect(createAgentSessionDefaultTitle("codex")).toBe("Codex Session");
+    expect(createAgentSessionDefaultTitle("claude-code")).toBe("Claude Session");
+    expect(createAgentSessionDefaultTitle(undefined)).toBe(DEFAULT_TERMINAL_SESSION_TITLE);
   });
 
   test("should ignore bare agent names when choosing a visible session title", () => {

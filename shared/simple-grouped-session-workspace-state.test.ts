@@ -35,24 +35,16 @@ describe("normalizeSimpleGroupedSessionWorkspaceSnapshot", () => {
             focusedSessionId: "session-1",
             fullscreenRestoreVisibleCount: undefined,
             sessions: [
-              {
-                ...createSessionRecord(1, 0, {
-                  kind: "t3",
-                  t3: {
-                    projectId: "project-1",
-                    serverOrigin: "http://127.0.0.1:3774",
-                    threadId: "thread-1",
-                    workspaceRoot: "/workspace",
-                  },
-                  title: "T3 Code",
-                }),
+              createSessionRecord(1, 0, {
+                kind: "t3",
                 t3: {
                   projectId: "project-1",
                   serverOrigin: "http://127.0.0.1:3774",
                   threadId: "thread-1",
                   workspaceRoot: "/workspace",
                 },
-              },
+                title: "T3 Code",
+              }),
             ],
             viewMode: "grid",
             visibleCount: 1,

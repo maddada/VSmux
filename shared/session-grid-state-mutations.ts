@@ -2,6 +2,7 @@ import {
   isNumericSessionAlias,
   type SessionGridSnapshot,
   type SessionRecord,
+  type SessionTitleSource,
   type TerminalViewMode,
   type VisibleSessionCount,
 } from "./session-grid-contract";
@@ -127,8 +128,35 @@ export function setSessionTitleInSnapshot(
   snapshot: SessionGridSnapshot,
   sessionId: string,
   title: string,
+  options: { titleSource?: SessionTitleSource } = {},
 ): { changed: boolean; snapshot: SessionGridSnapshot } {
-  return updateSession(snapshot, sessionId, title.trim(), "title");
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    return { changed: false, snapshot: normalizeSessionGridSnapshot(snapshot) };
+  }
+
+  const normalizedSnapshot = normalizeSessionGridSnapshot(snapshot);
+  const nextTitleSource = options.titleSource ?? "user";
+  let changed = false;
+  const sessions = normalizedSnapshot.sessions.map((session) => {
+    if (session.sessionId !== sessionId) {
+      return session;
+    }
+
+    changed = changed || session.title !== nextTitle || session.titleSource !== nextTitleSource;
+    return {
+      ...session,
+      title: nextTitle,
+      titleSource: nextTitleSource,
+    };
+  });
+
+  return {
+    changed,
+    snapshot: changed
+      ? normalizeSessionGridSnapshot({ ...normalizedSnapshot, sessions })
+      : normalizedSnapshot,
+  };
 }
 
 export function setBrowserSessionMetadataInSnapshot(

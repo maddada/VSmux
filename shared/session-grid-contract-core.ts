@@ -16,6 +16,13 @@ export type SessionGridDirection = "up" | "right" | "down" | "left";
 
 export type SidebarSessionActivityState = "idle" | "working" | "attention";
 export type SessionLifecycleState = "running" | "done" | "sleeping" | "error";
+/**
+ * CDXC:SessionTitleSync 2026-04-28-16:14
+ * VSmux uses the same session-title provenance categories as zmux so restore,
+ * first-prompt naming, and sidebar display can distinguish generated,
+ * placeholder, terminal-auto, and user-authored titles consistently.
+ */
+export type SessionTitleSource = "generated" | "placeholder" | "terminal-auto" | "user";
 
 export type SidebarTheme =
   | "plain-dark"
@@ -65,6 +72,7 @@ export type BaseSessionRecord = {
   sessionId: string;
   displayId: string;
   title: string;
+  titleSource?: SessionTitleSource;
   alias: string;
   isFavorite?: boolean;
   isSleeping?: boolean;
@@ -99,6 +107,7 @@ export type CreateSessionRecordOptions =
       kind: "browser";
       sessionId?: string;
       title?: string;
+      titleSource?: SessionTitleSource;
     }
   | {
       displayId?: string;
@@ -107,6 +116,7 @@ export type CreateSessionRecordOptions =
       sessionId?: string;
       terminalEngine?: TerminalEngine;
       title?: string;
+      titleSource?: SessionTitleSource;
     }
   | {
       displayId?: string;
@@ -115,6 +125,7 @@ export type CreateSessionRecordOptions =
       sessionId?: string;
       t3: T3SessionMetadata;
       title?: string;
+      titleSource?: SessionTitleSource;
     };
 
 export type SessionGridSnapshot = {

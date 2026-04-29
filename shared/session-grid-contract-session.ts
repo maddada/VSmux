@@ -12,6 +12,7 @@ import {
   type GroupedSessionWorkspaceSnapshot,
   type SessionGridSnapshot,
   type SessionRecord,
+  type SessionTitleSource,
   type SidebarTheme,
   type SidebarThemeSetting,
   type SidebarThemeVariant,
@@ -42,6 +43,31 @@ const IGNORED_GENERIC_TERMINAL_TITLES = new Set([
   "openai codex",
   "vsmux",
 ]);
+const IGNORED_PLACEHOLDER_SESSION_TITLES = new Set([
+  DEFAULT_TERMINAL_SESSION_TITLE.toLowerCase(),
+  "claude session",
+  "claude code session",
+  "codex session",
+  "codex cli session",
+  "copilot session",
+  "gemini session",
+  "opencode session",
+  "open code session",
+  "openai codex session",
+  "t3 code session",
+]);
+const DEFAULT_SESSION_AGENT_TITLE_NAMES = new Map<string, string>([
+  ["claude", "Claude"],
+  ["claude-code", "Claude"],
+  ["codex", "Codex"],
+  ["codex-cli", "Codex"],
+  ["copilot", "Copilot"],
+  ["gemini", "Gemini"],
+  ["opencode", "OpenCode"],
+  ["open-code", "OpenCode"],
+  ["t3", "T3 Code"],
+]);
+const ELLIPSIZED_PATH_TITLE_PATTERN = /^(?:…|\.\.\.)[\\/]/u;
 const WINDOWS_DEFAULT_POWERSHELL_TITLE_PATTERN =
   /^[a-z]:\\windows\\system32\\windowspowershell\\v1\.0\\powershell\.exe(?:\s+\.)?$/iu;
 
@@ -271,7 +297,11 @@ export function createSessionAlias(
  */
 export function createAgentSessionDefaultTitle(agentName: string | undefined): string {
   const normalizedAgentName = agentName?.replace(/\s+/g, " ").trim();
-  return normalizedAgentName ? `${normalizedAgentName} Session` : DEFAULT_TERMINAL_SESSION_TITLE;
+  const defaultAgentName = normalizedAgentName
+    ? (DEFAULT_SESSION_AGENT_TITLE_NAMES.get(normalizedAgentName.toLowerCase()) ??
+      normalizedAgentName)
+    : undefined;
+  return defaultAgentName ? `${defaultAgentName} Session` : DEFAULT_TERMINAL_SESSION_TITLE;
 }
 
 export function isNumericSessionAlias(alias: string | undefined): boolean {
@@ -300,6 +330,7 @@ export function createSessionRecord(
   const alias = createSessionAlias(sessionNumber, slotIndex, displayId);
   const createdAt = new Date().toISOString();
   const title = options?.title?.trim() || DEFAULT_TERMINAL_SESSION_TITLE;
+  const titleSource = normalizeSessionTitleSource(options?.titleSource, title);
 
   if (options?.kind === "browser") {
     return {
@@ -313,6 +344,7 @@ export function createSessionRecord(
       sessionId,
       slotIndex,
       title,
+      titleSource,
     };
   }
 
@@ -328,6 +360,7 @@ export function createSessionRecord(
       slotIndex,
       t3: normalizeT3SessionMetadata(options.t3),
       title,
+      titleSource,
     };
   }
 
@@ -342,7 +375,23 @@ export function createSessionRecord(
     slotIndex,
     terminalEngine: normalizeTerminalEngine(options?.terminalEngine),
     title,
+    titleSource,
   };
+}
+
+function normalizeSessionTitleSource(
+  source: SessionTitleSource | undefined,
+  title: string,
+): SessionTitleSource {
+  if (
+    source === "generated" ||
+    source === "placeholder" ||
+    source === "terminal-auto" ||
+    source === "user"
+  ) {
+    return source;
+  }
+  return getVisiblePrimaryTitle(title) ? "user" : "placeholder";
 }
 
 export function normalizeTerminalEngine(value: string | undefined): TerminalEngine {
@@ -407,8 +456,30 @@ export function getVisibleSessionNumber(
 
 export function getVisiblePrimaryTitle(title: string): string | undefined {
   const normalizedTitle = title.trim();
-  if (!normalizedTitle || /^Session \d+$/.test(normalizedTitle)) {
+  if (!normalizedTitle || isIgnoredPlaceholderSessionTitle(normalizedTitle)) {
     return undefined;
+  }
+
+  return normalizedTitle;
+}
+
+export function getSessionCardPrimaryTitle(
+  session: Pick<BaseSessionRecord, "title"> & { agentName?: string },
+): string | undefined {
+  const normalizedTitle = session.title.trim().replace(/\s+/g, " ");
+  /**
+   * CDXC:Session-title-defaults 2026-04-28-16:14
+   * VSmux session cards mirror zmux placeholder behavior: show a human
+   * placeholder such as `Terminal Session` or `Codex Session` with the unsynced
+   * marker while persistence/resume code treats placeholders and cwd/path
+   * titles as not real session names.
+   */
+  if (
+    !normalizedTitle ||
+    /^Session \d+$/iu.test(normalizedTitle) ||
+    isPathLikeTerminalTitle(normalizedTitle)
+  ) {
+    return createAgentSessionDefaultTitle(session.agentName);
   }
 
   return normalizedTitle;
@@ -433,7 +504,11 @@ export function getVisibleTerminalTitle(title: string | undefined): string | und
     return undefined;
   }
 
-  if (/^(~|\/)/.test(normalizedTitle)) {
+  if (isPathLikeTerminalTitle(normalizedTitle)) {
+    return undefined;
+  }
+
+  if (isIgnoredPlaceholderSessionTitle(normalizedTitle)) {
     return undefined;
   }
 
@@ -446,6 +521,25 @@ export function getVisibleTerminalTitle(title: string | undefined): string | und
   }
 
   return normalizedTitle;
+}
+
+function isIgnoredPlaceholderSessionTitle(title: string): boolean {
+  const normalizedTitle = title.trim().replace(/\s+/g, " ");
+  /**
+   * CDXC:Session-title-defaults 2026-04-28-16:14
+   * Neutral titles, agent-aware creation titles, generated `Session N` labels,
+   * and path-like Ghostty/cwd titles are placeholders. They must not become
+   * persisted or resumable session names.
+   */
+  return (
+    /^Session \d+$/iu.test(normalizedTitle) ||
+    IGNORED_PLACEHOLDER_SESSION_TITLES.has(normalizedTitle.toLowerCase()) ||
+    isPathLikeTerminalTitle(normalizedTitle)
+  );
+}
+
+function isPathLikeTerminalTitle(title: string): boolean {
+  return /^(~|\/)/u.test(title) || ELLIPSIZED_PATH_TITLE_PATTERN.test(title);
 }
 
 export function getPreferredSessionTitle(

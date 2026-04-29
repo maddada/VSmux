@@ -7,6 +7,7 @@ import {
   type SessionGridDirection,
   type SessionGroupRecord,
   type SessionRecord,
+  type SessionTitleSource,
   type TerminalEngine,
   type T3SessionMetadata,
   type TerminalViewMode,
@@ -219,8 +220,12 @@ export class SessionGridStore {
     return result.changed;
   }
 
-  public async setSessionTitle(sessionId: string, title: string): Promise<boolean> {
-    const result = setSessionTitleInSimpleWorkspace(this.snapshot, sessionId, title);
+  public async setSessionTitle(
+    sessionId: string,
+    title: string,
+    options: { titleSource?: SessionTitleSource } = {},
+  ): Promise<boolean> {
+    const result = setSessionTitleInSimpleWorkspace(this.snapshot, sessionId, title, options);
     this.snapshot = result.snapshot;
     if (result.changed) {
       await this.persist();
