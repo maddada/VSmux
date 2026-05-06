@@ -26,21 +26,23 @@ Download links:
 
 ## Screenshots
 
+<!-- CDXC:MarketplaceReadme 2026-05-06-13:52 Requirement: Extension README screenshots must avoid fixed width/height HTML attributes because VS Code's extension details renderer can squash them on narrow viewports; use Markdown images so each host preserves aspect ratio responsively. -->
+
 ### Revamped UI:
 
 #### 10+ themes. Add your own actions and agents. All buttons/sections are optional (configure in settings)
 
-<img width="3456" height="2063" alt="image" src="https://github.com/user-attachments/assets/5fcb8a4c-ebb0-408b-908d-565ddb5bdd77" />
+![VSmux workspace with multiple agent sessions, sidebar actions, and themed panes](https://github.com/user-attachments/assets/5fcb8a4c-ebb0-408b-908d-565ddb5bdd77)
 
 ### Agent Manager X Companion mac app:
 
 #### Shows floating status indicators for all cli agents at all times
 
-<img width="1293" height="837" alt="image" src="https://github.com/user-attachments/assets/bdfc2e70-fa5a-4311-8bde-1c4d203bd18c" />
+![Agent Manager X companion app showing floating status indicators for CLI agents](https://github.com/user-attachments/assets/bdfc2e70-fa5a-4311-8bde-1c4d203bd18c)
 
 ### Main features:
 
-<img width="1000" alt="2026-0ffsafssfffsfs4-14_sfsdCodedsds_12-52-3d7@2x" src="https://github.com/user-attachments/assets/9ea0bcd8-38ea-4f87-9d78-ba91e76088c2" />
+![VSmux main feature overview](https://github.com/user-attachments/assets/9ea0bcd8-38ea-4f87-9d78-ba91e76088c2)
 
 ## Early Version Demo Video (Will rerecord soon)
 
@@ -52,12 +54,9 @@ VSmux works great with my other tool that shows all running agent sessions in a 
 
 ## Recent Updates
 
-### 5.1.0
+### 5.1.1
 
-- Embedded agent terminals now keep interactive CLIs attached to the foreground terminal TTY, improving resize behavior and Ctrl-C cancellation for Claude, Codex, and similar agents.
-- Session titles now track where they came from, so user names, generated first-prompt titles, terminal-auto titles, and placeholders are handled more predictably.
-- First-prompt auto-naming is safer: placeholder/path-like titles can still be named, but meaningful existing titles are preserved.
-- Agent Manager X snapshots now identify VSmux as their source, which helps companion tooling merge VSmux and zmux sessions correctly.
+- README screenshots now keep their aspect ratio in VS Code's extension details view, GitHub, and marketplace pages instead of appearing squished on narrow viewports.
 - **Rich Prompt Editor:** press `Ctrl+G` to edit a prompt in a VS Code modal editor, then press `Ctrl+G` again to save and close it back into the active session.
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md)

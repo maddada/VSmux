@@ -2,6 +2,10 @@
 
 All notable user-facing changes are documented in this file.
 
+## 5.1.1 - 2026-05-06
+
+- README screenshots now render responsively in VS Code's extension details view, GitHub, and marketplace pages without fixed-height distortion on narrow viewports.
+
 ## 5.1.0 - 2026-04-29
 
 - Embedded agent terminals now keep Claude, Codex, and other interactive CLIs attached to the foreground terminal TTY instead of detaching them into a separate Unix process group, so resize events and Ctrl-C cancellation behave like a normal terminal.
